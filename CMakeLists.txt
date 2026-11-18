@@ -13,7 +13,11 @@ pkg_check_modules(SDL2_IMAGE REQUIRED IMPORTED_TARGET SDL2_image)
 add_executable(ef2000-explorer
     src/main.cpp
     src/parser.cpp
-    src/render.cpp)
+    src/render.cpp
+    src/ra.cpp
+    src/did.cpp
+    src/shape3d.cpp
+    src/meshview.cpp)
 
 target_link_libraries(ef2000-explorer PRIVATE
     PkgConfig::SDL2
