@@ -33,7 +33,7 @@ bool plain_header_at(const std::vector<std::uint8_t>& d, std::size_t off,
     xc = read_u16(d, off + 4);
     ss = read_u16(d, off + 6);
     if (pc < 1 || pc > 256 || xc < 1 || xc > 256) return false;
-    if (ec == 0 || ec > 100000) return false;
+    if (ec == 0) return false;
     const std::size_t need = static_cast<std::size_t>(8) + ss + std::size_t(ec) * 12;
     return off + need == d.size();
 }
@@ -128,8 +128,7 @@ void DidArchive::detect_and_parse() {
         const std::uint16_t b = read_u16(data_, xor_off + 2) ^ kDirKey;
         const std::uint16_t c = read_u16(data_, xor_off + 4) ^ kDirKey;
         const std::uint16_t d = read_u16(data_, xor_off + 6) ^ kDirKey;
-        if (b >= 1 && b <= 256 && c >= 1 && c <= 256 && a > 0 && a < 100000 &&
-            d < 65536 &&
+        if (b >= 1 && b <= 256 && c >= 1 && c <= 256 && a > 0 &&
             xor_off + 8 + d + std::size_t(a) * 12 <= data_.size()) {
             variant_ = "xorv2";
             parse_xorv2();

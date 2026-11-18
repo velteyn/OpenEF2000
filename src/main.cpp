@@ -399,7 +399,10 @@ int main(int argc, char** argv) {
             if (models) {
                 // Cross-reference the shipped clump-name list against the
                 // archive so the aircraft -> mesh mapping is visible.
-                const fs::path clumps = fs::path(data) / "CLUMP_3.TXT";
+                fs::path clumps = fs::path(data) / "CLUMP_3.TXT";
+                if (!fs::exists(clumps)) {
+                    clumps = fs::path(data).parent_path() / "EF2000" / "CLUMP_3.TXT";
+                }
                 std::ifstream list(clumps);
                 if (!list) {
                     std::printf("(no %s; pass --mesh NAME to load one shape)\n",
