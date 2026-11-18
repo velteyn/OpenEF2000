@@ -2,6 +2,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <cstdlib>
+#include <functional>
+#include <unordered_map>
+#include <utility>
 
 namespace ef {
 namespace {
@@ -101,6 +106,104 @@ const Texture* TextureBank::get(const std::string& name) const {
     const Texture* result = texture.get();
     cache_.emplace(name, std::move(texture));
     return result;
+}
+
+}  // namespace ef
+
+namespace ef {
+namespace {
+
+struct EdgeKey {
+    long a, b;
+    bool operator==(const EdgeKey& other) const { return a == other.a && b == other.b; }
+};
+
+struct EdgeKeyHash {
+    std::size_t operator()(const EdgeKey& k) const {
+        return std::hash<long>{}(k.a) * 31u ^ std::hash<long>{}(k.b);
+    }
+};
+
+long vertex_key(const Vec3f& p) {
+    const auto x = static_cast<long>(p.x * 10.0f);
+    const auto y = static_cast<long>(p.y * 10.0f);
+    const auto z = static_cast<long>(p.z * 10.0f);
+    return (x * 73856093L) ^ (y * 19349663L) ^ (z * 83492791L);
+}
+
+}  // namespace
+
+std::string TextureBank::best_atlas_name(const std::string& shape_name,
+                                         const Mesh& mesh) const {
+    if (!ready_) return {};
+
+    // Cache the decision per shape.
+    if (const auto found = atlas_cache_.find(shape_name); found != atlas_cache_.end()) {
+        return found->second;
+    }
+
+    // Shared edges -> the UV midpoints each side sees. A correct atlas makes
+    // the two samples agree.
+    std::unordered_map<EdgeKey, std::pair<std::pair<int, int>, std::pair<int, int>>,
+                       EdgeKeyHash>
+        edges;
+    for (const auto& t : mesh.triangles) {
+        if (!t.textured || !t.has_uv) continue;
+        const Vec3f* v[3] = {&t.a, &t.b, &t.c};
+        for (int k = 0; k < 3; ++k) {
+            long ka = vertex_key(*v[k]);
+            long kb = vertex_key(*v[(k + 1) % 3]);
+            if (ka > kb) std::swap(ka, kb);
+            const EdgeKey key{ka, kb};
+            const int mu = static_cast<int>((t.uv[k][0] + t.uv[(k + 1) % 3][0]) * 0.5f);
+            const int mv = static_cast<int>((t.uv[k][1] + t.uv[(k + 1) % 3][1]) * 0.5f);
+            if (const auto found = edges.find(key); found != edges.end()) {
+                found->second.second = {mu, mv};
+            } else {
+                edges.emplace(key, std::make_pair(std::make_pair(mu, mv),
+                                                  std::make_pair(-1, -1)));
+            }
+        }
+    }
+    std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> pairs;
+    for (const auto& [key, uv] : edges) {
+        if (uv.second.first >= 0) pairs.push_back(uv);
+    }
+
+    // Candidate atlases: the shape's own tm_<name>N family, the generic
+    // airframe/panel maps, then everything init3d knows.
+    std::vector<std::string> candidates;
+    for (int i = 1; i <= 3; ++i) candidates.push_back("tm_" + shape_name + std::to_string(i));
+    for (const char* name : {"tm_pans", "tm_lines", "tm_sides", "tm_arms", "middles",
+                             "tm_efa3", "tm_efa2", "tm_efa1"}) {
+        candidates.emplace_back(name);
+    }
+    for (std::size_t k = 1; k < globals_.size(); ++k) {
+        if (!globals_[k].empty()) candidates.push_back(globals_[k]);
+    }
+
+    std::string best;
+    double best_score = 1e30;
+    for (const auto& name : candidates) {
+        const Texture* texture = get(name);
+        if (texture == nullptr || pairs.empty()) continue;
+        double total = 0.0;
+        for (const auto& [left, right] : pairs) {
+            const std::uint32_t a = texture->at(left.first, left.second);
+            const std::uint32_t b = texture->at(right.first, right.second);
+            total += std::abs(int((a >> 16) & 0xFF) - int((b >> 16) & 0xFF)) +
+                     std::abs(int((a >> 8) & 0xFF) - int((b >> 8) & 0xFF)) +
+                     std::abs(int(a & 0xFF) - int(b & 0xFF));
+        }
+        const double score = total / static_cast<double>(pairs.size());
+        if (score < best_score) {
+            best_score = score;
+            best = name;
+        }
+    }
+
+    atlas_cache_[shape_name] = best;
+    return best;
 }
 
 }  // namespace ef

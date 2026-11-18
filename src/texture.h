@@ -8,6 +8,7 @@
 // Masked textures (opcode 0x8E) use palette index 0 as transparency.
 
 #include "did.h"
+#include "mesh.h"
 
 #include <array>
 #include <cstdint>
@@ -45,6 +46,13 @@ public:
     // Loads and caches `tm\<name>.tm`; nullptr when the texture is absent.
     const Texture* get(const std::string& name) const;
 
+    // Picks the atlas a shape is actually painted with. The `.3` texture index
+    // does not select between atlases the way the SDK implies: scoring UV
+    // continuity across shared mesh edges shows every EFA polygon sampling
+    // tm_efa3 and most other airframes sampling tm_pans, whatever index they
+    // carry. So the binding is inferred rather than read.
+    std::string best_atlas_name(const std::string& shape_name, const Mesh& mesh) const;
+
     // `[globaltextures]` of `3\init3d.txt`: slot 1..N -> texture name.
     // Slot 0 is always the shape's hard-coded texture.
     const std::vector<std::string>& global_slots() const { return globals_; }
@@ -56,6 +64,7 @@ private:
     bool ready_ = false;
     std::vector<std::string> globals_;
     mutable std::unordered_map<std::string, std::unique_ptr<Texture>> cache_;
+    mutable std::unordered_map<std::string, std::string> atlas_cache_;
 };
 
 }  // namespace ef

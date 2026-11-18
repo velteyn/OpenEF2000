@@ -152,8 +152,8 @@ The parser is deliberately independent of SDL and the renderer; the same
 
 * The strategic map is still 2D; meshes are viewed in their own window, not
   placed in a 3D world yet.
-* Textures and UVs are parsed but not sampled, so meshes are flat-shaded and
-  the marking decals show as grey shapes.
+* The per-model texture atlas is inferred from UV continuity rather than read
+  from the file (see `re/notes/12-3d-models.md`); `--texture NAME` overrides.
 * Meshes are open shells with mixed winding, so backface culling is off by
   default.
 * No resource/asset loading; no IFF/ILBM/ANIM/palette yet.

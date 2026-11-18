@@ -221,15 +221,24 @@ std::vector<std::string> shape_names(const std::filesystem::path& data,
 
 // Slot 0 is the shape's hard-coded texture; slot k is `init3d.txt` global k.
 ef::TextureSlots build_slots(const ef::TextureBank& textures, const ef::Shape& shape,
-                             const std::string& override_name) {
+                             const ef::Mesh& mesh, const std::string& shape_name,
+                             const std::string& override_name, std::string& chosen) {
     const std::size_t count = textures.global_slots().size() + 1;
     ef::TextureSlots slots(count, nullptr);
-    if (!override_name.empty()) {
-        const ef::Texture* forced = textures.get(override_name);
-        for (auto& slot : slots) slot = forced;
-        if (forced) slots[0] = forced;
-        return slots;
+
+    chosen = override_name;
+    if (chosen.empty()) chosen = textures.best_atlas_name(shape_name, mesh);
+
+    if (!chosen.empty()) {
+        const ef::Texture* atlas = textures.get(chosen);
+        if (atlas != nullptr) {
+            for (auto& slot : slots) slot = atlas;
+            return slots;
+        }
     }
+
+    // Fall back to the literal per-slot mapping.
+    chosen.clear();
     if (shape.texture_name()) slots[0] = textures.get(*shape.texture_name());
     const auto& globals = textures.global_slots();
     for (std::size_t k = 1; k < globals.size() && k < count; ++k) {
@@ -317,13 +326,16 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
         }
 
         if (dirty) {
+            ef::TextureSlots slots;
+            std::string atlas_name;
             int w = 0, h = 0;
             SDL_GetRendererOutputSize(ren, &w, &h);
             SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
             if (surf) {
-                ef::TextureSlots slots;
                 if (camera.textured && models.shape()) {
-                    slots = build_slots(textures, *models.shape(), texture_override);
+                    slots = build_slots(textures, *models.shape(), models.mesh(),
+                                        models.current_name(), texture_override,
+                                        atlas_name);
                 }
                 ef::draw_model(surf, models.mesh(), camera, 0, 0, w, h,
                                camera.textured ? &slots : nullptr);
@@ -339,8 +351,7 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
             std::printf("\r%-10s LOD %d  %zu tris  tex %-8s%s%s   ",
                         models.current_name().c_str(), models.lod(),
                         models.mesh().triangle_count(),
-                        (models.shape() && models.shape()->texture_name())
-                            ? models.shape()->texture_name()->c_str() : "-",
+                        atlas_name.empty() ? "-" : atlas_name.c_str(),
                         camera.textured ? " +tex" : "", camera.decals ? " +decals" : "");
             std::fflush(stdout);
             dirty = false;
