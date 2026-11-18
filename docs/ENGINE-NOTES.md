@@ -169,6 +169,63 @@ The parser is deliberately independent of SDL and the renderer; the same
 `TACTCOM` navigation aliases (`BASE_NAVIGATION`, `3D_POSITION`,
 `NAVIG_CORRIDOR`, `NAVIG_ROUTE`, `WAYPOINT`) are handled.
 
+## Runtime observation
+
+Two questions resist static analysis: what a `routine` name does, and what the
+terrain height field is. Both are answered by running the original software and
+watching it, which is legitimate interoperability work and stays inside the
+clean-room rules as long as only *facts* are recorded — no screenshots or
+captured assets go into the repository.
+
+### Harness
+
+The shipped DOS build runs under DOSBox-X. A throwaway config mounts the
+installation and starts `EF2000.BAT`, which runs `_ef2000.exe gui`:
+
+```
+[sdl]
+fullscreen = false
+output = surface
+windowresolution = 1024x768
+[dosbox]
+machine = svga_s3
+memsize = 32
+[cpu]
+core = auto
+cycles = 30000
+[mixer]
+nosound = true
+[autoexec]
+mount c "<installation>"
+c:
+EF2000.BAT
+```
+
+Two practical notes learned the hard way:
+
+- **The keyboard is the reliable input path.** Each menu widget declares
+  `key <k>` in the `.gui` file, so pressing that key activates it. This doubles
+  as a check that the DSL's bindings are read correctly.
+- **Synthetic mouse clicks need a long press.** A guest polling the PS/2 mouse
+  can miss a short synthetic click; holding the button for about a second
+  registers reliably.
+
+### Confirmed so far
+
+| Observation | Conclusion |
+|---|---|
+| Pressing `C` opens a dialog titled **Campaign Level Setting** listing TopGun…Rookie, "Player Performace / Influence Campaign?" Yes/No and Accept | `gpwClickCampaign` opens the `campaign_level` window |
+| The dialog's position, size, labels and the `Performace` typo match `gui\mainmenu.gui` byte for byte | the parser reads the window geometry and localised text correctly |
+| Hovering a menu panel highlights its title bar; the pointer is an X | selection state is driven by `select entering` / `unselect leaving`, as modelled |
+
+The `campaign_level` window is modal in practice: it has no `close` verb, so it
+stays up until Accept. That limits how far a single run can explore without
+starting a campaign.
+
+The game's panels render grey-green; the reconstruction currently draws them
+blue-grey from `colours\gui.col`, so the GUI palette for this build is not
+`gui.col` and still needs identifying.
+
 ## Current limitations
 
 * The strategic map is still 2D; meshes are viewed in their own window, not

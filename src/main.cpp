@@ -404,6 +404,21 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
 }  // namespace
 
 
+// Routines whose effect has been established by running the original software
+// and observing the result. Keep this list small and evidence-backed: each
+// entry is a fact, not a guess, and the rest stay unimplemented on purpose.
+void register_observed_routines(ef::GuiSystem& system) {
+    // QuitEF2000: its own name, and the `quit`/`sure` windows that reference it.
+    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
+        gui.request_quit();
+    });
+    // gpwClickCampaign: pressing C (or clicking the Campaign panel) raises the
+    // "Campaign Level Setting" dialog, which is the `campaign_level` window.
+    system.register_routine("gpwClickCampaign", [](ef::GuiSystem& gui) {
+        gui.open_window("campaign_level");
+    });
+}
+
 // Interactive GUI driver: hit-testing, hover/selection events and screen
 // switching. The data is the original .gui text; only the drawing style is
 // approximated.
@@ -425,12 +440,7 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     ef::GuiSystem system;
     system.set_screen(std::move(*screen));
 
-    // The one routine whose effect is stated by its own name (and by the
-    // `quit` / `sure` windows that reference it). Everything else stays
-    // unimplemented on purpose: see docs/FILE_FORMATS.md, F8.
-    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
-        gui.request_quit();
-    });
+    register_observed_routines(system);
 
     std::optional<ef::IlbmImage> backdrop =
         ef::load_backdrop(did, system.screen().picture);
@@ -845,9 +855,7 @@ int main(int argc, char** argv) {
             }
             ef::GuiSystem system;
             system.set_screen(std::move(*screen));
-            system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
-                gui.request_quit();
-            });
+            register_observed_routines(system);
             const auto referenced = system.referenced_routines();
             const auto missing = system.missing_routines();
             std::printf("%s: %zu routine references, %zu implemented, %zu missing\n",
