@@ -63,7 +63,7 @@ subsystem; it is updated as work lands.
 | 3D model format and bytecode interpreter | Working |
 | Texture and palette decoding | Working |
 | GUI description language and runtime | Working, navigation incomplete |
-| Terrain and 3D world | Format identified, renderer not started |
+| Terrain and 3D world | Container mapped; elevation source not yet located |
 | Audio | Not started |
 | Flight model and avionics | Not started |
 | Campaign and mission generation | Specification only |

@@ -374,30 +374,91 @@ for lighting.
 
 **Purpose.** The terrain and strategic map for one theatre.
 
-**World header.** `<map>.wld` is a small ASCII file and the authoritative
-description of the grid:
+**Status.** The container is mapped; the elevation source is **not** yet
+located. The negative results below are recorded deliberately so the next
+reader does not repeat them.
+
+### World header
+
+`<map>.wld` is a small ASCII file and the authoritative description of the
+grid:
 
 ```
+;World Info file for <path>\<map>.wld
+;Created With World Editor 95 V1.0
+
 SIZE 400 400
 TAGSPACE 1024
 STAMPSPACE 256
 ```
 
-**Grid layers.** The shipped Norway world uses a 200 × 200 logical grid stored
-as 400 × 400 cells, i.e. the tile is repeated 2 × 2 so the engine can sample
-across the wrap seam. Verify by comparing quadrants; a correct read shows
-identical 200 × 200 quadrants.
+`SIZE` is the cell grid. `TAGSPACE` matches the tag-table count in `.map`
+(1,015 used of 1,024), and `STAMPSPACE 256` matches the 256-byte stamp payload
+described below.
 
-| File | Size | Role |
-|---|---:|---|
-| `<map>.4e2` | 160,000 | one byte per cell, but only values 0 and 1 occur: a **1-bit strategic-map layer** (coastline, borders, settlements), not elevation |
-| `<map>.lev` | 40,000 | one byte per cell over the 200 × 200 grid; the height/terrain field, *unverified* |
-| `<map>.map` | 582,154 | placement and object data, *partial* |
-| `<map>.tm` | — | terrain texture atlas, same layout as [F4](#f4--indexed-texture-tm) |
+### `<map>.map` — cell grid and tag table
 
-**Map naming.** The active map is selected by a text command in a level script
-(`set_map_name <name>`). The name does not always match the `.wld` basename, so
-a reader should resolve the `.wld` set independently.
+Confirmed for the Norway theatre (582,154 bytes):
+
+| Offset | Type | Field |
+|---:|---|---|
+| +0x00 | u32 | grid width (400) |
+| +0x04 | u32 | grid height (400) |
+| +0x08 | u32 | tag count (1,015) |
+| +0x0C | u16 × w·h | cell grid: index into the tag table, LE |
+| +0x0C + 2·w·h | — | tag records |
+
+For Norway the grid is 400 × 400 `u16` = 320,000 bytes, values `0..1015`,
+about 49 % of cells zero. The tag table begins at `0x4E20C` and holds 1,016
+records of **258 bytes** (256-byte payload plus two bytes, matching
+`STAMPSPACE 256`); 14 bytes remain after the last record.
+
+Each 258-byte record read as a 16 × 16 byte field is locally coherent
+(mean neighbour delta ≈ 12 of 255), so the payload is either a height patch or
+a tile-sized texture. Which of the two is **unverified**.
+
+### `<map>.4e2` — theatre bitmap
+
+For the theatre maps, 160,000 bytes = 400 × 400 cells of one byte, but only the
+values `0` and `1` occur. Reshaped as an image it renders coastlines, national
+borders and settlement dots, so this is **map artwork, not elevation**.
+
+Note that not every `.4e2` is this shape: `mt1_c1.4e2`, `mt2_c1.4e2` and
+`tfc9.4e2` decompress to only ~2 KB with 114–121 distinct values, i.e. they are
+a different kind of file. Do not assume a single layout for the extension.
+
+### `<map>.lev` — rasterised map artwork
+
+40,000 bytes. Tested as a raster under every factor pair of 40,000
+(200 × 200, 100 × 400, 50 × 800, …): no layout is spatially smooth
+(mean neighbour delta 18–35 of 255, versus ~48 for a random permutation), and
+adjacent-cell autocorrelation is 0.59. A heightfield would show low deltas and
+autocorrelation above 0.9, so `.lev` is a rasterised picture, not terrain
+height.
+
+### What is ruled out
+
+- **Terrain is not a `.3` shape.** All 8,261 archive entries were decoded and
+  parsed as shapes: the classes present are `0x0000` (entities) and `0x0004`
+  (sub-entities). The two hits at `0x0020` are 49,152-byte textures that parse
+  as shapes by accident. There is no terrain mesh in the archive.
+- **`.lev` is not elevation** (see above).
+- **`.4e2` is not elevation** (see above).
+
+### Remaining candidate
+
+The 16 × 16 payload inside the `.map` tag records is the only located
+structure that could carry height. Settling it needs a comparison against a
+known elevation at a known cell — from running the original software, not from
+the files alone.
+
+### Map naming
+
+The active map is selected by a text command in a level script
+(`set_map_name <name>`). The name does not always match the `.wld` basename:
+the Norway theatre ships as `norway.wld`/`norway.map`, while the campaign map
+selects `swnorway`, which has its own `.lev`, `.4e2`, `.stp` and texture atlas
+but no `.map`.
 
 ## F7 — Mission and campaign text
 
