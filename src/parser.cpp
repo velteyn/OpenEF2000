@@ -48,6 +48,12 @@ Vec3 vec3(const std::vector<std::string>& t, std::size_t start) {
     return p;
 }
 
+bool is_side(const std::string& s) {
+    return s == "NATO" || s == "RUSSIAN" || s == "SWEDISH" ||
+           s == "FINNISH" || s == "BALTIC" || s == "US" || s == "UK" ||
+           s == "NORWEGIAN" || s == "NO_ALLEGIANCE";
+}
+
 }  // namespace
 
 std::vector<std::string> tokenize(const std::string& line) {
@@ -121,16 +127,24 @@ bool parse_mission(const std::string& path, Dataset& ds) {
     for (const std::string& line : split_lines(text)) {
         auto t = tokenize(line);
         if (t.empty()) continue;
-        const std::string& kw = t[0];
+        std::string kw = t[0];
+        if (kw == "3D_POSITION" || kw == "POSITION3D") kw = "3DP";
 
         if (kw == "NUM_MISSIONS") {
             if (t.size() > 1) ds.num_missions_declared = to_int(t[1]);
         } else if (kw == "WORLD_STATUS") {
             ds.world_status = ints(t, 1);
-        } else if (kw == "MISSION" && t.size() >= 5) {
+        } else if (kw == "MISSION" && t.size() >= 4) {
             Mission m;
-            m.type = t[1]; m.side = t[2]; m.role = t[3]; m.status = t[4];
-            m.values = ints(t, 5);
+            if (is_side(t[1])) {
+                m.type = "PLANE";
+                m.side = t[1]; m.role = t[2]; m.status = t[3];
+                m.values = ints(t, 4);
+            } else {
+                if (t.size() < 5) continue;
+                m.type = t[1]; m.side = t[2]; m.role = t[3]; m.status = t[4];
+                m.values = ints(t, 5);
+            }
             ds.missions.push_back(std::move(m));
             mi = static_cast<int>(ds.missions.size()) - 1;
             gi = ri = ti = ai = api = ari = fi = -1;
