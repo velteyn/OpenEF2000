@@ -1,4 +1,5 @@
 #include "did.h"
+#include "guirender.h"
 #include "meshview.h"
 #include "modelview.h"
 #include "parser.h"
@@ -39,7 +40,11 @@ void usage() {
         "  --camera YAW,PITCH[,ZOOM]  viewer camera angles in degrees\n"
         "  --render FILE.png   render the textured mesh to PNG (uses --camera)\n"
         "  --texture NAME      force one .tm atlas for every polygon\n"
-        "  --palette NAME      palette in colours\\<NAME>.col (default 2000)\n");
+        "  --palette NAME      palette in colours\\<NAME>.col (default 2000)\n"
+        "  --gui SCREEN        load a GUI screen, e.g. mainmenu or missplan\n"
+        "  --gui-render FILE   render that screen to PNG (headless)\n"
+        "  --gui-list          list the GUI screens in DID.DAT\n"
+        "  --gui-lang LANG     en|fr|de (default en)\n");
 }
 
 std::string default_data() {
@@ -367,6 +372,147 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
 
 }  // namespace
 
+
+// Interactive GUI driver: hit-testing, hover/selection events and screen
+// switching. The data is the original .gui text; only the drawing style is
+// approximated.
+int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
+                   const std::string& lang) {
+    ef::GuiLoader loader(did);
+    std::string error;
+    auto screen = loader.load(start_screen, &error);
+    if (!screen) {
+        std::fprintf(stderr, "%s\n", error.c_str());
+        return 1;
+    }
+    ef::Palette palette{};
+    if (auto loaded = ef::load_gui_palette(did, screen->palette)) palette = *loaded;
+    if (palette[15] == 0) {
+        if (auto fallback = ef::load_gui_palette(did, "gui")) palette = *fallback;
+    }
+
+    ef::GuiSystem system;
+    system.set_screen(std::move(*screen));
+    std::optional<ef::IlbmImage> backdrop =
+        ef::load_backdrop(did, system.screen().picture);
+
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        return 1;
+    }
+    SDL_Window* window = SDL_CreateWindow("EF2000 GUI", SDL_WINDOWPOS_CENTERED,
+                                          SDL_WINDOWPOS_CENTERED, 960, 600, SDL_WINDOW_SHOWN);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (window == nullptr || renderer == nullptr) {
+        std::fprintf(stderr, "SDL window: %s\n", SDL_GetError());
+        return 1;
+    }
+    SDL_RenderSetLogicalSize(renderer, 640, 400);
+
+    ef::GuiRenderOptions options;
+    options.language = lang;
+
+    std::string hover_window, hover_icon;
+    std::size_t printed_logs = 0;
+    bool dirty = true, running = true;
+    while (running) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) running = false;
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) running = false;
+            if (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
+                ev.type == SDL_MOUSEBUTTONUP) {
+                int mx = 0, my = 0;
+                SDL_GetMouseState(&mx, &my);
+                float lx = 0, ly = 0;
+                SDL_RenderWindowToLogical(renderer, mx, my, &lx, &ly);
+                const int px = static_cast<int>(lx);
+                const int py = static_cast<int>(ly);
+                options.cursor_x = px;
+                options.cursor_y = py;
+
+                auto* win = system.window_at(px, py);
+                std::string icon;
+                if (win != nullptr) {
+                    for (auto& i : win->icons) {
+                        if (!i.disable && i.contains(px - win->x, py - win->y)) {
+                            icon = i.name;
+                            break;
+                        }
+                    }
+                }
+                const std::string new_window = win ? win->name : std::string();
+                if (new_window != hover_window || icon != hover_icon) {
+                    if (!hover_icon.empty()) system.fire(hover_window, hover_icon, "leaving");
+                    hover_window = new_window;
+                    hover_icon = icon;
+                    if (!hover_icon.empty()) system.fire(hover_window, hover_icon, "entering");
+                    dirty = true;
+                }
+                if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT &&
+                    !hover_icon.empty()) {
+                    system.fire(hover_window, hover_icon, "click");
+                    dirty = true;
+                }
+                if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT &&
+                    !hover_icon.empty()) {
+                    system.fire(hover_window, hover_icon, "release");
+                    dirty = true;
+                }
+                // Surface the verbs that ran: routines are C entry points the
+                // reconstruction does not implement yet, so the trace is how
+                // we discover what each screen expects.
+                const auto& logs = system.log();
+                for (; printed_logs < logs.size(); ++printed_logs) {
+                    std::fprintf(stderr, "  %s\n", logs[printed_logs].c_str());
+                }
+                if (ev.type == SDL_MOUSEBUTTONDOWN && !win && hover_icon.empty()) {
+                    // Click outside: nothing.
+                }
+                (void)win;
+            }
+        }
+
+        for (const auto& next : system.take_screen_requests()) {
+            auto loaded = loader.load(next, &error);
+            if (!loaded) continue;
+            system.set_screen(std::move(*loaded));
+            backdrop = ef::load_backdrop(did, system.screen().picture);
+            dirty = true;
+        }
+
+        if (dirty) {
+            SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, 640, 400, 32,
+                                                                  SDL_PIXELFORMAT_RGBA32);
+            if (surface != nullptr) {
+                options.cursor = true;
+                options.hover_window = hover_window;
+                options.hover_icon = hover_icon;
+                ef::draw_gui(surface, system, palette, options,
+                             backdrop ? &*backdrop : nullptr);
+                SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surface);
+                if (tex != nullptr) {
+                    SDL_RenderClear(renderer);
+                    SDL_RenderCopy(renderer, tex, nullptr, nullptr);
+                    SDL_RenderPresent(renderer);
+                    SDL_DestroyTexture(tex);
+                }
+                SDL_FreeSurface(surface);
+            }
+            std::printf("\r%-12s %-20s   ", system.screen().name.c_str(),
+                        (hover_window + (hover_icon.empty() ? "" : "." + hover_icon)).c_str());
+            std::fflush(stdout);
+            dirty = false;
+        }
+        SDL_Delay(8);
+    }
+
+    SDL_DestroyRenderer(renderer);
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+    return 0;
+}
+
 int main(int argc, char** argv) {
     std::string data = default_data();
     std::string export_path;
@@ -377,6 +523,10 @@ int main(int argc, char** argv) {
     std::string clumps_path;
     std::string texture_override;
     std::string palette_name = "2000";
+    std::string gui_screen;
+    std::string gui_render;
+    std::string gui_lang = "en";
+    bool gui_list = false;
     float cam_yaw = 0.75f, cam_pitch = 0.35f, cam_zoom = 1.0f;
     int mission = 0;
     int lod = 0;
@@ -412,6 +562,14 @@ int main(int argc, char** argv) {
             texture_override = argv[++i];
         } else if (std::strcmp(argv[i], "--palette") == 0 && i + 1 < argc) {
             palette_name = argv[++i];
+        } else if (std::strcmp(argv[i], "--gui") == 0 && i + 1 < argc) {
+            gui_screen = argv[++i];
+        } else if (std::strcmp(argv[i], "--gui-render") == 0 && i + 1 < argc) {
+            gui_render = argv[++i];
+        } else if (std::strcmp(argv[i], "--gui-lang") == 0 && i + 1 < argc) {
+            gui_lang = argv[++i];
+        } else if (std::strcmp(argv[i], "--gui-list") == 0) {
+            gui_list = true;
         } else if (std::strcmp(argv[i], "--camera") == 0 && i + 1 < argc) {
             // "yaw,pitch,zoom" in degrees (zoom optional)
             if (std::sscanf(argv[++i], "%f,%f,%f", &cam_yaw, &cam_pitch, &cam_zoom) >= 2) {
@@ -431,6 +589,45 @@ int main(int argc, char** argv) {
             usage();
             return 2;
         }
+    }
+
+    if (gui_list || !gui_screen.empty()) {
+        namespace fs = std::filesystem;
+        const fs::path archive_path = fs::path(data) / "DID.DAT";
+        if (!fs::exists(archive_path)) {
+            std::fprintf(stderr, "no DID.DAT in %s\n", data.c_str());
+            return 1;
+        }
+        ef::DidArchive did(archive_path);
+        if (gui_list) {
+            static const char* kScreens[] = {
+                "mainmenu", "campaign", "camp", "missplan", "summary", "weapons",
+                "pickweap", "players", "custom", "system", "arcade", "arcade2",
+                "archigh", "arcload", "multmenu", "multi", "net", "gnet", "network",
+                "netinfo", "netmiss", "netmsg", "simul", "simul2", "simpick",
+                "simload", "campload", "directp", "intro", "loading", "col",
+                "rxmiss", "txmiss", "menu", "ef2000"};
+            std::size_t count = 0;
+            for (const char* name : kScreens) {
+                if (auto entry = did.resolve(name, "gui\\", ".gui")) {
+                    std::printf("  gui\\%s.gui  entry %u  %u B stored\n", name,
+                                entry->index, entry->size);
+                    ++count;
+                }
+            }
+            std::printf("%zu screens\n", count);
+            return 0;
+        }
+        if (!gui_render.empty()) {
+            ef::GuiRenderOptions options;
+            options.language = gui_lang;
+            if (!ef::render_gui_png(did, gui_screen, gui_render, options)) {
+                return 1;
+            }
+            std::printf("wrote %s\n", gui_render.c_str());
+            return 0;
+        }
+        return run_gui_viewer(did, gui_screen, gui_lang);
     }
 
     if (models || !mesh_name.empty()) {

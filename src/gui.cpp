@@ -1,0 +1,452 @@
+#include "gui.h"
+
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+
+namespace ef {
+namespace {
+
+std::string lower(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return s;
+}
+
+std::string trim(std::string s) {
+    while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r')) s.pop_back();
+    std::size_t i = 0;
+    while (i < s.size() && (s[i] == ' ' || s[i] == '\t')) ++i;
+    return s.substr(i);
+}
+
+//! `english` / `french` / `german`, tolerating the truncated `englis` in
+//! mainmenu.gui. No token at all also means English.
+std::optional<std::string> language(const std::string& token) {
+    const std::string t = lower(token);
+    if (t.rfind("englis", 0) == 0) return "en";
+    if (t.rfind("french", 0) == 0) return "fr";
+    if (t.rfind("german", 0) == 0) return "de";
+    if (t.rfind("spanish", 0) == 0) return "es";
+    if (t.rfind("italian", 0) == 0) return "it";
+    return std::nullopt;
+}
+
+std::vector<std::string> words_of(const std::string& line) {
+    std::vector<std::string> out;
+    std::size_t p = 0;
+    while (p < line.size()) {
+        while (p < line.size() && (line[p] == ' ' || line[p] == '\t')) ++p;
+        if (p >= line.size()) break;
+        auto e = line.find_first_of(" \t", p);
+        if (e == std::string::npos) e = line.size();
+        out.push_back(line.substr(p, e - p));
+        p = e;
+    }
+    return out;
+}
+
+//! Text after the first `count` words, i.e. `text english Mission Debrief`
+//! with count=2 gives "Mission Debrief".
+std::string rest_after(const std::string& line, std::size_t count) {
+    std::size_t p = 0;
+    for (std::size_t i = 0; i < count; ++i) {
+        while (p < line.size() && (line[p] == ' ' || line[p] == '\t')) ++p;
+        while (p < line.size() && line[p] != ' ' && line[p] != '\t') ++p;
+    }
+    return trim(line.substr(std::min(p, line.size())));
+}
+
+int to_int(const std::string& s, int fallback = 0) {
+    char* end = nullptr;
+    const long v = std::strtol(s.c_str(), &end, 0);
+    return end == s.c_str() ? fallback : static_cast<int>(v);
+}
+
+//! Verbs that can follow a `call <event>` / `select <event>` block.
+bool is_action_verb(const std::string& head) {
+    static const char* kV[] = {"routine", "screen", "task", "openwindow", "closewindow",
+                               "submenu", "return", "openmenu", "closedown"};
+    for (const char* v : kV) {
+        if (head == v) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+std::string GuiWidget::label(const std::string& lang) const {
+    if (auto it = text.find(lang); it != text.end()) return it->second;
+    if (auto it = text.find("en"); it != text.end()) return it->second;
+    return {};
+}
+
+std::optional<GuiAction> GuiWidget::action(const std::string& event) const {
+    for (const auto& a : actions) {
+        if (a.event == event) return a;
+    }
+    return std::nullopt;
+}
+
+GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
+    GuiScreen screen;
+    screen.name = name;
+
+    // `screen.windows` grows, so a stable index is used instead of a pointer.
+    std::optional<std::size_t> wi;      // current window index
+    std::optional<std::size_t> ii;      // current icon index within that window
+    std::string event = "click";        // verbs before any `call` attach to click
+
+    auto current_window = [&]() -> GuiWindow* {
+        return wi && *wi < screen.windows.size() ? &screen.windows[*wi] : nullptr;
+    };
+    auto current_icon = [&]() -> GuiWidget* {
+        auto* w = current_window();
+        if (w == nullptr || !ii || *ii >= w->icons.size()) return nullptr;
+        return &w->icons[*ii];
+    };
+    auto add_action = [&](const std::string& verb, const std::string& value) {
+        if (auto* icon = current_icon()) {
+            icon->actions.push_back(GuiAction{event, verb, value});
+        }
+    };
+
+    std::size_t pos = 0;
+    while (pos <= text.size()) {
+        auto eol = text.find('\n', pos);
+        if (eol == std::string::npos) eol = text.size();
+        std::string line = text.substr(pos, eol - pos);
+        pos = eol + 1;
+
+        if (auto semi = line.find(';'); semi != std::string::npos) line.erase(semi);
+        line = trim(line);
+        while (!line.empty() && line.back() == '\\') line = trim(line.substr(0, line.size() - 1));
+        if (line.empty()) continue;
+
+        // The DSL mixes `xpos 0` and `xpos=0`; normalise the leading token.
+        {
+            const std::string first = line.substr(0, line.find_first_of(" \t"));
+            if (auto eq = first.find('='); eq != std::string::npos && eq + 1 < first.size()) {
+                const std::string key = first.substr(0, eq);
+                const std::string value = first.substr(eq + 1);
+                const std::string rest = trim(line.substr(first.size()));
+                line = key + " " + value + (rest.empty() ? "" : " " + rest);
+            }
+        }
+
+        const auto words = words_of(line);
+        const std::string head = lower(words[0]);
+
+        // ---- block openers -------------------------------------------------
+        if (head == "window" || head == "menu") {
+            if (words.size() > 1) {
+                GuiWindow w;
+                w.name = words[1];
+                screen.windows.push_back(std::move(w));
+                screen.order.push_back(screen.windows.back().name);
+                wi = screen.windows.size() - 1;
+            } else {
+                wi.reset();
+            }
+            ii.reset();
+            continue;
+        }
+        if (head == "icon" && words.size() > 1) {
+            if (auto* w = current_window(); w != nullptr) {
+                GuiWidget icon;
+                icon.name = words[1];
+                // An icon that omits geometry inherits it from the previous
+                // icon; that is how the debrief label/value rows and the
+                // LEAD..FOUR row are formed.
+                if (!w->icons.empty()) {
+                    const GuiWidget& prev = w->icons.back();
+                    icon.x = prev.x;
+                    icon.y = prev.y;
+                    icon.w = prev.w;
+                    icon.h = prev.h;
+                }
+                w->icons.push_back(std::move(icon));
+                ii = w->icons.size() - 1;
+                event = "click";
+            }
+            continue;
+        }
+
+        // ---- screen-level directives ---------------------------------------
+        if (head == "startup") { if (words.size() > 1) screen.startup = words[1]; continue; }
+        if (head == "picture") { if (words.size() > 1) screen.picture = words[1]; continue; }
+        if (head == "pal") { if (words.size() > 1) screen.palette = words[1]; continue; }
+        if (head == "include") { if (words.size() > 1) screen.includes.push_back(words[1]); continue; }
+
+        // ---- geometry ------------------------------------------------------
+        GuiWindow* win = current_window();
+        GuiWidget* icon = current_icon();
+        if (words.size() > 1) {
+            const int value = to_int(words[1]);
+            if (head == "xpos" || head == "ypos" || head == "xsize" || head == "ysize") {
+                int* slot = nullptr;
+                if (icon != nullptr) {
+                    slot = head == "xpos"    ? &icon->x
+                           : head == "ypos"  ? &icon->y
+                           : head == "xsize" ? &icon->w
+                                             : &icon->h;
+                } else if (win != nullptr) {
+                    slot = head == "xpos"    ? &win->x
+                           : head == "ypos"  ? &win->y
+                           : head == "xsize" ? &win->w
+                                             : &win->h;
+                }
+                if (slot != nullptr) *slot = value;
+                continue;
+            }
+            if (head == "workxsize" && win && !icon) { win->work_w = value; continue; }
+            if (head == "workysize" && win && !icon) { win->work_h = value; continue; }
+
+            if (icon != nullptr) {
+                if (head == "box") { icon->box = value; continue; }
+                if (head == "bkd") { icon->bkd = value; continue; }
+                if (head == "boxs") { icon->boxs = value; continue; }
+                if (head == "bkds") { icon->bkds = value; continue; }
+                if (head == "line") { icon->line = value; continue; }
+                if (head == "textlen") { icon->textlen = value; continue; }
+                if (head == "txtclr") { icon->txtclr = value; continue; }
+                if (head == "txtclrs") { icon->txtclrs = value; continue; }
+                if (head == "esg") { icon->esg = value; continue; }
+            } else if (win != nullptr) {
+                if (head == "box") { win->box = value; continue; }
+                if (head == "bkd") { win->bkd = value; continue; }
+                if (head == "backgroundcolour") { win->background_colour = value; continue; }
+            }
+        }
+
+        // ---- text ----------------------------------------------------------
+        if (head == "text" || head == "title") {
+            if (words.size() < 2) continue;
+            auto* dest = (head == "text" && icon != nullptr) ? &icon->text : (win ? &win->title : nullptr);
+            if (dest == nullptr) continue;
+            if (auto lang = language(words[1])) {
+                (*dest)[*lang] = rest_after(line, 2);
+            } else {
+                (*dest)["en"] = rest_after(line, 1);
+            }
+            continue;
+        }
+        if (head == "textpos" && icon != nullptr && words.size() > 1) {
+            icon->textpos = lower(words[1]);
+            continue;
+        }
+
+        // ---- events and verbs ----------------------------------------------
+        if ((head == "select" || head == "unselect") && icon != nullptr && words.size() > 1) {
+            // `select entering` reads "select on entering".
+            icon->actions.push_back(GuiAction{lower(words[1]), head, ""});
+            continue;
+        }
+        if (head == "call" && words.size() > 1) {
+            event = lower(words[1]);
+            continue;
+        }
+        if (is_action_verb(head)) {
+            if (words.size() > 1) add_action(head, words[1]);
+            continue;
+        }
+        if (head == "routine" && words.size() > 1) {
+            add_action(head, words[1]);
+            continue;
+        }
+
+        // ---- window behaviour ----------------------------------------------
+        if (win != nullptr && icon == nullptr) {
+            if (head == "open") { win->open = true; continue; }
+            if (head == "moveable") { win->moveable = true; continue; }
+            if (head == "close") { win->close = true; continue; }
+            if (head == "is3d") { win->is3d = true; continue; }
+            if (head == "fullsize") { win->fullsize = true; continue; }
+            if (head == "nojump") { win->nojump = true; continue; }
+            if (head == "onopen" && words.size() > 1) { win->on_open = words[1]; continue; }
+            if (head == "onclose" && words.size() > 1) { win->on_close = words[1]; continue; }
+            if (head == "redraw" && words.size() > 1) { win->redraw = words[1]; continue; }
+            if (head == "update" && words.size() > 1) { win->update = words[1]; continue; }
+        }
+        if (icon != nullptr) {
+            if (head == "disable") { icon->disable = true; continue; }
+            if (head == "enable") { icon->disable = false; continue; }
+            if (head == "editable") { icon->editable = true; continue; }
+            if (head == "editableoff") { icon->editable = false; continue; }
+        }
+        // Everything else (xscroll, yscroll, resize, back, infrontof, offscreen,
+        // skey, toggle, ...) is behaviour we do not model yet.
+    }
+    return screen;
+}
+
+std::optional<GuiScreen> GuiLoader::load(const std::string& name, std::string* error) const {
+    auto entry = archive_.resolve(name, "gui\\", ".gui");
+    if (!entry) {
+        if (error) *error = "gui\\" + name + ".gui not found";
+        return std::nullopt;
+    }
+    auto bytes = archive_.read(*entry);
+    if (!bytes) {
+        if (error) *error = "cannot read gui\\" + name + ".gui";
+        return std::nullopt;
+    }
+    GuiScreen screen = parse(name, std::string(bytes->begin(), bytes->end()));
+
+    // Follow `include`: merge the included screen's windows, later declarations
+    // replacing earlier ones with the same name.
+    for (const auto& inc : screen.includes) {
+        auto inc_entry = archive_.resolve(inc, "gui\\", ".gui");
+        if (!inc_entry) continue;
+        auto inc_bytes = archive_.read(*inc_entry);
+        if (!inc_bytes) continue;
+        GuiScreen other = parse(inc, std::string(inc_bytes->begin(), inc_bytes->end()));
+        for (auto& w : other.windows) {
+            auto it = std::find_if(screen.windows.begin(), screen.windows.end(),
+                                   [&](const GuiWindow& e) { return e.name == w.name; });
+            if (it != screen.windows.end()) {
+                const std::string keep = it->name;
+                *it = std::move(w);
+                it->name = keep;
+            } else {
+                screen.order.push_back(w.name);
+                screen.windows.push_back(std::move(w));
+            }
+        }
+    }
+    return screen;
+}
+
+// ---------------------------------------------------------------------------
+// runtime
+// ---------------------------------------------------------------------------
+
+void GuiSystem::set_screen(GuiScreen screen) {
+    screen_ = std::move(screen);
+    selected_.clear();
+    next_z_ = 1;
+    apply_initial_visibility();
+}
+
+void GuiSystem::apply_initial_visibility() {
+    for (auto& w : screen_.windows) {
+        // Visible if the screen marks it `open`; `menu` is the title bar the
+        // system opens itself.
+        w.visible = w.open || w.name == "menu";
+        w.z = w.visible ? next_z_++ : 0;
+    }
+}
+
+GuiWindow* GuiSystem::find_window(const std::string& name) {
+    for (auto& w : screen_.windows) {
+        if (w.name == name) return &w;
+    }
+    return nullptr;
+}
+
+GuiWidget* GuiSystem::find_widget(const std::string& window, const std::string& icon) {
+    auto* w = find_window(window);
+    if (w == nullptr) return nullptr;
+    for (auto& i : w->icons) {
+        if (i.name == icon) return &i;
+    }
+    return nullptr;
+}
+
+GuiWindow* GuiSystem::window_at(int px, int py) {
+    GuiWindow* best = nullptr;
+    for (auto& w : screen_.windows) {
+        if (!w.visible || w.w <= 0 || w.h <= 0) continue;
+        if (px < w.x || py < w.y || px >= w.x + w.w || py >= w.y + w.h) continue;
+        if (best == nullptr || w.z > best->z) best = &w;
+    }
+    return best;
+}
+
+void GuiSystem::open_window(const std::string& name) {
+    auto* w = find_window(name);
+    if (w == nullptr) return;
+    w->visible = true;
+    w->z = next_z_++;
+}
+
+void GuiSystem::close_window(const std::string& name) {
+    if (auto* w = find_window(name)) w->visible = false;
+}
+
+void GuiSystem::bring_to_front(const std::string& name) {
+    if (auto* w = find_window(name)) w->z = next_z_++;
+}
+
+void GuiSystem::select(const std::string& window, const std::string& icon, bool on) {
+    auto* w = find_window(window);
+    if (w == nullptr) return;
+    GuiWidget* target = nullptr;
+    for (auto& i : w->icons) {
+        if (i.name == icon) target = &i;
+    }
+    if (target == nullptr) return;
+    if (target->esg >= 0) {
+        for (auto& other : w->icons) {
+            if (&other != target && other.esg == target->esg) {
+                selected_[{window, other.name}] = false;
+            }
+        }
+    }
+    selected_[{window, icon}] = on;
+}
+
+bool GuiSystem::is_selected(const std::string& window, const std::string& icon) const {
+    auto it = selected_.find({window, icon});
+    return it != selected_.end() && it->second;
+}
+
+std::vector<GuiAction> GuiSystem::fire(const std::string& window,
+                                       const std::string& icon,
+                                       const std::string& event) {
+    std::vector<GuiAction> ran;
+    auto* widget = find_widget(window, icon);
+    if (widget == nullptr) return ran;
+
+    // Copy: handlers may mutate the widget list through open/close.
+    const auto actions = widget->actions;
+    for (const auto& a : actions) {
+        if (a.event != event) continue;
+        if (a.verb == "select") { select(window, icon, true); continue; }
+        if (a.verb == "unselect") { select(window, icon, false); continue; }
+        if (a.verb == "screen" || a.verb == "task") screen_requests_.push_back(a.value);
+        if (a.verb == "openwindow") open_window(a.value);
+        if (a.verb == "closewindow") close_window(a.value);
+        log_.push_back(window + "." + icon + ":" + event + " -> " + a.verb +
+                       (a.value.empty() ? "" : " " + a.value));
+        ran.push_back(a);
+    }
+    return ran;
+}
+
+std::vector<std::string> GuiSystem::take_screen_requests() {
+    auto out = std::move(screen_requests_);
+    screen_requests_.clear();
+    return out;
+}
+
+std::optional<Palette> load_gui_palette(const DidArchive& archive, const std::string& name) {
+    auto entry = archive.resolve(name, "colours\\", ".col");
+    if (!entry) return std::nullopt;
+    auto bytes = archive.read(*entry);
+    if (!bytes || bytes->size() != 768) return std::nullopt;
+
+    std::uint8_t peak = 0;
+    for (auto v : *bytes) peak = std::max(peak, v);
+    const int scale = peak <= 63 ? 255 : 63;
+
+    Palette out{};
+    for (std::size_t i = 0; i < 256; ++i) {
+        const auto r = static_cast<std::uint32_t>(((*bytes)[i * 3 + 0] * scale) / 63);
+        const auto g = static_cast<std::uint32_t>(((*bytes)[i * 3 + 1] * scale) / 63);
+        const auto b = static_cast<std::uint32_t>(((*bytes)[i * 3 + 2] * scale) / 63);
+        out[i] = (r << 16) | (g << 8) | b;
+    }
+    return out;
+}
+
+}  // namespace ef

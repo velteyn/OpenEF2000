@@ -19,7 +19,10 @@ add_executable(ef2000-explorer
     src/shape3d.cpp
     src/meshview.cpp
     src/modelview.cpp
-    src/texture.cpp)
+    src/texture.cpp
+    src/gui.cpp
+    src/guirender.cpp
+    src/ilbm.cpp)
 
 target_link_libraries(ef2000-explorer PRIVATE
     PkgConfig::SDL2
