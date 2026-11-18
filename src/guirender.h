@@ -40,6 +40,9 @@ struct GuiRenderOptions {
 void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
               const GuiRenderOptions& options, const IlbmImage* backdrop = nullptr);
 
+//! Blits an indexed image across the whole surface, using its own palette.
+void draw_image(SDL_Surface* surface, const IlbmImage& image);
+
 //! Loads the screen's `picture` backdrop; nullptr when absent.
 std::optional<IlbmImage> load_backdrop(const DidArchive& archive, const std::string& name);
 

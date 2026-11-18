@@ -55,6 +55,7 @@ void usage() {
         "  --gui-list          list the GUI screens in DID.DAT\n"
         "  --gui-routines      with --gui SCREEN, list the routines it needs\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
+        "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
         "  --gui-window NAME   open this window before rendering\n");
 }
@@ -409,7 +410,8 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
 // switching. The data is the original .gui text; only the drawing style is
 // approximated.
 int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
-                   const std::string& lang, const std::filesystem::path& data_dir) {
+                   const std::string& lang, const std::filesystem::path& data_dir,
+                   bool boot) {
     ef::GuiLoader loader(did);
     std::string error;
     auto screen = loader.load(start_screen, &error);
@@ -444,6 +446,38 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         return 1;
     }
     SDL_RenderSetLogicalSize(renderer, 640, 400);
+
+    // The boot script holds a splash for 200 ticks before the main menu
+    // (`STAT didlog 200` in supergui\gui.txt). `didlog` is not in the archive;
+    // `load0` is the shipped title card.
+    if (boot) {
+        if (auto splash = ef::load_backdrop(did, "load0")) {
+            SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(
+                0, 640, 400, 32, SDL_PIXELFORMAT_RGBA32);
+            if (surface != nullptr) {
+                ef::draw_image(surface, *splash);
+                SDL_Texture* tex = SDL_CreateTextureFromSurface(renderer, surface);
+                if (tex != nullptr) {
+                    SDL_RenderClear(renderer);
+                    SDL_RenderCopy(renderer, tex, nullptr, nullptr);
+                    SDL_RenderPresent(renderer);
+                    SDL_DestroyTexture(tex);
+                }
+                SDL_FreeSurface(surface);
+            }
+            // Hold the splash for the declared 200 ticks (~2 s). Poll inside
+            // the wait: the previous form exited as soon as the queue was
+            // empty, so the card never showed.
+            const Uint32 until = SDL_GetTicks() + 2000;
+            while (SDL_GetTicks() < until) {
+                SDL_Event event;
+                while (SDL_PollEvent(&event)) {
+                    if (event.type == SDL_QUIT) return 0;
+                }
+                SDL_Delay(16);
+            }
+        }
+    }
 
     ef::GuiRenderOptions options;
     options.language = lang;
@@ -733,6 +767,7 @@ int main(int argc, char** argv) {
     bool gui_list = false;
     bool gui_routines = false;
     bool gui_selftest = false;
+    bool boot = false;
     bool sam_coverage = false, ewr_coverage = false;
     float coverage_scale = 1.0f;
     std::optional<std::array<int, 4>> map_bounds;
@@ -786,6 +821,8 @@ int main(int argc, char** argv) {
             gui_routines = true;
         } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
             gui_selftest = true;
+        } else if (std::strcmp(argv[i], "--boot") == 0) {
+            boot = true;
         } else if (std::strcmp(argv[i], "--sam-coverage") == 0) {
             sam_coverage = true;
         } else if (std::strcmp(argv[i], "--ewr-coverage") == 0) {
@@ -819,6 +856,10 @@ int main(int argc, char** argv) {
     }
 
     if (gui_selftest) return run_gui_selftest();
+
+    if (boot) {
+        if (gui_screen.empty()) gui_screen = "mainmenu";
+    }
 
     if (gui_list || !gui_screen.empty()) {
         namespace fs = std::filesystem;
@@ -881,7 +922,7 @@ int main(int argc, char** argv) {
             std::printf("wrote %s\n", gui_render.c_str());
             return 0;
         }
-        return run_gui_viewer(did, gui_screen, gui_lang, data);
+        return run_gui_viewer(did, gui_screen, gui_lang, data, boot);
     }
 
     if (models || !mesh_name.empty()) {

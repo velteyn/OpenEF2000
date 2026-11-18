@@ -58,6 +58,25 @@ bool visible_colour(int index) { return index > 0; }
 
 }  // namespace
 
+void draw_image(SDL_Surface* surface, const IlbmImage& image) {
+    if (surface == nullptr || image.width <= 0 || image.height <= 0) return;
+    for (int y = 0; y < surface->h; ++y) {
+        const int sy = y * image.height / surface->h;
+        auto* row = static_cast<Uint32*>(static_cast<void*>(
+            static_cast<Uint8*>(surface->pixels) + y * surface->pitch));
+        for (int x = 0; x < surface->w; ++x) {
+            const int sx = x * image.width / surface->w;
+            const std::uint8_t index =
+                image.pixels[static_cast<std::size_t>(sy) *
+                                 static_cast<std::size_t>(image.width) +
+                             static_cast<std::size_t>(sx)];
+            const std::uint32_t rgb =
+                index < image.palette.size() ? image.palette[index] : 0;
+            row[x] = map_rgb(surface->format, rgb);
+        }
+    }
+}
+
 std::optional<IlbmImage> load_backdrop(const DidArchive& archive, const std::string& name) {
     if (name.empty()) return std::nullopt;
     for (const char* prefix : {"iff\\256\\", "iff\\", "gui\\"}) {

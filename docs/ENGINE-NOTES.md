@@ -37,6 +37,9 @@ cmake --build build -j
 ./build/openef2000 --data /path/to/game-data --mesh efa \
     --export-mesh efa.obj --mesh-preview efa.png
 
+# boot like the game: title card, then the main menu
+./build/openef2000 --data /path/to/game-data --boot
+
 # planner map with coverage overlays
 ./build/openef2000 --data /path/to/game-data --bounds 0,0,400,400 \
     --sam-coverage --ewr-coverage --export planner.png
@@ -219,6 +222,32 @@ Two practical notes learned the hard way:
 | Hovering a panel highlights its title bar; the pointer is an X | selection is driven by `select entering` / `unselect leaving`, as modelled |
 | Pressing `Esc` at the main menu does nothing | the menu bar's `efamenu` widget also binds `esc` (with no routine) and wins over `quitsel`; this matches the runtime's topmost-window-first dispatch |
 | A synthesised click on the `campaign_level` **Yes** checkbox toggles it | widgets that bind `call click` do receive synthetic input |
+
+### Boot sequence
+
+`supergui\gui.txt` holds a splash for 200 ticks before the main menu
+(`STAT didlog 200 FADE_IN NFADE_OUT NO_TEXT`). `didlog` is not present in the
+archive under any name tried, but `iff\256\load0.lbm` (640x400) is the shipped
+title card — the EF2000 V2.0 screen — and `iff\256\load.lbm` (320x200) is the
+TFX Eurofighter logo. `--boot` shows `load0` for two seconds and then loads
+`gui\mainmenu.gui`.
+
+### Panel colours are shaded, not palette lookups
+
+The running menu draws its panels as a dithered gradient: sampling one panel
+gives (77,77,77) for the body, (85,85,85) for the title strip and a spread of
+neighbouring greys, while the reconstruction draws a flat fill.
+
+This is not a palette mix-up that can be fixed by choosing the right file. All
+149 palettes in the archive were checked for a palette whose *low* indices
+(0..15) contain those greys, which is where a widget renderer would plausibly
+look, and none does; the nearest matches sit at high indices (~186..196) in
+several palettes, which is consistent with a shade/fade table rather than a
+direct index.
+
+Reproducing the look therefore needs the original widget drawing code, and a
+closer approximation means drawing a gradient between two entries rather than
+a flat fill. Recorded so the palette hunt is not repeated.
 
 ### Behaviours confirmed by play
 
