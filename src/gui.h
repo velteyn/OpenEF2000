@@ -24,6 +24,7 @@
 
 #include <SDL2/SDL.h>
 
+#include <filesystem>
 #include <functional>
 #include <map>
 #include <optional>
@@ -236,6 +237,11 @@ private:
 //! original software and observing it. Deliberately small: everything else is
 //! reported as missing rather than guessed.
 void register_observed_routines(GuiSystem& system);
+
+//! Fills the `hiscores` window from the loose `HISCORES.DAT` file: a 4-byte
+//! header then ten 25-byte records of name[16], three pad bytes, level u8 and
+//! score u32 (little-endian). Returns the number of rows filled.
+int fill_hiscores(GuiSystem& system, const std::filesystem::path& data_dir);
 
 //! The credits panel is an empty window in `mainmenu.gui`; its text is the
 //! `supergui\gfxcred.txt` resource. Fills `lines` once, when visible.

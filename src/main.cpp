@@ -409,7 +409,7 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
 // switching. The data is the original .gui text; only the drawing style is
 // approximated.
 int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
-                   const std::string& lang) {
+                   const std::string& lang, const std::filesystem::path& data_dir) {
     ef::GuiLoader loader(did);
     std::string error;
     auto screen = loader.load(start_screen, &error);
@@ -566,6 +566,7 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         }
 
         ef::fill_credits(system, did);
+        ef::fill_hiscores(system, data_dir);
         if (system.quit_requested()) running = false;
 
         for (const auto& next : system.take_screen_requests()) {
@@ -873,13 +874,14 @@ int main(int argc, char** argv) {
             ef::GuiRenderOptions options;
             options.language = gui_lang;
             options.open_window = gui_window;
+            options.data_dir = data;
             if (!ef::render_gui_png(did, gui_screen, gui_render, options)) {
                 return 1;
             }
             std::printf("wrote %s\n", gui_render.c_str());
             return 0;
         }
-        return run_gui_viewer(did, gui_screen, gui_lang);
+        return run_gui_viewer(did, gui_screen, gui_lang, data);
     }
 
     if (models || !mesh_name.empty()) {

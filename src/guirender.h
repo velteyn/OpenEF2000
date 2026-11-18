@@ -17,6 +17,7 @@
 
 #include <SDL2/SDL.h>
 
+#include <filesystem>
 #include <string>
 
 namespace ef {
@@ -31,6 +32,8 @@ struct GuiRenderOptions {
     std::string hover_icon;
     //! Opens this window before drawing, so dialogs can be inspected headlessly.
     std::string open_window;
+    //! Loose data directory, for files the engine reads directly (HISCORES.DAT).
+    std::filesystem::path data_dir;
 };
 
 //! Draws the active screen of `system` into `surface` (640x400 logical size).

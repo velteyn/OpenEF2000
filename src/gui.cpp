@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
+#include <fstream>
+#include <iterator>
 
 namespace ef {
 namespace {
@@ -633,34 +635,79 @@ std::vector<std::string> GuiSystem::take_screen_requests() {
 // and observing the result. Keep this list small and evidence-backed: each
 // entry is a fact, not a guess, and the rest stay unimplemented on purpose.
 void register_observed_routines(GuiSystem& system) {
-    // QuitEF2000: its own name, and the `quit`/`sure` windows that reference it.
-    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
-        gui.request_quit();
-    });
-    // gpwClickCampaign: pressing C (or clicking the Campaign panel) raises the
-    // "Campaign Level Setting" dialog, which is the `campaign_level` window.
-    system.register_routine("gpwClickCampaign", [](ef::GuiSystem& gui) {
-        gui.open_window("campaign_level");
-    });
-    // Quit raises the `sure` window ("Quit EF2000 ?" with Yes/No); the answer
-    // buttons then quit or dismiss it. Reported from play and matched by the
-    // `sure` window's text and its QuitEF2000yes/no handlers.
-    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
+    // Each entry below was established by running the shipped software and
+    // observing the result, with the `.gui` data corroborating it.
+
+    // Quit raises the `sure` dialog ("Quit EF2000 ?" with Yes/No).
+    system.register_routine("QuitEF2000", [](GuiSystem& gui) {
         gui.open_window("sure");
     });
-    system.register_routine("QuitEF2000yes", [](ef::GuiSystem& gui) {
+    system.register_routine("QuitEF2000yes", [](GuiSystem& gui) {
         gui.request_quit();
     });
-    system.register_routine("QuitEF2000no", [](ef::GuiSystem& gui) {
+    system.register_routine("QuitEF2000no", [](GuiSystem& gui) {
         gui.close_window("sure");
     });
-    // gnStartup (gnet): Multiplay shows the Network Settings and IPX Settings
-    // panels. Reported from play; the file declares `startup gnStartup` and the
-    // windows carry `onopen gnInitSettingsWindow`.
-    system.register_routine("gnStartup", [](ef::GuiSystem& gui) {
+
+    // Campaign raises the "Campaign Level Setting" dialog.
+    system.register_routine("gpwClickCampaign", [](GuiSystem& gui) {
+        gui.open_window("campaign_level");
+    });
+
+    // Multiplay: Network Settings and IPX Settings, both opened by the screen's
+    // `startup gnStartup`.
+    system.register_routine("gnStartup", [](GuiSystem& gui) {
         gui.open_window("settings");
         gui.open_window("IpxSettings");
     });
+
+    // Quick Combat: the included hi-score panel is not marked `open`, so the
+    // screen's startup routine raises it.
+    system.register_routine("InitArcade", [](GuiSystem& gui) {
+        gui.open_window("hiscores");
+    });
+}
+
+int fill_hiscores(GuiSystem& system, const std::filesystem::path& data_dir) {
+    auto* window = system.find_window("hiscores");
+    if (window == nullptr || !window->visible) return 0;
+
+    std::ifstream file(data_dir / "HISCORES.DAT", std::ios::binary);
+    if (!file) return 0;
+    std::vector<std::uint8_t> bytes((std::istreambuf_iterator<char>(file)),
+                                    std::istreambuf_iterator<char>());
+    if (bytes.size() < 4 + 10 * 25) return 0;
+
+    // Level indices follow the Difficulty panel's order: Rookie, Pro, Topgun.
+    static const char* kLevels[] = {"Rookie", "Pro", "Topgun"};
+    int filled = 0;
+    for (int row = 1; row <= 10; ++row) {
+        const std::size_t off = 4 + static_cast<std::size_t>(row - 1) * 25;
+        std::string name(reinterpret_cast<const char*>(bytes.data() + off), 16);
+        while (!name.empty() && (name.back() == '\0' || name.back() == ' ')) name.pop_back();
+        // 16-byte name, four pad bytes, level, then the score as u32.
+        const std::uint8_t level = bytes[off + 20];
+        const std::uint32_t score = static_cast<std::uint32_t>(bytes[off + 21]) |
+                                    (static_cast<std::uint32_t>(bytes[off + 22]) << 8) |
+                                    (static_cast<std::uint32_t>(bytes[off + 23]) << 16) |
+                                    (static_cast<std::uint32_t>(bytes[off + 24]) << 24);
+
+        const std::string suffix = std::to_string(row);
+        if (auto* w = system.find_widget("hiscores", "name" + suffix); w != nullptr) {
+            w->text["en"] = name;
+            w->value = name;
+        }
+        if (auto* w = system.find_widget("hiscores", "level" + suffix); w != nullptr) {
+            w->text["en"] = level >= 1 && level <= 3 ? kLevels[level - 1] : "";
+            w->value = w->text["en"];
+        }
+        if (auto* w = system.find_widget("hiscores", "score" + suffix); w != nullptr) {
+            w->text["en"] = std::to_string(score);
+            w->value = w->text["en"];
+        }
+        ++filled;
+    }
+    return filled;
 }
 
 void fill_credits(GuiSystem& system, const DidArchive& archive) {

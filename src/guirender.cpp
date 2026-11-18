@@ -274,6 +274,7 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
     std::optional<IlbmImage> backdrop;
     if (options.backdrop) backdrop = load_backdrop(archive, system.screen().picture);
     fill_credits(system, archive);
+    if (!options.data_dir.empty()) fill_hiscores(system, options.data_dir);
     draw_gui(surface, system, palette, options, backdrop ? &*backdrop : nullptr);
 
     SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGB24, 0);

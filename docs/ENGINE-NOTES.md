@@ -231,6 +231,7 @@ Reported from a play session and corroborated against the `.gui` files:
 | **Multiplay** | opens two mini windows, **Network Settings** and **IPX Settings** | `screen gnet`; the windows carry `onopen gnInitSettingsWindow` and are raised by `startup gnStartup` |
 | **Quit** | opens a small dialog "Quit EF2000 ?" with Yes/No | `QuitEF2000` → the `sure` window, whose text is literally `Quit EF2000 ?` |
 | **Campaign** | opens **Campaign Level Setting** | confirmed earlier by pressing `C` |
+| **Quick Combat** | Difficulty (Rookie/Pro/Topgun), Mission Select 01–12, **Quick Combat Hi-Scores** (Name/Level/Score), Summary with Accept | `arcade.gui` contains those windows; the included `archigh.gui` supplies the hi-score panel, and the rows come from `HISCORES.DAT` |
 
 Two of these needed code rather than data: `QuitEF2000` had to raise `sure`,
 and `gnet` needed `gnStartup` to raise its panels, because screens declare a
@@ -241,6 +242,24 @@ otherwise.
 The credits panel is the one place where the text resource had to be linked to
 the window by hand: the window is empty in `mainmenu.gui`, and the only
 matching resource is `supergui\gfxcred.txt`.
+
+### Install differences
+
+Three installs were compared at the data level:
+
+| Install | Archive | `gui\*` | `supergui\gfxcred.txt` |
+|---|---|---|---|
+| Original DOS v2 | `xorv2`, 8,261 entries | identical bytes to 3DFX | present |
+| 3DFX v2 | `xorv2`, 8,261 entries | reference | present |
+| TACTCOM | `plain8`, 8,469 entries | smaller, different files | absent |
+
+`mainmenu`, `arcade`, `simpick`, `gnet`, `archigh` and `campaign` are
+byte-identical between the two v2 archives, so observations made on one hold
+for the other. TACTCOM has its own cut-down variants, which is why the credits
+panel needs `gfxcred.txt` only on the v2 builds.
+
+`HISCORES.DAT` differs per installation (developer names differ between DOS and
+3DFX), so hi-score contents are never a reliable test fixture.
 
 ### Harness limitation: `call release` is not reachable synthetically
 

@@ -23,6 +23,7 @@ that any independent implementation can interoperate with the formats.
 - [F6 — Terrain and world (`lev/`)](#f6--terrain-and-world-lev)
 - [F7 — Mission and campaign text](#f7--mission-and-campaign-text)
 - [F8 — GUI description language (`.gui`)](#f8--gui-description-language-gui)
+- [F9 — Hi-score table (`HISCORES.DAT`)](#f9--hi-score-table-hiscoresdat)
 - [Unverified and open questions](#unverified-and-open-questions)
 - [Appendix A — Magic numbers](#appendix-a--magic-numbers)
 - [Appendix B — Provenance and confidence](#appendix-b--provenance-and-confidence)
@@ -567,6 +568,35 @@ A screen's routine references come from `routine` verbs plus the `onopen`,
 
 `submenu`/`openmenu`, `screen`, `task`, `openwindow`, `closewindow` and the
 keyboard bindings need no such registry: the file states their effect.
+
+## F9 — Hi-score table (`HISCORES.DAT`)
+
+**Purpose.** The Quick Combat hi-score list. It is a loose file next to the
+archive, not an archive entry, and the game rewrites it, so its contents are
+per installation and per player.
+
+**Layout.** 4-byte header followed by ten fixed 25-byte records:
+
+| Offset | Type | Field |
+|---:|---|---|
+| +0x00 | u32 | header (observed `0x00004268`) |
+| +0x04 | — | record 0, then nine more at 25-byte stride |
+
+Record:
+
+| Offset | Type | Field |
+|---:|---|---|
+| +0 | char[16] | name, NUL-padded |
+| +16 | u8[4] | padding, observed zero |
+| +20 | u8 | difficulty level: 1 Rookie, 2 Pro, 3 Topgun |
+| +21 | u32 | score, little-endian |
+
+The level numbering follows the order of the Difficulty panel in `arcade.gui`;
+it is consistent across the three shipped tables, but the mapping from numbers
+to labels is inferred from that ordering rather than stated anywhere.
+
+Record names across the shipped installs are developer and play-tester names,
+which confirms this is a developer-populated default table.
 
 ## Unverified and open questions
 
