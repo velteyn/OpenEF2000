@@ -59,7 +59,7 @@ subsystem; it is updated as work lands.
 |---|---|
 | Archive container and resource extraction | Working |
 | Campaign, mission and scenario text | Working |
-| Strategic map (2D) | Working prototype |
+| Strategic map (2D) | Working prototype, with SAM/EWR coverage overlays |
 | 3D model format and bytecode interpreter | Working |
 | Texture and palette decoding | Working |
 | GUI description language and runtime | Working; routine layer is a tracked gap |

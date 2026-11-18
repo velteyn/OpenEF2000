@@ -3,6 +3,9 @@
 
 #include "render.h"
 
+#include <set>
+#include <tuple>
+
 #include <SDL2/SDL_image.h>
 #include <SDL2/SDL_ttf.h>
 
@@ -74,6 +77,20 @@ struct Canvas {
         }
     }
 
+    //! Outline circle with a segment count that keeps large radii smooth.
+    void ring(int cx, int cy, int r, Uint32 c) {
+        if (r < 1) return;
+        const int segs = std::clamp(r, 16, 180);
+        for (int i = 0; i < segs; ++i) {
+            const double a0 = (2.0 * kPi * i) / segs;
+            const double a1 = (2.0 * kPi * (i + 1)) / segs;
+            line(cx + static_cast<int>(std::lround(r * std::cos(a0))),
+                 cy + static_cast<int>(std::lround(r * std::sin(a0))),
+                 cx + static_cast<int>(std::lround(r * std::cos(a1))),
+                 cy + static_cast<int>(std::lround(r * std::sin(a1))), c);
+        }
+    }
+
     void circle(int cx, int cy, int r, Uint32 c) {
         for (int i = 0; i < 16; ++i) {
             double a0 = (2.0 * kPi * i) / 16.0;
@@ -85,6 +102,29 @@ struct Canvas {
         }
     }
 };
+
+//! Ground threats that the planner's coverage overlays draw rings around.
+//! Classification is by type name; the ring radii are *assumed* because the
+//! shipped files carry no range per unit, and are scaled by
+//! RenderOptions::coverage_scale so the assumption is visible and adjustable.
+enum class Threat { none, aaa, sam, ewr };
+
+Threat classify_threat(const std::string& type) {
+    const auto has = [&](const char* needle) {
+        return type.find(needle) != std::string::npos;
+    };
+    if (has("MARCONI") || has("EWR")) return Threat::ewr;
+    if (has("PATRIOT") || has("SA_6") || has("SA_11") || has("SA_13") ||
+        has("RAPIER") || has("ROLAND") || has("BUK") || has("KUB")) {
+        return Threat::sam;
+    }
+    if (has("SHILKA") || has("ZSU") || has("VULCAN")) return Threat::aaa;
+    return Threat::none;
+}
+
+constexpr int kAaaRangeCells = 8;
+constexpr int kSamRangeCells = 25;
+constexpr int kEwrRangeCells = 60;
 
 SDL_Color side_color(const std::string& side) {
     if (side == "NATO") return SDL_Color{90, 155, 255, 255};
@@ -134,12 +174,13 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
 
     int sel = std::clamp(opt.selected, 0, std::max(0, static_cast<int>(ds.missions.size()) - 1));
 
-    int minx = INT_MAX, miny = INT_MAX, maxx = INT_MIN, maxy = INT_MIN;
-    bool have = false;
+    // Collect every coordinate, then take a robust extent: a handful of
+    // records carry wildly out-of-range values, and a raw min/max would shrink
+    // the whole theatre to a dot.
+    std::vector<int> xs, ys;
     auto add = [&](const Vec3& p) {
-        have = true;
-        minx = std::min(minx, p.x); maxx = std::max(maxx, p.x);
-        miny = std::min(miny, p.y); maxy = std::max(maxy, p.y);
+        xs.push_back(p.x);
+        ys.push_back(p.y);
     };
     auto add_mission = [&](const Mission& m) {
         if (m.pos) add(*m.pos);
@@ -161,14 +202,34 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     };
     if (opt.focus && !ds.missions.empty()) {
         add_mission(ds.missions[sel]);
-    }
-    if (!have) {
-        for (const auto& b : ds.bnas) if (b.pos) add(*b.pos);
+    } else {
         for (const auto& m : ds.missions) add_mission(m);
     }
-    if (!have) { minx = miny = 0; maxx = maxy = 100; }
+
+    // Bases are deliberately excluded from the extent. They come from a
+    // different data set with its own coordinate space, and including them
+    // collapses the theatre to a dot.
+    int minx = 0, miny = 0, maxx = 100, maxy = 100;
+    if (opt.bounds) {
+        minx = (*opt.bounds)[0]; miny = (*opt.bounds)[1];
+        maxx = (*opt.bounds)[2]; maxy = (*opt.bounds)[3];
+    } else if (!xs.empty()) {
+        minx = *std::min_element(xs.begin(), xs.end());
+        maxx = *std::max_element(xs.begin(), xs.end());
+        miny = *std::min_element(ys.begin(), ys.end());
+        maxy = *std::max_element(ys.begin(), ys.end());
+    }
     if (maxx - minx < 1) maxx = minx + 1;
     if (maxy - miny < 1) maxy = miny + 1;
+
+    // Coverage rings extend beyond their unit, so widen the view to contain
+    // the largest radius when an overlay is on.
+    if (opt.sam_coverage || opt.ewr_coverage) {
+        const int ring = static_cast<int>(std::lround(
+            (opt.ewr_coverage ? kEwrRangeCells : kSamRangeCells) * opt.coverage_scale));
+        minx -= ring; maxx += ring; miny -= ring; maxy += ring;
+    }
+
     const int padx = std::max(1, (maxx - minx) / 20);
     const int pady = std::max(1, (maxy - miny) / 20);
     minx -= padx; maxx += padx; miny -= pady; maxy += pady;
@@ -215,6 +276,59 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         Uint32 col = (b.type == "PORT") ? c.rgb(110, 220, 150) : c.rgb(100, 180, 255);
         for (int dy = -3; dy <= 3; ++dy)
             for (int dx = -3; dx <= 3; ++dx) c.pixel(x + dx, y + dy, col);
+    }
+
+    // Coverage overlays. Rings are drawn for every ground unit in the theatre,
+    // coloured by the side that owns it, matching the planner's two toggles.
+    if (opt.sam_coverage || opt.ewr_coverage) {
+        const double scale = static_cast<double>(right - left) /
+                             static_cast<double>(std::max(maxx - minx, 1));
+        auto draw_ring = [&](const Vec3& p, Threat kind, const std::string& side) {
+            int cells = 0;
+            if (kind == Threat::ewr) cells = kEwrRangeCells;
+            else if (kind == Threat::sam) cells = kSamRangeCells;
+            else if (kind == Threat::aaa) cells = kAaaRangeCells;
+            if (cells == 0) return;
+            if (kind == Threat::ewr && !opt.ewr_coverage) return;
+            if (kind != Threat::ewr && !opt.sam_coverage) return;
+            const int radius = static_cast<int>(std::lround(
+                cells * opt.coverage_scale * scale));
+            const SDL_Color sc = side_color(side);
+            c.ring(px(p.x), py(p.y), radius, c.rgb(sc.r, sc.g, sc.b));
+        };
+
+        // The same site is referenced by many mission records, so draw each
+        // (position, side, class) once or the map turns into a ball of rings.
+        std::set<std::tuple<int, int, int, std::string>> seen;
+        auto draw_once = [&](const Vec3& p, Threat kind, const std::string& side) {
+            const int cls = static_cast<int>(kind);
+            if (!seen.emplace(p.x, p.y, cls, side).second) return;
+            draw_ring(p, kind, side);
+        };
+
+        for (const auto& m : ds.missions) {
+            // `MISSION.CFG` carries ground units as GROUP records; the archive
+            // mission dialect uses FLIGHT. Accept both.
+            for (const auto& g : m.groups) {
+                if (!g.pos) continue;
+                draw_once(*g.pos, classify_threat(g.type), m.side);
+            }
+            for (const auto& f : m.flights) {
+                if (!f.pos) continue;
+                draw_once(*f.pos, classify_threat(f.aircraft), m.side);
+            }
+            // Early-warning sites also appear as target areas.
+            for (const auto& t : m.targets) {
+                for (const auto& a : t.areas) {
+                    if (!a.pos) continue;
+                    if (a.type.find("EWR") == std::string::npos &&
+                        a.name.find("WARNING") == std::string::npos) {
+                        continue;
+                    }
+                    draw_once(*a.pos, Threat::ewr, m.side);
+                }
+            }
+        }
     }
 
     if (!ds.missions.empty()) {
@@ -278,6 +392,59 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
            << "   world [" << minx << ".." << maxx << "] x ["
            << miny << ".." << maxy << "]";
         draw_text(c, f_small, 20, H - 27, os.str(), dim);
+    }
+
+    // Coverage overlays. Rings are drawn for every ground unit in the theatre,
+    // coloured by the side that owns it, matching the planner's two toggles.
+    if (opt.sam_coverage || opt.ewr_coverage) {
+        const double scale = static_cast<double>(right - left) /
+                             static_cast<double>(std::max(maxx - minx, 1));
+        auto draw_ring = [&](const Vec3& p, Threat kind, const std::string& side) {
+            int cells = 0;
+            if (kind == Threat::ewr) cells = kEwrRangeCells;
+            else if (kind == Threat::sam) cells = kSamRangeCells;
+            else if (kind == Threat::aaa) cells = kAaaRangeCells;
+            if (cells == 0) return;
+            if (kind == Threat::ewr && !opt.ewr_coverage) return;
+            if (kind != Threat::ewr && !opt.sam_coverage) return;
+            const int radius = static_cast<int>(std::lround(
+                cells * opt.coverage_scale * scale));
+            const SDL_Color sc = side_color(side);
+            c.ring(px(p.x), py(p.y), radius, c.rgb(sc.r, sc.g, sc.b));
+        };
+
+        // The same site is referenced by many mission records, so draw each
+        // (position, side, class) once or the map turns into a ball of rings.
+        std::set<std::tuple<int, int, int, std::string>> seen;
+        auto draw_once = [&](const Vec3& p, Threat kind, const std::string& side) {
+            const int cls = static_cast<int>(kind);
+            if (!seen.emplace(p.x, p.y, cls, side).second) return;
+            draw_ring(p, kind, side);
+        };
+
+        for (const auto& m : ds.missions) {
+            // `MISSION.CFG` carries ground units as GROUP records; the archive
+            // mission dialect uses FLIGHT. Accept both.
+            for (const auto& g : m.groups) {
+                if (!g.pos) continue;
+                draw_once(*g.pos, classify_threat(g.type), m.side);
+            }
+            for (const auto& f : m.flights) {
+                if (!f.pos) continue;
+                draw_once(*f.pos, classify_threat(f.aircraft), m.side);
+            }
+            // Early-warning sites also appear as target areas.
+            for (const auto& t : m.targets) {
+                for (const auto& a : t.areas) {
+                    if (!a.pos) continue;
+                    if (a.type.find("EWR") == std::string::npos &&
+                        a.name.find("WARNING") == std::string::npos) {
+                        continue;
+                    }
+                    draw_once(*a.pos, Threat::ewr, m.side);
+                }
+            }
+        }
     }
 
     if (!ds.missions.empty()) {
@@ -344,6 +511,59 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     }
 
     // selected mission target labels and waypoint indices
+    // Coverage overlays. Rings are drawn for every ground unit in the theatre,
+    // coloured by the side that owns it, matching the planner's two toggles.
+    if (opt.sam_coverage || opt.ewr_coverage) {
+        const double scale = static_cast<double>(right - left) /
+                             static_cast<double>(std::max(maxx - minx, 1));
+        auto draw_ring = [&](const Vec3& p, Threat kind, const std::string& side) {
+            int cells = 0;
+            if (kind == Threat::ewr) cells = kEwrRangeCells;
+            else if (kind == Threat::sam) cells = kSamRangeCells;
+            else if (kind == Threat::aaa) cells = kAaaRangeCells;
+            if (cells == 0) return;
+            if (kind == Threat::ewr && !opt.ewr_coverage) return;
+            if (kind != Threat::ewr && !opt.sam_coverage) return;
+            const int radius = static_cast<int>(std::lround(
+                cells * opt.coverage_scale * scale));
+            const SDL_Color sc = side_color(side);
+            c.ring(px(p.x), py(p.y), radius, c.rgb(sc.r, sc.g, sc.b));
+        };
+
+        // The same site is referenced by many mission records, so draw each
+        // (position, side, class) once or the map turns into a ball of rings.
+        std::set<std::tuple<int, int, int, std::string>> seen;
+        auto draw_once = [&](const Vec3& p, Threat kind, const std::string& side) {
+            const int cls = static_cast<int>(kind);
+            if (!seen.emplace(p.x, p.y, cls, side).second) return;
+            draw_ring(p, kind, side);
+        };
+
+        for (const auto& m : ds.missions) {
+            // `MISSION.CFG` carries ground units as GROUP records; the archive
+            // mission dialect uses FLIGHT. Accept both.
+            for (const auto& g : m.groups) {
+                if (!g.pos) continue;
+                draw_once(*g.pos, classify_threat(g.type), m.side);
+            }
+            for (const auto& f : m.flights) {
+                if (!f.pos) continue;
+                draw_once(*f.pos, classify_threat(f.aircraft), m.side);
+            }
+            // Early-warning sites also appear as target areas.
+            for (const auto& t : m.targets) {
+                for (const auto& a : t.areas) {
+                    if (!a.pos) continue;
+                    if (a.type.find("EWR") == std::string::npos &&
+                        a.name.find("WARNING") == std::string::npos) {
+                        continue;
+                    }
+                    draw_once(*a.pos, Threat::ewr, m.side);
+                }
+            }
+        }
+    }
+
     if (!ds.missions.empty()) {
         const Mission& m = ds.missions[sel];
         for (const auto& t : m.targets) {

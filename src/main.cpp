@@ -18,7 +18,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <array>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -32,6 +34,10 @@ void usage() {
         "  --stats             print dataset counts\n"
         "  --list              list missions\n"
         "  --focus             fit the map to the selected mission\n"
+        "  --sam-coverage      draw SAM engagement rings (radius is assumed)\n"
+        "  --ewr-coverage      draw early-warning radar rings\n"
+        "  --coverage-scale N  scale those assumed radii (default 1.0)\n"
+        "  --bounds X0,Y0,X1,Y1  frame the map explicitly (world units)\n"
         "  --export FILE.png   render the selected mission to PNG\n"
         "  --interactive       open the SDL window\n"
         "  --models            list the 3D shape entries of DID.DAT\n"
@@ -66,7 +72,14 @@ std::string default_data() {
     return "game-data";
 }
 
-int run_interactive(const ef::Dataset& ds, int selected, bool focus) {
+struct CoverageOptions {
+    bool sam = false;
+    bool ewr = false;
+    float scale = 1.0f;
+};
+
+int run_interactive(const ef::Dataset& ds, int selected, bool focus,
+                    const CoverageOptions& coverage) {
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
@@ -120,6 +133,9 @@ int run_interactive(const ef::Dataset& ds, int selected, bool focus) {
                         ef::RenderOptions opt;
                         opt.selected = selected;
                         opt.focus = focus;
+                        opt.sam_coverage = coverage.sam;
+                        opt.ewr_coverage = coverage.ewr;
+                        opt.coverage_scale = coverage.scale;
                         SDL_Surface* surf = ef::render_map(ds, opt);
                         if (surf) {
                             bool ok = ef::save_png(surf, "ef2000-mission.png");
@@ -137,6 +153,9 @@ int run_interactive(const ef::Dataset& ds, int selected, bool focus) {
         ef::RenderOptions opt;
         opt.selected = selected;
         opt.focus = focus;
+        opt.sam_coverage = coverage.sam;
+        opt.ewr_coverage = coverage.ewr;
+        opt.coverage_scale = coverage.scale;
         SDL_Surface* surf = ef::render_map(ds, opt);
         if (surf) {
             SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
@@ -705,6 +724,9 @@ int main(int argc, char** argv) {
     bool gui_list = false;
     bool gui_routines = false;
     bool gui_selftest = false;
+    bool sam_coverage = false, ewr_coverage = false;
+    float coverage_scale = 1.0f;
+    std::optional<std::array<int, 4>> map_bounds;
     float cam_yaw = 0.75f, cam_pitch = 0.35f, cam_zoom = 1.0f;
     int mission = 0;
     int lod = 0;
@@ -752,6 +774,17 @@ int main(int argc, char** argv) {
             gui_routines = true;
         } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
             gui_selftest = true;
+        } else if (std::strcmp(argv[i], "--sam-coverage") == 0) {
+            sam_coverage = true;
+        } else if (std::strcmp(argv[i], "--ewr-coverage") == 0) {
+            ewr_coverage = true;
+        } else if (std::strcmp(argv[i], "--coverage-scale") == 0 && i + 1 < argc) {
+            coverage_scale = static_cast<float>(std::atof(argv[++i]));
+        } else if (std::strcmp(argv[i], "--bounds") == 0 && i + 1 < argc) {
+            int x0 = 0, y0 = 0, x1 = 0, y1 = 0;
+            if (std::sscanf(argv[++i], "%d,%d,%d,%d", &x0, &y0, &x1, &y1) == 4) {
+                map_bounds = std::array<int, 4>{x0, y0, x1, y1};
+            }
         } else if (std::strcmp(argv[i], "--camera") == 0 && i + 1 < argc) {
             // "yaw,pitch,zoom" in degrees (zoom optional)
             if (std::sscanf(argv[++i], "%f,%f,%f", &cam_yaw, &cam_pitch, &cam_zoom) >= 2) {
@@ -989,12 +1022,18 @@ int main(int argc, char** argv) {
                         m.side.c_str(), m.role.c_str(), m.status.c_str());
         }
     }
-    if (interactive) return run_interactive(ds, mission, focus);
+    if (interactive) {
+        return run_interactive(ds, mission, focus,{sam_coverage, ewr_coverage, coverage_scale});
+    }
 
     if (!export_path.empty()) {
         ef::RenderOptions opt;
         opt.selected = mission;
         opt.focus = focus;
+        opt.sam_coverage = sam_coverage;
+        opt.ewr_coverage = ewr_coverage;
+        opt.coverage_scale = coverage_scale;
+        opt.bounds = map_bounds;
         SDL_Surface* surf = ef::render_map(ds, opt);
         if (!surf) {
             std::fprintf(stderr, "render failed: %s\n", SDL_GetError());

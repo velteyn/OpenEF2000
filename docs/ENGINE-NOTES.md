@@ -36,7 +36,27 @@ cmake --build build -j
 # 3D shapes straight out of DID.DAT
 ./build/openef2000 --data /path/to/game-data --mesh efa \
     --export-mesh efa.obj --mesh-preview efa.png
+
+# planner map with coverage overlays
+./build/openef2000 --data /path/to/game-data --bounds 0,0,400,400 \
+    --sam-coverage --ewr-coverage --export planner.png
 ```
+
+### Coverage overlays
+
+`--sam-coverage` and `--ewr-coverage` mirror the planner's `mpSamCoverage` and
+`mpEWRCoverage` toggles. Ground units come from `GROUP` records in
+`MISSION.CFG` (`PATRIOT_1/2`, `ROLAND`, `RAPIER`, `SA_6`, `SA_11`,
+`MARCONI_S373/S723`, `ZSU_23_4_SHILKA`, …); rings are coloured by the side that
+owns the unit.
+
+**The radii are assumptions, not data.** The shipped files carry no range per
+unit type, so the renderer uses fixed per-class values in mission grid cells —
+8 (AAA), 25 (SAM), 60 (EWR) — and scales them with `--coverage-scale`. Treat
+them as a placeholder until a range table is found.
+
+A site is referenced by many mission records, so rings are deduplicated on
+(position, side, class); without that the map becomes a ball of circles.
 
 Options:
 
