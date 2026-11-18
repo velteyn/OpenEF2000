@@ -24,6 +24,7 @@
 
 #include <SDL2/SDL.h>
 
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -48,13 +49,28 @@ struct GuiWidget {
     int box = -1, bkd = -1, boxs = -1, bkds = -1;
     int line = -1, txtclr = -1, txtclrs = -1, textlen = -1;
 
+    //! `key` / `skey` activators, lowercased (e.g. "esc", "ret", "c", "f1").
+    std::string key;
+    std::string skey;
+
     std::string textpos = "left";
     std::map<std::string, std::string> text;  //!< "en"/"fr"/"de" -> string
 
     int esg = -1;  //!< exclusive selection group
     bool disable = false;
-    bool editable = false;
     bool hidden = false;
+
+    //! `editable N` declares a text field that accepts N characters. -1 is a
+    //! plain label.
+    int editable_len = -1;
+    //! `editableoff`: the field exists but does not start in edit mode.
+    bool editable_off = false;
+    //! Current contents of an editable field (or the initial text).
+    std::string value;
+
+    //! `toggle click`: activation flips the selected state instead of setting
+    //! it. Used by the checkbox-style widgets in `camp.gui`.
+    bool toggle = false;
 
     std::vector<GuiAction> actions;
 
@@ -83,6 +99,18 @@ struct GuiWindow {
     bool nojump = false;
 
     std::string on_open, on_close, redraw, update;
+
+    //! Scrollable client area (`xscroll` / `yscroll`) and its current offset.
+    bool scroll_x = false, scroll_y = false;
+    int scroll_x_pos = 0, scroll_y_pos = 0;
+
+    //! `infrontof <window>` places this window ahead of the named one;
+    //! `jumptofront` raises it on open.
+    std::string infront_of;
+    bool jump_to_front = false;
+
+    //! Routine references that run when the window closes or per frame.
+    std::string close_down, main_loop;
 
     std::vector<GuiWidget> icons;
 
@@ -154,6 +182,33 @@ public:
     //! Screens queued by `screen`/`task` verbs; consumed by the driver.
     std::vector<std::string> take_screen_requests();
 
+    //! Client rectangle of a window: the area icons are laid out in.
+    static SDL_Rect client_rect(const GuiWindow& window);
+
+    //! Scrolls a window, clamped to its content. Returns true if it moved.
+    bool scroll_window(const std::string& name, int dx, int dy);
+
+    //! Dispatches a key to the first visible widget bound to it.
+    //! Accepts `esc`, `ret`, `space`, `f1`.., or a single character.
+    bool key_press(const std::string& key);
+
+    //! Focused editable field, if any.
+    GuiWidget* focused_field();
+    void focus_field(const std::string& window, const std::string& icon);
+    bool type_text(const std::string& utf8);  //!< appends to the focused field
+    bool backspace();
+
+    //! Routines: the C half of the GUI. Registration lets the driver supply
+    //! behaviour for names the `.gui` files reference but cannot define.
+    void register_routine(const std::string& name, std::function<void(GuiSystem&)> handler);
+    //! Routines referenced by the current screen but not registered.
+    std::vector<std::string> missing_routines() const;
+    //! Every routine name the current screen references, sorted.
+    std::vector<std::string> referenced_routines() const;
+
+    void request_quit() { quit_requested_ = true; }
+    bool quit_requested() const { return quit_requested_; }
+
     const std::vector<std::string>& log() const { return log_; }
 
 private:
@@ -162,7 +217,15 @@ private:
     std::map<std::pair<std::string, std::string>, bool> selected_;
     std::vector<std::string> screen_requests_;
     std::vector<std::string> log_;
+
+    std::pair<std::string, std::string> focus_;  //!< window, icon
+    std::map<std::string, std::function<void(GuiSystem&)>> routines_;
+    std::vector<std::string> unimplemented_;
+    bool quit_requested_ = false;
 };
+
+//! Maps a key event to the name the `.gui` files use ("esc", "ret", "f1", "c").
+std::string gui_key_name(const SDL_Keysym& key);
 
 //! `colours\<name>.col` as 0x00RRGGBB.
 std::optional<Palette> load_gui_palette(const DidArchive& archive,

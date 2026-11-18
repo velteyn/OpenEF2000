@@ -47,6 +47,8 @@ void usage() {
         "  --gui SCREEN        load a GUI screen, e.g. mainmenu or missplan\n"
         "  --gui-render FILE   render that screen to PNG (headless)\n"
         "  --gui-list          list the GUI screens in DID.DAT\n"
+        "  --gui-routines      with --gui SCREEN, list the routines it needs\n"
+        "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --gui-lang LANG     en|fr|de (default en)\n");
 }
 
@@ -403,6 +405,14 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
 
     ef::GuiSystem system;
     system.set_screen(std::move(*screen));
+
+    // The one routine whose effect is stated by its own name (and by the
+    // `quit` / `sure` windows that reference it). Everything else stays
+    // unimplemented on purpose: see docs/FILE_FORMATS.md, F8.
+    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
+        gui.request_quit();
+    });
+
     std::optional<ef::IlbmImage> backdrop =
         ef::load_backdrop(did, system.screen().picture);
 
@@ -429,7 +439,52 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) running = false;
-            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_ESCAPE) running = false;
+
+            if (ev.type == SDL_TEXTINPUT) {
+                // Typing goes to the focused field; the `.gui` files declare
+                // fields with `editable <max length>`.
+                if (system.type_text(ev.text.text)) dirty = true;
+                continue;
+            }
+            if (ev.type == SDL_KEYDOWN) {
+                const bool have_field = system.focused_field() != nullptr;
+                if (ev.key.keysym.sym == SDLK_BACKSPACE && have_field) {
+                    if (system.backspace()) dirty = true;
+                    continue;
+                }
+                if (ev.key.keysym.sym == SDLK_ESCAPE) {
+                    if (have_field) {
+                        system.focus_field(std::string(), std::string());
+                        dirty = true;
+                    } else {
+                        running = false;
+                    }
+                    continue;
+                }
+                if (ev.key.keysym.sym == SDLK_RETURN && have_field) {
+                    system.focus_field(std::string(), std::string());
+                    dirty = true;
+                    continue;
+                }
+                // Do not steal printable keys while a field has focus.
+                const std::string name = ef::gui_key_name(ev.key.keysym);
+                if (!name.empty() && !have_field) {
+                    const bool shift = (ev.key.keysym.mod & KMOD_SHIFT) != 0;
+                    if (system.key_press(shift ? "shift+" + name : name)) dirty = true;
+                }
+                continue;
+            }
+            if (ev.type == SDL_MOUSEWHEEL) {
+                int mx = 0, my = 0;
+                SDL_GetMouseState(&mx, &my);
+                float lx = 0, ly = 0;
+                SDL_RenderWindowToLogical(renderer, mx, my, &lx, &ly);
+                if (auto* w = system.window_at(static_cast<int>(lx), static_cast<int>(ly))) {
+                    // `xscroll`/`yscroll` declare the axis; three lines a notch.
+                    if (system.scroll_window(w->name, 0, -ev.wheel.y * 3)) dirty = true;
+                }
+                continue;
+            }
             if (ev.type == SDL_MOUSEMOTION || ev.type == SDL_MOUSEBUTTONDOWN ||
                 ev.type == SDL_MOUSEBUTTONUP) {
                 int mx = 0, my = 0;
@@ -444,8 +499,14 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                 auto* win = system.window_at(px, py);
                 std::string icon;
                 if (win != nullptr) {
+                    // Icons sit in the client area, shifted by the scroll
+                    // offset; hit testing must follow the same geometry.
+                    const SDL_Rect client = ef::GuiSystem::client_rect(*win);
                     for (auto& i : win->icons) {
-                        if (!i.disable && i.contains(px - win->x, py - win->y)) {
+                        if (i.disable || i.hidden) continue;
+                        const int lx = px - (client.x + i.x - win->scroll_x_pos);
+                        const int ly = py - (client.y + i.y - win->scroll_y_pos);
+                        if (lx >= 0 && ly >= 0 && lx < i.w && ly < i.h) {
                             icon = i.name;
                             break;
                         }
@@ -459,9 +520,14 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     if (!hover_icon.empty()) system.fire(hover_window, hover_icon, "entering");
                     dirty = true;
                 }
-                if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT &&
-                    !hover_icon.empty()) {
-                    system.fire(hover_window, hover_icon, "click");
+                if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
+                    // Clicking a text field focuses it; clicking elsewhere blurs.
+                    if (!hover_icon.empty()) {
+                        system.focus_field(hover_window, hover_icon);
+                        system.fire(hover_window, hover_icon, "click");
+                    } else {
+                        system.focus_field(std::string(), std::string());
+                    }
                     dirty = true;
                 }
                 if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT &&
@@ -483,11 +549,16 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
             }
         }
 
+        if (system.quit_requested()) running = false;
+
         for (const auto& next : system.take_screen_requests()) {
             auto loaded = loader.load(next, &error);
             if (!loaded) continue;
             system.set_screen(std::move(*loaded));
             backdrop = ef::load_backdrop(did, system.screen().picture);
+            // The hover pair belongs to the old screen's windows.
+            hover_window.clear();
+            hover_icon.clear();
             dirty = true;
         }
 
@@ -523,6 +594,101 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     return 0;
 }
 
+
+// Deterministic checks for the GUI runtime. Uses a synthetic screen so it does
+// not depend on game data, window managers or timing, and runs in CI.
+int run_gui_selftest() {
+    const char* dsl = R"(
+window test
+xpos 0
+ypos 0
+xsize 100
+ysize 50
+open
+yscroll
+
+icon tall
+xpos 0
+ypos 200
+xsize 10
+ysize 20
+
+icon field
+xpos 0
+ypos 0
+xsize 40
+ysize 10
+editable 3
+
+icon keyed
+xpos 0
+ypos 10
+xsize 10
+ysize 10
+key x
+call release
+routine DoThing
+
+icon sub
+xpos 0
+ypos 20
+xsize 10
+ysize 10
+call click
+submenu extra
+
+window extra
+xpos 200
+ypos 0
+xsize 50
+ysize 50
+)";
+
+    int failures = 0;
+    auto check = [&](const char* what, bool ok) {
+        std::printf("  %-46s %s\n", what, ok ? "ok" : "FAIL");
+        if (!ok) ++failures;
+    };
+
+    ef::GuiSystem system;
+    system.set_screen(ef::GuiLoader::parse("selftest", dsl));
+
+    check("window marked `open` is visible", system.find_window("test") != nullptr &&
+                                                system.find_window("test")->visible);
+    check("window without `open` starts hidden",
+          system.find_window("extra") != nullptr && !system.find_window("extra")->visible);
+
+    check("key binding dispatches", system.key_press("x"));
+    check("key binding logged the routine",
+          system.log().size() == 1 && system.log()[0].find("DoThing") != std::string::npos);
+    const auto missing = system.missing_routines();
+    check("unregistered routine is reported missing",
+          std::find(missing.begin(), missing.end(), "DoThing") != missing.end());
+
+    system.focus_field("test", "field");
+    check("editable field takes focus", system.focused_field() != nullptr);
+    for (const char* ch : {"a", "b", "c", "d"}) system.type_text(ch);
+    auto* field = system.find_widget("test", "field");
+    check("editable field stops at its declared length",
+          field != nullptr && field->value == "abc");
+    system.backspace();
+    check("backspace edits the field", field != nullptr && field->value == "ab");
+
+    check("scroll clamps to content", system.scroll_window("test", 0, 1000) &&
+                                          system.find_window("test")->scroll_y_pos == 170);
+    check("scroll clamps at the top",
+          system.scroll_window("test", 0, -1000) &&
+              system.find_window("test")->scroll_y_pos == 0);
+
+    system.fire("test", "sub", "click");
+    check("submenu opens the named window in the same file",
+          system.find_window("extra") != nullptr && system.find_window("extra")->visible);
+
+    std::printf("%s (%d failure%s)\n", failures == 0 ? "gui selftest: PASS" : "gui selftest: FAIL",
+                failures, failures == 1 ? "" : "s");
+    return failures == 0 ? 0 : 1;
+}
+
 int main(int argc, char** argv) {
     std::string data = default_data();
     std::string export_path;
@@ -537,6 +703,8 @@ int main(int argc, char** argv) {
     std::string gui_render;
     std::string gui_lang = "en";
     bool gui_list = false;
+    bool gui_routines = false;
+    bool gui_selftest = false;
     float cam_yaw = 0.75f, cam_pitch = 0.35f, cam_zoom = 1.0f;
     int mission = 0;
     int lod = 0;
@@ -580,6 +748,10 @@ int main(int argc, char** argv) {
             gui_lang = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-list") == 0) {
             gui_list = true;
+        } else if (std::strcmp(argv[i], "--gui-routines") == 0) {
+            gui_routines = true;
+        } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
+            gui_selftest = true;
         } else if (std::strcmp(argv[i], "--camera") == 0 && i + 1 < argc) {
             // "yaw,pitch,zoom" in degrees (zoom optional)
             if (std::sscanf(argv[++i], "%f,%f,%f", &cam_yaw, &cam_pitch, &cam_zoom) >= 2) {
@@ -600,6 +772,8 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+
+    if (gui_selftest) return run_gui_selftest();
 
     if (gui_list || !gui_screen.empty()) {
         namespace fs = std::filesystem;
@@ -626,6 +800,31 @@ int main(int argc, char** argv) {
                 }
             }
             std::printf("%zu screens\n", count);
+            return 0;
+        }
+        if (gui_routines) {
+            ef::GuiLoader loader(did);
+            std::string error;
+            auto screen = loader.load(gui_screen, &error);
+            if (!screen) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            ef::GuiSystem system;
+            system.set_screen(std::move(*screen));
+            system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
+                gui.request_quit();
+            });
+            const auto referenced = system.referenced_routines();
+            const auto missing = system.missing_routines();
+            std::printf("%s: %zu routine references, %zu implemented, %zu missing\n",
+                        gui_screen.c_str(), referenced.size(),
+                        referenced.size() - missing.size(), missing.size());
+            for (const auto& name : referenced) {
+                const bool done = std::find(missing.begin(), missing.end(), name) ==
+                                  missing.end();
+                std::printf("  %-28s %s\n", name.c_str(), done ? "implemented" : "--");
+            }
             return 0;
         }
         if (!gui_render.empty()) {

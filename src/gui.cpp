@@ -237,6 +237,26 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
             icon->textpos = lower(words[1]);
             continue;
         }
+        if (icon != nullptr && (head == "key" || head == "skey") && words.size() > 1) {
+            (head == "key" ? icon->key : icon->skey) = lower(words[1]);
+            continue;
+        }
+        if (icon != nullptr && head == "editable") {
+            // `editable N` is a text field of maximum length N.
+            icon->editable_len = words.size() > 1 ? to_int(words[1]) : 0;
+            if (icon->value.empty()) icon->value = icon->label("en");
+            continue;
+        }
+        if (icon != nullptr && head == "editableoff") {
+            // Declares the initial state only; the field stays editable.
+            icon->editable_off = true;
+            continue;
+        }
+        if (icon != nullptr && head == "toggle" && words.size() > 1 &&
+            lower(words[1]) == "click") {
+            icon->toggle = true;
+            continue;
+        }
 
         // ---- events and verbs ----------------------------------------------
         if ((head == "select" || head == "unselect") && icon != nullptr && words.size() > 1) {
@@ -265,6 +285,12 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
             if (head == "is3d") { win->is3d = true; continue; }
             if (head == "fullsize") { win->fullsize = true; continue; }
             if (head == "nojump") { win->nojump = true; continue; }
+            if (head == "xscroll") { win->scroll_x = true; continue; }
+            if (head == "yscroll") { win->scroll_y = true; continue; }
+            if (head == "jumptofront") { win->jump_to_front = true; continue; }
+            if (head == "infrontof" && words.size() > 1) { win->infront_of = words[1]; continue; }
+            if (head == "closedown" && words.size() > 1) { win->close_down = words[1]; continue; }
+            if (head == "mainloop" && words.size() > 1) { win->main_loop = words[1]; continue; }
             if (head == "onopen" && words.size() > 1) { win->on_open = words[1]; continue; }
             if (head == "onclose" && words.size() > 1) { win->on_close = words[1]; continue; }
             if (head == "redraw" && words.size() > 1) { win->redraw = words[1]; continue; }
@@ -273,8 +299,6 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
         if (icon != nullptr) {
             if (head == "disable") { icon->disable = true; continue; }
             if (head == "enable") { icon->disable = false; continue; }
-            if (head == "editable") { icon->editable = true; continue; }
-            if (head == "editableoff") { icon->editable = false; continue; }
         }
         // Everything else (xscroll, yscroll, resize, back, infrontof, offscreen,
         // skey, toggle, ...) is behaviour we do not model yet.
@@ -337,6 +361,15 @@ void GuiSystem::apply_initial_visibility() {
         w.visible = w.open || w.name == "menu";
         w.z = w.visible ? next_z_++ : 0;
     }
+    // `infrontof <window>` asks for a specific stacking order; satisfy it by
+    // swapping ranks so the window ends up ahead of its reference.
+    for (auto& w : screen_.windows) {
+        if (!w.visible || w.infront_of.empty()) continue;
+        auto* target = find_window(w.infront_of);
+        if (target != nullptr && target->visible && w.z < target->z) {
+            std::swap(w.z, target->z);
+        }
+    }
 }
 
 GuiWindow* GuiSystem::find_window(const std::string& name) {
@@ -370,6 +403,8 @@ void GuiSystem::open_window(const std::string& name) {
     if (w == nullptr) return;
     w->visible = true;
     w->z = next_z_++;
+    // `jumptofront` asks for the window to be raised whenever it opens.
+    if (w->jump_to_front) bring_to_front(name);
 }
 
 void GuiSystem::close_window(const std::string& name) {
@@ -414,11 +449,33 @@ std::vector<GuiAction> GuiSystem::fire(const std::string& window,
     const auto actions = widget->actions;
     for (const auto& a : actions) {
         if (a.event != event) continue;
-        if (a.verb == "select") { select(window, icon, true); continue; }
+        if (a.verb == "select") {
+            const bool flip = widget->toggle && is_selected(window, icon);
+            select(window, icon, !flip);
+            continue;
+        }
         if (a.verb == "unselect") { select(window, icon, false); continue; }
         if (a.verb == "screen" || a.verb == "task") screen_requests_.push_back(a.value);
         if (a.verb == "openwindow") open_window(a.value);
         if (a.verb == "closewindow") close_window(a.value);
+        if (a.verb == "submenu" || a.verb == "openmenu") {
+            // The named menu is defined in the same file (`menu=NAME` becomes a
+            // window), so opening it is resolution rather than guesswork.
+            if (find_window(a.value) != nullptr) {
+                open_window(a.value);
+                bring_to_front(a.value);
+            } else {
+                screen_requests_.push_back(a.value);
+            }
+        }
+        if (a.verb == "routine") {
+            if (auto it = routines_.find(a.value); it != routines_.end()) {
+                it->second(*this);
+            } else if (std::find(unimplemented_.begin(), unimplemented_.end(), a.value) ==
+                       unimplemented_.end()) {
+                unimplemented_.push_back(a.value);
+            }
+        }
         log_.push_back(window + "." + icon + ":" + event + " -> " + a.verb +
                        (a.value.empty() ? "" : " " + a.value));
         ran.push_back(a);
@@ -426,10 +483,161 @@ std::vector<GuiAction> GuiSystem::fire(const std::string& window,
     return ran;
 }
 
+SDL_Rect GuiSystem::client_rect(const GuiWindow& window) {
+    // Icon coordinates are client-area coordinates: below the title bar when
+    // the window has one, matching the renderer.
+    const int title = window.title.empty() ? 0 : 16;
+    return SDL_Rect{window.x, window.y + title, window.w,
+                    std::max(window.h - title, 0)};
+}
+
+bool GuiSystem::scroll_window(const std::string& name, int dx, int dy) {
+    auto* w = find_window(name);
+    if (w == nullptr) return false;
+
+    const SDL_Rect client = client_rect(*w);
+    int content_w = 0, content_h = 0;
+    for (const auto& icon : w->icons) {
+        content_w = std::max(content_w, icon.x + icon.w);
+        content_h = std::max(content_h, icon.y + icon.h);
+    }
+    const int max_x = w->scroll_x ? std::max(0, content_w - client.w) : 0;
+    const int max_y = w->scroll_y ? std::max(0, content_h - client.h) : 0;
+
+    const int old_x = w->scroll_x_pos, old_y = w->scroll_y_pos;
+    w->scroll_x_pos = std::clamp(w->scroll_x_pos + dx, 0, max_x);
+    w->scroll_y_pos = std::clamp(w->scroll_y_pos + dy, 0, max_y);
+    return old_x != w->scroll_x_pos || old_y != w->scroll_y_pos;
+}
+
+bool GuiSystem::key_press(const std::string& raw) {
+    std::string key = lower(raw);
+    bool shift = false;
+    if (key.rfind("shift+", 0) == 0) {
+        shift = true;
+        key = key.substr(6);
+    }
+    // Common spellings for the same physical key.
+    if (key == "return" || key == "enter") key = "ret";
+    if (key == "escape") key = "esc";
+
+    // Topmost window first, so a dialog swallows keys from what is beneath it.
+    std::vector<GuiWindow*> order;
+    for (auto& w : screen_.windows) {
+        if (w.visible) order.push_back(&w);
+    }
+    std::sort(order.begin(), order.end(),
+              [](const GuiWindow* a, const GuiWindow* b) { return a->z > b->z; });
+
+    for (GuiWindow* w : order) {
+        for (auto& icon : w->icons) {
+            if (icon.disable || icon.hidden) continue;
+            const std::string& bound = shift ? icon.skey : icon.key;
+            if (bound.empty() || bound != key) continue;
+            // A key activates the widget the same way releasing the mouse does;
+            // fire both activation events and let the file's verbs decide.
+            fire(w->name, icon.name, "release");
+            fire(w->name, icon.name, "click");
+            return true;
+        }
+    }
+    return false;
+}
+
+GuiWidget* GuiSystem::focused_field() {
+    if (focus_.first.empty()) return nullptr;
+    auto* widget = find_widget(focus_.first, focus_.second);
+    if (widget == nullptr || widget->editable_len < 0) return nullptr;
+    return widget;
+}
+
+void GuiSystem::focus_field(const std::string& window, const std::string& icon) {
+    auto* widget = find_widget(window, icon);
+    focus_ = (widget != nullptr && widget->editable_len >= 0)
+                 ? std::make_pair(window, icon)
+                 : std::make_pair(std::string(), std::string());
+}
+
+bool GuiSystem::type_text(const std::string& utf8) {
+    auto* field = focused_field();
+    if (field == nullptr) return false;
+    if (static_cast<int>(field->value.size()) >= field->editable_len) return false;
+    field->value += utf8;
+    return true;
+}
+
+bool GuiSystem::backspace() {
+    auto* field = focused_field();
+    if (field == nullptr || field->value.empty()) return false;
+    field->value.pop_back();
+    return true;
+}
+
+void GuiSystem::register_routine(const std::string& name,
+                                 std::function<void(GuiSystem&)> handler) {
+    routines_[name] = std::move(handler);
+}
+
+std::vector<std::string> GuiSystem::referenced_routines() const {
+    std::vector<std::string> names;
+    auto add = [&](const std::string& n) {
+        if (n.empty()) return;
+        if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
+    };
+    for (const auto& w : screen_.windows) {
+        add(w.on_open);
+        add(w.on_close);
+        add(w.redraw);
+        add(w.update);
+        add(w.close_down);
+        add(w.main_loop);
+        for (const auto& icon : w.icons) {
+            for (const auto& a : icon.actions) {
+                if (a.verb == "routine") add(a.value);
+            }
+        }
+    }
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
+std::vector<std::string> GuiSystem::missing_routines() const {
+    std::vector<std::string> missing;
+    for (const auto& name : referenced_routines()) {
+        if (routines_.find(name) == routines_.end()) missing.push_back(name);
+    }
+    return missing;
+}
+
 std::vector<std::string> GuiSystem::take_screen_requests() {
     auto out = std::move(screen_requests_);
     screen_requests_.clear();
     return out;
+}
+
+std::string gui_key_name(const SDL_Keysym& key) {
+    if (key.sym >= SDLK_F1 && key.sym <= SDLK_F12) {
+        return "f" + std::to_string(key.sym - SDLK_F1 + 1);
+    }
+    switch (key.sym) {
+        case SDLK_ESCAPE: return "esc";
+        case SDLK_RETURN:
+        case SDLK_KP_ENTER: return "ret";
+        case SDLK_SPACE: return "space";
+        case SDLK_TAB: return "tab";
+        case SDLK_BACKSPACE: return "backspace";
+        case SDLK_UP: return "up";
+        case SDLK_DOWN: return "down";
+        case SDLK_LEFT: return "left";
+        case SDLK_RIGHT: return "right";
+        default: break;
+    }
+    if (key.sym >= 32 && key.sym < 127) {
+        char c = static_cast<char>(key.sym);
+        if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
+        return std::string(1, c);
+    }
+    return {};
 }
 
 std::optional<Palette> load_gui_palette(const DidArchive& archive, const std::string& name) {

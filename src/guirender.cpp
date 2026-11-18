@@ -137,17 +137,20 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                   map_rgb(fmt, palette[static_cast<std::size_t>(fill_index) & 0xFF]));
         frame(surface, win->x, win->y, win->w, win->h, palette, false);
 
-        int content_top = 0;
         const std::string title = win->title_text(options.language);
         if (!title.empty()) {
             fill_rect(surface, win->x + 2, win->y + 2, win->w - 4, 13,
                       map_rgb(fmt, palette[hovered ? 12 : 11]));
             hline(surface, win->x + 2, win->y + 15, win->w - 4, map_rgb(fmt, palette[9]));
             text(win->x + 5, win->y + 1, title, palette[15]);
-            // Icon coordinates are client-area coordinates, so they start
-            // below the title bar.
-            content_top = 16;
         }
+
+        // Icons live in the client area; scrollable windows offset them and
+        // clip to the client rectangle.
+        const SDL_Rect client = GuiSystem::client_rect(*win);
+        SDL_Rect previous_clip;
+        SDL_GetClipRect(surface, &previous_clip);
+        if (win->scroll_x || win->scroll_y) SDL_SetClipRect(surface, &client);
 
         for (auto& icon : win->icons) {
             if (icon.disable || icon.hidden) continue;
@@ -155,8 +158,8 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
             const bool icon_hover =
                 hovered && options.hover_icon == icon.name;
 
-            const int left = win->x + icon.x;
-            const int top = win->y + content_top + icon.y;
+            const int left = client.x + icon.x - win->scroll_x_pos;
+            const int top = client.y + icon.y - win->scroll_y_pos;
             const int w = icon.w;
             const int h = icon.h;
 
@@ -177,7 +180,10 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                 frame(surface, left, top, w, h, palette, false);
             }
 
-            const std::string label = icon.label(options.language);
+            // An editable field shows its current contents rather than the
+            // declared label.
+            const std::string label =
+                icon.editable_len >= 0 ? icon.value : icon.label(options.language);
             if (!label.empty()) {
                 const int tw = text_width(label);
                 int tx = left + 2;
@@ -194,7 +200,13 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                 text(tx, ty, label,
                      palette[static_cast<std::size_t>(colour_index) & 0xFF]);
             }
+            if (icon.editable_len >= 0 && system.focused_field() == &icon) {
+                const int caret_x = left + 2 + text_width(label) + 1;
+                fill_rect(surface, caret_x, top + 2, 1, std::max(h - 4, 6),
+                          palette[15]);
+            }
         }
+        if (win->scroll_x || win->scroll_y) SDL_SetClipRect(surface, &previous_clip);
     }
 
     // ---- placeholder cursor ----------------------------------------------

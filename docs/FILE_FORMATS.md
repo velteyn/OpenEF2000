@@ -528,8 +528,15 @@ size inherits it from the previous widget in the same window.
 | `esg <n>` | exclusive selection group |
 | `select <event>` / `unselect <event>` | event that sets/clears selection |
 | `call <event>` | opens a block of verbs for that event |
-| `routine <name>`, `screen <name>`, `task <name>`, `openwindow <name>`, `closewindow <name>`, `submenu <name>`, `return <n>` | verbs |
-| `disable`, `editable` | interaction state |
+| `key <k>`, `skey <k>` | keyboard activator, with and without Shift |
+| `toggle click` | activation flips the selection instead of setting it |
+| `editable <n>` | text field accepting `n` characters; `editableoff` marks the initial (non-editing) state, it does not make the field read-only |
+| `disable`, `enable` | interaction state |
+| `routine <name>`, `screen <name>`, `task <name>`, `openwindow <name>`, `closewindow <name>`, `submenu <name>`, `openmenu <name>`, `return <n>` | verbs |
+
+Window properties additionally include `xscroll` / `yscroll` (client area may
+be scrolled), `infrontof <window>` (stacking hint), `jumptofront` (raise on
+open), `closedown <routine>` and `mainloop <routine>` (routine references).
 
 **Colour index 0 means hollow**, not black. Files annotate this explicitly
 (`bkd 0  ; hollow`).
@@ -540,7 +547,26 @@ the runtime, not the file.
 
 **Composition.** `include <name>` merges another screen's windows, later
 declarations replacing earlier ones of the same name. `screen`/`task` switch
-screens at runtime.
+screens at runtime. `submenu` and `openmenu` name a menu defined in the same
+file (a `menu=NAME` block becomes a window), so they open that window; if the
+name is not a window of the screen they are treated as a screen switch.
+
+### Routines: the part the files cannot define
+
+The DSL describes structure; the behaviour behind a `routine <name>` is C code
+in the original. Those names are the boundary of what can be reconstructed from
+the files alone, so an implementation should treat them as a registry:
+
+- register handlers for names whose behaviour is established;
+- record the rest as unimplemented rather than guessing;
+- expose the per-screen list of referenced names, so the gap is a visible
+  worklist rather than silent no-ops.
+
+A screen's routine references come from `routine` verbs plus the `onopen`,
+`onclose`, `redraw`, `update`, `closedown` and `mainloop` window properties.
+
+`submenu`/`openmenu`, `screen`, `task`, `openwindow`, `closewindow` and the
+keyboard bindings need no such registry: the file states their effect.
 
 ## Unverified and open questions
 
