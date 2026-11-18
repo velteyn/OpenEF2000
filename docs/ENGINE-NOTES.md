@@ -220,6 +220,28 @@ Two practical notes learned the hard way:
 | Pressing `Esc` at the main menu does nothing | the menu bar's `efamenu` widget also binds `esc` (with no routine) and wins over `quitsel`; this matches the runtime's topmost-window-first dispatch |
 | A synthesised click on the `campaign_level` **Yes** checkbox toggles it | widgets that bind `call click` do receive synthetic input |
 
+### Behaviours confirmed by play
+
+Reported from a play session and corroborated against the `.gui` files:
+
+| Menu entry | Behaviour | Evidence |
+|---|---|---|
+| **Simulator** | opens **Type of Mission** listing Free Flight, Basic Training, Weapon Training, Air to Air Combat, Ground Attack, Advanced Training, Custom Air to Air | `simulsel` carries `screen simpick`; `simpick.gui` contains those labels verbatim |
+| **Credits** | opens a large panel of credits text | `showcred` carries `openwindow credits`; the window is empty and the text is `supergui\gfxcred.txt` (5.5 KB, "DID Graphics Plus" credits, beta testers, Rendition involvement) |
+| **Multiplay** | opens two mini windows, **Network Settings** and **IPX Settings** | `screen gnet`; the windows carry `onopen gnInitSettingsWindow` and are raised by `startup gnStartup` |
+| **Quit** | opens a small dialog "Quit EF2000 ?" with Yes/No | `QuitEF2000` → the `sure` window, whose text is literally `Quit EF2000 ?` |
+| **Campaign** | opens **Campaign Level Setting** | confirmed earlier by pressing `C` |
+
+Two of these needed code rather than data: `QuitEF2000` had to raise `sure`,
+and `gnet` needed `gnStartup` to raise its panels, because screens declare a
+`startup` routine that the runtime previously ignored. The runtime now runs a
+screen's `startup` routine when one is registered and reports it as missing
+otherwise.
+
+The credits panel is the one place where the text resource had to be linked to
+the window by hand: the window is empty in `mainmenu.gui`, and the only
+matching resource is `supergui\gfxcred.txt`.
+
 ### Harness limitation: `call release` is not reachable synthetically
 
 The main-menu panels bind `call release`, and no combination tried here

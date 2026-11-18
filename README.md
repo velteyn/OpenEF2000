@@ -62,7 +62,7 @@ subsystem; it is updated as work lands.
 | Strategic map (2D) | Working prototype, with SAM/EWR coverage overlays |
 | 3D model format and bytecode interpreter | Working |
 | Texture and palette decoding | Working |
-| GUI description language and runtime | Working; routine layer is a tracked gap |
+| GUI description language and runtime | Main menu navigates; routine layer partly recovered |
 | Terrain and 3D world | Container mapped; elevation source not yet located |
 | Audio | Not started |
 | Flight model and avionics | Not started |

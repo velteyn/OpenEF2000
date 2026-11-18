@@ -29,6 +29,8 @@ struct GuiRenderOptions {
     int cursor_y = -1;
     std::string hover_window;
     std::string hover_icon;
+    //! Opens this window before drawing, so dialogs can be inspected headlessly.
+    std::string open_window;
 };
 
 //! Draws the active screen of `system` into `surface` (640x400 logical size).

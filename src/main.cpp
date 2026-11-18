@@ -55,7 +55,8 @@ void usage() {
         "  --gui-list          list the GUI screens in DID.DAT\n"
         "  --gui-routines      with --gui SCREEN, list the routines it needs\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
-        "  --gui-lang LANG     en|fr|de (default en)\n");
+        "  --gui-lang LANG     en|fr|de (default en)\n"
+        "  --gui-window NAME   open this window before rendering\n");
 }
 
 //! Locates the game data when --data is not given. The engine never ships
@@ -404,21 +405,6 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
 }  // namespace
 
 
-// Routines whose effect has been established by running the original software
-// and observing the result. Keep this list small and evidence-backed: each
-// entry is a fact, not a guess, and the rest stay unimplemented on purpose.
-void register_observed_routines(ef::GuiSystem& system) {
-    // QuitEF2000: its own name, and the `quit`/`sure` windows that reference it.
-    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
-        gui.request_quit();
-    });
-    // gpwClickCampaign: pressing C (or clicking the Campaign panel) raises the
-    // "Campaign Level Setting" dialog, which is the `campaign_level` window.
-    system.register_routine("gpwClickCampaign", [](ef::GuiSystem& gui) {
-        gui.open_window("campaign_level");
-    });
-}
-
 // Interactive GUI driver: hit-testing, hover/selection events and screen
 // switching. The data is the original .gui text; only the drawing style is
 // approximated.
@@ -440,7 +426,8 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     ef::GuiSystem system;
     system.set_screen(std::move(*screen));
 
-    register_observed_routines(system);
+    ef::register_observed_routines(system);
+    system.run_startup();
 
     std::optional<ef::IlbmImage> backdrop =
         ef::load_backdrop(did, system.screen().picture);
@@ -578,6 +565,7 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
             }
         }
 
+        ef::fill_credits(system, did);
         if (system.quit_requested()) running = false;
 
         for (const auto& next : system.take_screen_requests()) {
@@ -628,6 +616,8 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
 // not depend on game data, window managers or timing, and runs in CI.
 int run_gui_selftest() {
     const char* dsl = R"(
+startup TestStartup
+
 window test
 xpos 0
 ypos 0
@@ -687,6 +677,14 @@ ysize 50
     check("window without `open` starts hidden",
           system.find_window("extra") != nullptr && !system.find_window("extra")->visible);
 
+    // Screens declare a `startup` routine; the driver supplies its behaviour.
+    system.register_routine("TestStartup", [](ef::GuiSystem& gui) {
+        gui.open_window("extra");
+    });
+    check("startup routine runs and can raise a window",
+          system.run_startup() && system.find_window("extra")->visible);
+    system.close_window("extra");
+
     check("key binding dispatches", system.key_press("x"));
     check("key binding logged the routine",
           system.log().size() == 1 && system.log()[0].find("DoThing") != std::string::npos);
@@ -737,6 +735,7 @@ int main(int argc, char** argv) {
     bool sam_coverage = false, ewr_coverage = false;
     float coverage_scale = 1.0f;
     std::optional<std::array<int, 4>> map_bounds;
+    std::string gui_window;
     float cam_yaw = 0.75f, cam_pitch = 0.35f, cam_zoom = 1.0f;
     int mission = 0;
     int lod = 0;
@@ -778,6 +777,8 @@ int main(int argc, char** argv) {
             gui_render = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-lang") == 0 && i + 1 < argc) {
             gui_lang = argv[++i];
+        } else if (std::strcmp(argv[i], "--gui-window") == 0 && i + 1 < argc) {
+            gui_window = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-list") == 0) {
             gui_list = true;
         } else if (std::strcmp(argv[i], "--gui-routines") == 0) {
@@ -855,7 +856,7 @@ int main(int argc, char** argv) {
             }
             ef::GuiSystem system;
             system.set_screen(std::move(*screen));
-            register_observed_routines(system);
+            ef::register_observed_routines(system);
             const auto referenced = system.referenced_routines();
             const auto missing = system.missing_routines();
             std::printf("%s: %zu routine references, %zu implemented, %zu missing\n",
@@ -871,6 +872,7 @@ int main(int argc, char** argv) {
         if (!gui_render.empty()) {
             ef::GuiRenderOptions options;
             options.language = gui_lang;
+            options.open_window = gui_window;
             if (!ef::render_gui_png(did, gui_screen, gui_render, options)) {
                 return 1;
             }

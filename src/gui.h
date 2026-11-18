@@ -114,6 +114,10 @@ struct GuiWindow {
 
     std::vector<GuiWidget> icons;
 
+    //! Plain text block, one entry per line. Used by windows whose content is
+    //! a resource rather than widgets (the credits panel).
+    std::vector<std::string> lines;
+
     //! Runtime state: z-order and hover/selection are kept by GuiSystem.
     bool visible = false;
     int z = 0;
@@ -206,6 +210,10 @@ public:
     //! Every routine name the current screen references, sorted.
     std::vector<std::string> referenced_routines() const;
 
+    //! Runs the screen's `startup` routine if one is registered. Called by the
+    //! driver after loading a screen.
+    bool run_startup();
+
     void request_quit() { quit_requested_ = true; }
     bool quit_requested() const { return quit_requested_; }
 
@@ -223,6 +231,15 @@ private:
     std::vector<std::string> unimplemented_;
     bool quit_requested_ = false;
 };
+
+//! Registers the routines whose behaviour has been established by running the
+//! original software and observing it. Deliberately small: everything else is
+//! reported as missing rather than guessed.
+void register_observed_routines(GuiSystem& system);
+
+//! The credits panel is an empty window in `mainmenu.gui`; its text is the
+//! `supergui\gfxcred.txt` resource. Fills `lines` once, when visible.
+void fill_credits(GuiSystem& system, const DidArchive& archive);
 
 //! Maps a key event to the name the `.gui` files use ("esc", "ret", "f1", "c").
 std::string gui_key_name(const SDL_Keysym& key);

@@ -145,6 +145,14 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
             text(win->x + 5, win->y + 1, title, palette[15]);
         }
 
+        // Windows whose content is a text resource (credits) draw it directly.
+        const SDL_Rect text_client = GuiSystem::client_rect(*win);
+        for (std::size_t i = 0; i < win->lines.size(); ++i) {
+            const int y = text_client.y + 2 + static_cast<int>(i) * 12;
+            if (y + 12 > text_client.y + text_client.h) break;
+            text(text_client.x + 4, y, win->lines[i], palette[15]);
+        }
+
         // Icons live in the client area; scrollable windows offset them and
         // clip to the client rectangle.
         const SDL_Rect client = GuiSystem::client_rect(*win);
@@ -249,12 +257,23 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
 
     GuiSystem system;
     system.set_screen(std::move(*screen));
+    // Screens declare a `startup` routine; without it the windows that routine
+    // raises (Network Settings, IPX Settings) never appear. The renderer does
+    // not know the handlers, so it registers the same observed set as the
+    // driver does.
+    ef::register_observed_routines(system);
+    system.run_startup();
+    if (!options.open_window.empty()) {
+        system.open_window(options.open_window);
+        system.bring_to_front(options.open_window);
+    }
 
     SDL_Surface* surface =
         SDL_CreateRGBSurfaceWithFormat(0, kScreenW, kScreenH, 32, SDL_PIXELFORMAT_RGBA32);
     if (surface == nullptr) return false;
     std::optional<IlbmImage> backdrop;
     if (options.backdrop) backdrop = load_backdrop(archive, system.screen().picture);
+    fill_credits(system, archive);
     draw_gui(surface, system, palette, options, backdrop ? &*backdrop : nullptr);
 
     SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGB24, 0);

@@ -573,6 +573,19 @@ bool GuiSystem::backspace() {
     return true;
 }
 
+bool GuiSystem::run_startup() {
+    if (screen_.startup.empty()) return false;
+    if (auto it = routines_.find(screen_.startup); it != routines_.end()) {
+        it->second(*this);
+        return true;
+    }
+    if (std::find(unimplemented_.begin(), unimplemented_.end(), screen_.startup) ==
+        unimplemented_.end()) {
+        unimplemented_.push_back(screen_.startup);
+    }
+    return false;
+}
+
 void GuiSystem::register_routine(const std::string& name,
                                  std::function<void(GuiSystem&)> handler) {
     routines_[name] = std::move(handler);
@@ -584,6 +597,7 @@ std::vector<std::string> GuiSystem::referenced_routines() const {
         if (n.empty()) return;
         if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
     };
+    add(screen_.startup);
     for (const auto& w : screen_.windows) {
         add(w.on_open);
         add(w.on_close);
@@ -613,6 +627,66 @@ std::vector<std::string> GuiSystem::take_screen_requests() {
     auto out = std::move(screen_requests_);
     screen_requests_.clear();
     return out;
+}
+
+// Routines whose effect has been established by running the original software
+// and observing the result. Keep this list small and evidence-backed: each
+// entry is a fact, not a guess, and the rest stay unimplemented on purpose.
+void register_observed_routines(GuiSystem& system) {
+    // QuitEF2000: its own name, and the `quit`/`sure` windows that reference it.
+    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
+        gui.request_quit();
+    });
+    // gpwClickCampaign: pressing C (or clicking the Campaign panel) raises the
+    // "Campaign Level Setting" dialog, which is the `campaign_level` window.
+    system.register_routine("gpwClickCampaign", [](ef::GuiSystem& gui) {
+        gui.open_window("campaign_level");
+    });
+    // Quit raises the `sure` window ("Quit EF2000 ?" with Yes/No); the answer
+    // buttons then quit or dismiss it. Reported from play and matched by the
+    // `sure` window's text and its QuitEF2000yes/no handlers.
+    system.register_routine("QuitEF2000", [](ef::GuiSystem& gui) {
+        gui.open_window("sure");
+    });
+    system.register_routine("QuitEF2000yes", [](ef::GuiSystem& gui) {
+        gui.request_quit();
+    });
+    system.register_routine("QuitEF2000no", [](ef::GuiSystem& gui) {
+        gui.close_window("sure");
+    });
+    // gnStartup (gnet): Multiplay shows the Network Settings and IPX Settings
+    // panels. Reported from play; the file declares `startup gnStartup` and the
+    // windows carry `onopen gnInitSettingsWindow`.
+    system.register_routine("gnStartup", [](ef::GuiSystem& gui) {
+        gui.open_window("settings");
+        gui.open_window("IpxSettings");
+    });
+}
+
+void fill_credits(GuiSystem& system, const DidArchive& archive) {
+    auto* window = system.find_window("credits");
+    if (window == nullptr || !window->visible || !window->lines.empty()) return;
+    auto entry = archive.resolve("gfxcred", "supergui\\", ".txt");
+    if (!entry) return;
+    auto bytes = archive.read(*entry);
+    if (!bytes) return;
+
+    const std::string text(bytes->begin(), bytes->end());
+    std::size_t pos = 0;
+    while (pos <= text.size() && window->lines.size() < 32) {
+        auto eol = text.find('\n', pos);
+        if (eol == std::string::npos) eol = text.size();
+        std::string line = text.substr(pos, eol - pos);
+        while (!line.empty() && line.back() == '\r') line.pop_back();
+        // The file separates name and role with tabs; expand for the renderer.
+        std::string expanded;
+        for (char ch : line) {
+            if (ch == '\t') expanded += "    ";
+            else expanded += ch;
+        }
+        window->lines.push_back(expanded);
+        pos = eol + 1;
+    }
 }
 
 std::string gui_key_name(const SDL_Keysym& key) {
