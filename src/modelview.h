@@ -33,6 +33,12 @@ struct OrbitCamera {
 using TextureSlots = std::vector<const Texture*>;
 
 void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camera,
-                int x, int y, int w, int h, const TextureSlots* textures = nullptr);
+                int x, int y, int w, int h, const TextureSlots* textures = nullptr,
+                const Palette* palette = nullptr);
+
+//! Renders one view to a PNG, for scripted comparison against the game.
+bool render_model_png(const Mesh& mesh, const OrbitCamera& camera,
+                      const TextureSlots* textures, const Palette* palette,
+                      const std::string& path, int width = 640, int height = 640);
 
 }  // namespace ef

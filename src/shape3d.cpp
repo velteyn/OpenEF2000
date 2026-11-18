@@ -282,8 +282,12 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
     std::vector<Routine> stack;
     stack.push_back(Routine{std::nullopt, Mat{}, false});
 
+    // `want_texture` is decided by the primitive opcode, not by the last
+    // 0x2E/0x47: flat-shaded primitives ignore any pending UVs, which is what
+    // makes aircraft exteriors read as flat grey with a few painted decals.
     auto emit = [&](const std::vector<std::uint16_t>& indices,
-                    const std::vector<int>& color_slots, bool decal = false) {
+                    const std::vector<int>& color_slots, bool want_texture,
+                    bool decal = false) {
         const Routine& r = stack.back();
         std::vector<Vec3f> pts;
         pts.reserve(indices.size());
@@ -297,11 +301,12 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
             t.a = pts[0];
             t.b = pts[k];
             t.c = pts[k + 1];
-            t.textured = textured;
+            const bool use_texture = want_texture && textured && uvs.size() >= indices.size();
+            t.textured = use_texture;
             t.texture_slot = current_texture;
             t.sprite = r.sprite;
             t.decal = decal;
-            if (textured && uvs.size() >= indices.size()) {
+            if (use_texture) {
                 t.has_uv = true;
                 t.uv[0][0] = static_cast<float>(uvs[color_slots[0]].first + portion_u);
                 t.uv[0][1] = static_cast<float>(uvs[color_slots[0]].second + portion_v);
@@ -562,7 +567,9 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
             continue;
         }
         if (op == 0x2E || op == 0x47) {
-            current_texture = w[ip];
+            // The operand is an index into `globaltextures` (0 = the shape's
+            // hard-coded texture), so it is 0-based: `0x47 6` is tm_efa1.
+            current_texture = (op == 0x2E) ? 0 : w[ip];
             const int count = w[ip + 1];
             uvs.clear();
             for (int k = 0; k < count; ++k) {
@@ -606,14 +613,14 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
         if (op == 0x02 || op == 0x5A) {
             const auto color = static_cast<std::uint8_t>(w[ip]);
             colors[0] = colors[1] = colors[2] = color;
-            emit({w[ip + 1], w[ip + 2], w[ip + 3]}, {0, 1, 2});
+            emit({w[ip + 1], w[ip + 2], w[ip + 3]}, {0, 1, 2}, false);
             ip += 4;
             continue;
         }
         if (op == 0x03) {
             const auto color = static_cast<std::uint8_t>(w[ip]);
             colors[0] = colors[1] = colors[2] = colors[3] = color;
-            emit({w[ip + 1], w[ip + 2], w[ip + 3], w[ip + 4]}, {0, 1, 2, 3});
+            emit({w[ip + 1], w[ip + 2], w[ip + 3], w[ip + 4]}, {0, 1, 2, 3}, false);
             ip += 5;
             continue;
         }
@@ -627,18 +634,18 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
                 slots.push_back(k);
                 if (k < static_cast<int>(colors.size())) colors[static_cast<std::size_t>(k)] = color;
             }
-            emit(indices, slots);
+            emit(indices, slots, false);
             ip += 2 + static_cast<std::size_t>(count);
             continue;
         }
         if (op == 0x01) { ip += 3; continue; }
         if (op == 0x4D || op == 0x80 || op == 0x71 || op == 0x9D) {
-            emit({w[ip], w[ip + 1], w[ip + 2]}, {0, 1, 2});
+            emit({w[ip], w[ip + 1], w[ip + 2]}, {0, 1, 2}, false);
             ip += 3;
             continue;
         }
         if (op == 0x4F || op == 0x81 || op == 0x72 || op == 0x9E) {
-            emit({w[ip], w[ip + 1], w[ip + 2], w[ip + 3]}, {0, 1, 2, 3});
+            emit({w[ip], w[ip + 1], w[ip + 2], w[ip + 3]}, {0, 1, 2, 3}, false);
             ip += 4;
             continue;
         }
@@ -650,7 +657,7 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
                 indices.push_back(w[ip + 1 + static_cast<std::size_t>(k)]);
                 slots.push_back(k);
             }
-            emit(indices, slots);
+            emit(indices, slots, false);
             ip += 1 + static_cast<std::size_t>(count);
             continue;
         }
@@ -662,7 +669,7 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
                 indices.push_back(w[ip + 1 + static_cast<std::size_t>(k)]);
                 slots.push_back(k);
             }
-            emit(indices, slots, op != 0x2F);
+            emit(indices, slots, true, op != 0x2F);
             ip += 1 + static_cast<std::size_t>(count);
             continue;
         }

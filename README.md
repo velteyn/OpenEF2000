@@ -138,6 +138,7 @@ port/
     did.h/.cpp     DID.DAT directory, canonical names, entry reads
     ra.h/.cpp      RA block decompressor
     shape3d.h/.cpp .3 container + bytecode virtual machine
+    texture.h/.cpp .tm atlases, colours\2000.col, init3d slots, coltab
     mesh.h         Vec3f / MeshTriangle / Mesh
     meshview.h/.cpp OBJ export + PNG contact sheet
     main.cpp       CLI, stats, PNG export, interactive loop
@@ -152,11 +153,15 @@ The parser is deliberately independent of SDL and the renderer; the same
 
 * The strategic map is still 2D; meshes are viewed in their own window, not
   placed in a 3D world yet.
-* The per-model texture atlas is inferred from UV continuity rather than read
-  from the file (see `re/notes/12-3d-models.md`); `--texture NAME` overrides.
+* Textures are `tm\<NAME>.tm` (256 x 192 indexed) coloured with
+  `colours\2000.col`; `--palette NAME` overrides and `--texture NAME` forces
+  one atlas. Markings are small `MARKINGS` patches and look stippled when
+  magnified because index 0 is the transparency key.
+* Airframes are almost entirely flat-shaded with the lighting baked into the
+  mesh, so they read as grey panels with a handful of textured decals.
 * Meshes are open shells with mixed winding, so backface culling is off by
   default.
-* No resource/asset loading; no IFF/ILBM/ANIM/palette yet.
+* No ILBM/ANIM loading yet; palettes are read straight from `colours\*.col`.
 * No campaign/mission generator or GUI.
 * No flight model, avionics, audio or network.
 * Map labels can overlap; no zoom/pan yet.
@@ -164,8 +169,9 @@ The parser is deliberately independent of SDL and the renderer; the same
 
 ## Next
 
-1. Put the loaded mesh in an actual 3D view with lighting and a camera.
-2. Load IFF/ILBM, palettes and `.gui`/`.fad` assets into the viewer.
+1. Put the loaded meshes into a 3D world with the terrain instead of showing
+   them one at a time.
+2. Load IFF/ILBM and `.gui`/`.fad` assets into the viewer.
 2. Add a mission briefing/debrief panel driven by the manual’s campaign UI.
 3. Reimplement the operational mission generator against `MISSION.CFG`.
 4. Add zoom/pan and a clickable target/mission list.

@@ -1,5 +1,7 @@
 #include "modelview.h"
 
+#include <SDL2/SDL_image.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -36,7 +38,8 @@ void OrbitCamera::dolly(float factor) {
 }
 
 void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camera,
-                int ox, int oy, int w, int h, const TextureSlots* textures) {
+                int ox, int oy, int w, int h, const TextureSlots* textures,
+                const Palette* palette) {
     fill_rect(surface, ox, oy, w, h, SDL_MapRGBA(surface->format, 12, 13, 16, 255));
     if (w <= 0 || h <= 0) return;
 
@@ -131,13 +134,22 @@ void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camer
             texture = (*textures)[static_cast<std::size_t>(t.texture_slot)];
         }
         const bool sample = texture != nullptr && t.has_uv;
-        const float base = 0.30f + 0.70f * shade;
-        const auto flat_r = static_cast<float>(std::clamp(base * 150.0f + 20.0f, 0.0f, 255.0f));
-        const auto flat_g = static_cast<float>(std::clamp(base * 162.0f + 22.0f, 0.0f, 255.0f));
-        const auto flat_b = static_cast<float>(std::clamp(base * 178.0f + 26.0f, 0.0f, 255.0f));
-        const Uint32 flat_colour = SDL_MapRGBA(
-            fmt, static_cast<Uint8>(flat_r), static_cast<Uint8>(flat_g),
-            static_cast<Uint8>(flat_b), 255);
+        Uint32 flat_colour;
+        if (palette != nullptr && !sample) {
+            // EF2000 bakes the shading into the mesh: every flat-shaded polygon
+            // carries a palette index on the grey ramp, so the model is drawn
+            // with the stored colour instead of a computed light.
+            const std::uint32_t rgb = (*palette)[t.colors[0]];
+            flat_colour = SDL_MapRGBA(fmt, static_cast<Uint8>((rgb >> 16) & 0xFF),
+                                      static_cast<Uint8>((rgb >> 8) & 0xFF),
+                                      static_cast<Uint8>(rgb & 0xFF), 255);
+        } else {
+            const float base = 0.30f + 0.70f * shade;
+            flat_colour = SDL_MapRGBA(
+                fmt, static_cast<Uint8>(std::clamp(base * 150.0f + 20.0f, 0.0f, 255.0f)),
+                static_cast<Uint8>(std::clamp(base * 162.0f + 22.0f, 0.0f, 255.0f)),
+                static_cast<Uint8>(std::clamp(base * 178.0f + 26.0f, 0.0f, 255.0f)), 255);
+        }
 
         for (int y = y0; y <= y1; ++y) {
             for (int x = x0; x <= x1; ++x) {
@@ -155,14 +167,9 @@ void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camer
                     const std::uint32_t texel = texture->at(static_cast<int>(u),
                                                             static_cast<int>(v));
                     if ((texel & 0xFF000000u) == 0) continue;  // masked out
-                    const auto tr = static_cast<float>((texel >> 16) & 0xFF);
-                    const auto tg = static_cast<float>((texel >> 8) & 0xFF);
-                    const auto tb = static_cast<float>(texel & 0xFF);
-                    const float k = 0.45f + 0.55f * shade;
-                    colour = SDL_MapRGBA(
-                        fmt, static_cast<Uint8>(std::clamp(tr * k, 0.0f, 255.0f)),
-                        static_cast<Uint8>(std::clamp(tg * k, 0.0f, 255.0f)),
-                        static_cast<Uint8>(std::clamp(tb * k, 0.0f, 255.0f)), 255);
+                    colour = SDL_MapRGBA(fmt, static_cast<Uint8>((texel >> 16) & 0xFF),
+                                         static_cast<Uint8>((texel >> 8) & 0xFF),
+                                         static_cast<Uint8>(texel & 0xFF), 255);
                 }
 
                 const float z = w0 * z0 + w1 * z1 + w2 * z2;
@@ -210,6 +217,22 @@ void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camer
     }
 
     SDL_UnlockSurface(surface);
+}
+
+bool render_model_png(const Mesh& mesh, const OrbitCamera& camera,
+                      const TextureSlots* textures, const Palette* palette,
+                      const std::string& path, int width, int height) {
+    SDL_Surface* surface =
+        SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_RGBA32);
+    if (!surface) return false;
+    SDL_FillRect(surface, nullptr, SDL_MapRGB(surface->format, 0, 0, 0));
+    draw_model(surface, mesh, camera, 0, 0, width, height, textures, palette);
+    SDL_Surface* converted = SDL_ConvertSurfaceFormat(surface, SDL_PIXELFORMAT_RGB24, 0);
+    SDL_FreeSurface(surface);
+    if (!converted) return false;
+    const bool ok = IMG_SavePNG(converted, path.c_str()) == 0;
+    SDL_FreeSurface(converted);
+    return ok;
 }
 
 }  // namespace ef

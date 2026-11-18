@@ -37,7 +37,9 @@ void usage() {
         "  --mesh-preview FILE render the loaded mesh to a PNG sheet\n"
         "  --clumps FILE       clump-name list for the model viewer\n"
         "  --camera YAW,PITCH[,ZOOM]  viewer camera angles in degrees\n"
-        "  --texture NAME      force one .tm atlas for every polygon\n");
+        "  --render FILE.png   render the textured mesh to PNG (uses --camera)\n"
+        "  --texture NAME      force one .tm atlas for every polygon\n"
+        "  --palette NAME      palette in colours\\<NAME>.col (default 2000)\n");
 }
 
 std::string default_data() {
@@ -220,25 +222,24 @@ std::vector<std::string> shape_names(const std::filesystem::path& data,
 }
 
 // Slot 0 is the shape's hard-coded texture; slot k is `init3d.txt` global k.
+//
+// This literal mapping is correct: `efa.3` uses slot 6 (tm_efa1, the grey
+// camo panel atlas) for the wings and slot 7 (tm_efa2) for the spine, nozzles
+// and turbine face, exactly as the opcode indices say.  Earlier attempts to
+// infer a single atlas per model were misled by the wrong palette.
 ef::TextureSlots build_slots(const ef::TextureBank& textures, const ef::Shape& shape,
-                             const ef::Mesh& mesh, const std::string& shape_name,
                              const std::string& override_name, std::string& chosen) {
     const std::size_t count = textures.global_slots().size() + 1;
     ef::TextureSlots slots(count, nullptr);
 
     chosen = override_name;
-    if (chosen.empty()) chosen = textures.best_atlas_name(shape_name, mesh);
-
     if (!chosen.empty()) {
-        const ef::Texture* atlas = textures.get(chosen);
-        if (atlas != nullptr) {
+        if (const ef::Texture* atlas = textures.get(chosen)) {
             for (auto& slot : slots) slot = atlas;
             return slots;
         }
     }
 
-    // Fall back to the literal per-slot mapping.
-    chosen.clear();
     if (shape.texture_name()) slots[0] = textures.get(*shape.texture_name());
     const auto& globals = textures.global_slots();
     for (std::size_t k = 1; k < globals.size() && k < count; ++k) {
@@ -333,12 +334,10 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
             SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
             if (surf) {
                 if (camera.textured && models.shape()) {
-                    slots = build_slots(textures, *models.shape(), models.mesh(),
-                                        models.current_name(), texture_override,
-                                        atlas_name);
+                    slots = build_slots(textures, *models.shape(), texture_override, atlas_name);
                 }
                 ef::draw_model(surf, models.mesh(), camera, 0, 0, w, h,
-                               camera.textured ? &slots : nullptr);
+                               camera.textured ? &slots : nullptr, &textures.palette());
                 SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
                 if (tex) {
                     SDL_RenderClear(ren);
@@ -348,10 +347,11 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
                 }
                 SDL_FreeSurface(surf);
             }
-            std::printf("\r%-10s LOD %d  %zu tris  tex %-8s%s%s   ",
+            std::printf("\r%-10s LOD %d  %zu tris  pal %-9s%s%s   ",
                         models.current_name().c_str(), models.lod(),
                         models.mesh().triangle_count(),
-                        atlas_name.empty() ? "-" : atlas_name.c_str(),
+                        atlas_name.empty() ? textures.palette_name().c_str()
+                                           : atlas_name.c_str(),
                         camera.textured ? " +tex" : "", camera.decals ? " +decals" : "");
             std::fflush(stdout);
             dirty = false;
@@ -373,8 +373,10 @@ int main(int argc, char** argv) {
     std::string mesh_name;
     std::string export_mesh;
     std::string mesh_preview;
+    std::string render_path;
     std::string clumps_path;
     std::string texture_override;
+    std::string palette_name = "2000";
     float cam_yaw = 0.75f, cam_pitch = 0.35f, cam_zoom = 1.0f;
     int mission = 0;
     int lod = 0;
@@ -402,10 +404,14 @@ int main(int argc, char** argv) {
             export_mesh = argv[++i];
         } else if (std::strcmp(argv[i], "--mesh-preview") == 0 && i + 1 < argc) {
             mesh_preview = argv[++i];
+        } else if (std::strcmp(argv[i], "--render") == 0 && i + 1 < argc) {
+            render_path = argv[++i];
         } else if (std::strcmp(argv[i], "--clumps") == 0 && i + 1 < argc) {
             clumps_path = argv[++i];
         } else if (std::strcmp(argv[i], "--texture") == 0 && i + 1 < argc) {
             texture_override = argv[++i];
+        } else if (std::strcmp(argv[i], "--palette") == 0 && i + 1 < argc) {
+            palette_name = argv[++i];
         } else if (std::strcmp(argv[i], "--camera") == 0 && i + 1 < argc) {
             // "yaw,pitch,zoom" in degrees (zoom optional)
             if (std::sscanf(argv[++i], "%f,%f,%f", &cam_yaw, &cam_pitch, &cam_zoom) >= 2) {
@@ -517,6 +523,24 @@ int main(int argc, char** argv) {
                     }
                     std::printf("wrote %s\n", mesh_preview.c_str());
                 }
+                if (!render_path.empty()) {
+                    ef::TextureBank textures(did, palette_name);
+                    std::string chosen;
+                    ef::TextureSlots slots =
+                        build_slots(textures, shape, texture_override, chosen);
+                    ef::OrbitCamera camera;
+                    camera.yaw = cam_yaw;
+                    camera.pitch = cam_pitch;
+                    camera.zoom = cam_zoom;
+                    camera.decals = false;
+                    if (!ef::render_model_png(mesh, camera, &slots, &textures.palette(),
+                                              render_path)) {
+                        std::fprintf(stderr, "render failed\n");
+                        return 1;
+                    }
+                    std::printf("wrote %s (palette %s)\n", render_path.c_str(),
+                                textures.palette_name().c_str());
+                }
                 if (interactive) {
                     auto names = shape_names(std::filesystem::path(data), did, clumps_path);
                     int start_index = 0;
@@ -528,7 +552,7 @@ int main(int argc, char** argv) {
                     camera.pitch = cam_pitch;
                     camera.zoom = cam_zoom;
                     ModelSet models(did, std::move(names));
-                    ef::TextureBank textures(did);
+                    ef::TextureBank textures(did, palette_name);
                     if (textures.ready()) {
                         std::printf("palette: colours\\%s\n", textures.palette_name().c_str());
                     } else {
