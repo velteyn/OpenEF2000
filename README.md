@@ -1,177 +1,318 @@
-# EF2000 Mission Explorer (prototype)
+# OpenEF2000
 
-The first C++20 vertical slice: it reads the **original** `MISSION.CFG`,
-`NAVIG.NAV` and `CONFLICT.CG` directly (no JSON intermediate), builds a
-mission/world model, and renders a strategic map with a mission panel.
+An independent, open-source engine reimplementation that runs the classic 1995
+tactical flight simulator natively on modern operating systems.
 
-It also reads the **original** `DID.DAT` archive and the compiled `.3` shape
-bytecode, so aircraft meshes come straight out of the game data.
+OpenEF2000 is a **clean-room** project. It contains no original game code
+and no original game assets. It reads the data files from a copy of the game
+that you already own, and renders them with a modern engine.
 
-It is a viewer, not the game. No assets, renderer, flight model, campaign
-generator or GUI are implemented yet.
+> **Legal notice.** OpenEF2000 is not affiliated with, endorsed by, or
+> connected to Digital Image Design, Ocean Software, Atari, Bandai Namco, or
+> Eurofighter Jagdflugzeug GmbH. All trademarks are the property of their
+> respective owners. See [Legal and trademark disclaimer](#legal-and-trademark-disclaimer).
 
-## Build
+---
 
-Requirements: C++20, CMake, SDL2, SDL2_ttf, SDL2_image.
+## Table of contents
 
-```bash
-cmake -S port -B port/build -DCMAKE_BUILD_TYPE=Release
-cmake --build port/build -j
-```
+- [Overview](#overview)
+- [Project status](#project-status)
+- [Key features](#key-features)
+- [Architecture](#architecture)
+- [Requirements: bring your own assets](#requirements-bring-your-own-assets)
+- [Build and run](#build-and-run)
+- [Repository layout](#repository-layout)
+- [Documentation](#documentation)
+- [Contributing](#contributing)
+- [Legal and trademark disclaimer](#legal-and-trademark-disclaimer)
+- [License](#license)
 
-## Run
+---
 
-```bash
-# counts and validation against the shipped data
-./port/build/ef2000-explorer --data EF20003DFX2 --stats
+## Overview
 
-# list missions
-./port/build/ef2000-explorer --data EF20003DFX2 --list | head
+The target title is a 1995 DOS-era combat flight simulator with a dynamic
+campaign, a large fixed-wing and rotary-wing fleet, and a software-rendered 3D
+world. It was built for hardware that no longer exists: VGA palettes, a
+32-bit DOS extender, and CPU-only rasterisation.
 
-# export a map
-./port/build/ef2000-explorer --data EF20003DFX2 --mission 0 --focus \
-    --export mission000.png
+OpenEF2000 reimplements the engine on top of a portable C++20 core. It
+consumes the original data archives directly — no conversion step, no
+intermediate asset pipeline — so the behaviour being reproduced is the
+behaviour of the shipped game, not a modern reinterpretation of it.
 
-# interactive window
-./port/build/ef2000-explorer --data EF20003DFX2 --focus --interactive
+The design goals are:
 
-# 3D shapes straight out of DID.DAT
-./port/build/ef2000-explorer --data EF20003DFX2 --mesh efa \
-    --export-mesh efa.obj --mesh-preview efa.png
-```
+- **Native.** Runs on Linux, macOS and Windows from a single codebase.
+- **Faithful.** Original archives, palettes and file formats are read as-is.
+- **Verifiable.** Every subsystem is expected to be checkable against the data
+  it reads, using headless renders and deterministic tests.
+- **Clean.** No proprietary code, no proprietary assets, no binary blobs.
 
-Options:
+## Project status
 
-```
---data DIR          data directory (default: ../EF20003DFX2)
---mission N         mission index
---stats             dataset counts
---list              list missions
---focus             fit the map to the selected mission
---export FILE.png   render to PNG
---interactive       SDL2 window
---models            archive summary + CLUMP_3.TXT coverage
---mesh NAME         load one .3 shape (e.g. efa, f22, mig_29)
---lod N             level of detail (default 0)
---export-mesh FILE  write the mesh as Wavefront OBJ
---mesh-preview FILE render a side/top/front PNG contact sheet
---camera YAW,PITCH[,ZOOM]  viewer camera angles in degrees
---clumps FILE       clump-name list for the model viewer
-```
+Early and actively evolving. The table below is the honest state of each
+subsystem; it is updated as work lands.
 
-### Model viewer
-
-`--mesh NAME --interactive` opens an orbit-camera viewport. The model list is
-read from `CLUMP_3.TXT` (or a built-in aircraft list when the file is absent).
-
-| input | action |
+| Area | Status |
 |---|---|
-| drag / arrow keys | orbit |
-| mouse wheel, `+` / `-` | zoom |
-| `N` / `P` | next / previous model |
-| `L` | cycle level of detail |
-| `W` | wireframe |
-| `C` | backface culling |
-| `D` | marking decals |
-| `Esc` | quit |
+| Archive container and resource extraction | Working |
+| Campaign, mission and scenario text | Working |
+| Strategic map (2D) | Working prototype |
+| 3D model format and bytecode interpreter | Working |
+| Texture and palette decoding | Working |
+| GUI description language and runtime | Working, navigation incomplete |
+| Terrain and 3D world | Format identified, renderer not started |
+| Audio | Not started |
+| Flight model and avionics | Not started |
+| Campaign and mission generation | Specification only |
+| Multiplayer | Not started |
 
-Controls in the window: `N`/`Down` next mission, `P`/`Up` previous,
-`Home`/`End`, `S` save `ef2000-mission.png`, `Esc` quit.
+There is no playable game yet. The current build is a research and
+verification tool: it loads the original data, renders meshes, screens and the
+strategic map, and exports PNGs so results can be compared.
 
-## What it renders
+## Key features
 
-* all `NAVIG.NAV` bases as small squares (blue = airfield, green = port)
-* all mission target areas as small dots coloured by side
-* selected mission routes as yellow lines with waypoint circles
-* selected mission target areas as red circles with labels
-* attack-pattern nodes/routes as orange dots/lines
-* right panel: mission type/side/role, counts, routes, target list, mission list
-* `--focus` fits the map to the selected mission instead of the whole theatre
+The feature set below is the target shape of the engine. Items marked
+*placeholder* are architectural slots that are documented but not implemented.
 
-## Validation
+### Rendering
 
-`--stats` on `EF20003DFX2` matches the Python parser exactly:
+- **Backend:** *placeholder* — software rasteriser today; the interface is
+  designed so a hardware backend can be added without touching scene code.
+- **Palette-accurate output:** 6-bit VGA palettes, indexed textures, and the
+  original per-polygon shading model are preserved rather than emulated.
+- **Headless rendering:** any view can be written to PNG for regression tests.
 
-| Metric | Value |
-|---|---:|
-| missions | 739 (declared 739) |
-| routes | 802 |
-| waypoints | 2,918 |
-| flights | 242 |
-| pylons | 4,840 |
-| targets | 802 |
-| target areas | 18 |
-| attack patterns | 32 |
-| attack routes | 192 |
-| attack nodes | 750 |
-| bases | 77 |
-| base navigations | 1,118 (declared 1,118) |
-| BNA waypoints | 23,657 |
-| conflict areas | 542 (declared 542) |
+### Audio
 
-## 3D models
+- **Backend:** *placeholder* — mixer and output device abstraction to be
+  defined. Format decoding for the original audio containers is planned.
+- **Requirements:** the engine must run silently when no audio device is
+  available.
 
-`did.h/.cpp` reads `DID.DAT`/`DID1ST.DAT` in both directory variants (`plain8`
-for EF2000/Super EF2000/`DID1ST.DAT`, `xorv2` for v2.0). Entries are addressed
-by hashing an eight-character canonical name: the directory prefix and the
-extension are replaced by their indices in the archive's own tables.
-`ra.h/.cpp` decompresses the RA blocks, `shape3d.h/.cpp` parses the `.3`
-container and interprets its bytecode (a small VM that emits triangles from an
-object-space vertex array), and `meshview.h/.cpp` exports OBJ or renders a
-contact sheet.
+### Input
 
-The EFA mesh measures 922 x 460 x 1339 units (10.95 x 5.47 x 15.96 m) and
-matches the Python reference implementation (`re/tools/three_d.py`) exactly:
-611 triangles for LOD 0.
+- **Devices:** *placeholder* — keyboard, mouse and joystick, with a single
+  declarative binding table shared by all devices.
+- **GUI and in-cockpit modes** are expected to share one dispatch layer so
+  bindings cannot diverge between screens.
 
-`EF_SHAPE_TRACE=1` prints the opcode histogram of the last executed shape.
+### Physics and simulation
+
+- **Flight model:** *placeholder* — to be reconstructed from documented
+  behaviour and observable outputs.
+- **AI and mission logic:** *placeholder* — consumes the original mission and
+  scenario definitions.
+- **Determinism:** the simulation must be reproducible from a seed and an
+  initial state, so scenario generation can be validated.
 
 ## Architecture
 
+Three layers, with a hard boundary between them:
+
 ```
-port/
-  CMakeLists.txt
-  src/
-    model.h        typed mission/world model (Vec3, Mission, Route, Target, ...)
-    parser.h/.cpp  tokenizer + MISSION.CFG / NAVIG.NAV / CONFLICT.CG parsers
-    render.h/.cpp  SDL2 surface renderer, TTF labels, PNG export
-    did.h/.cpp     DID.DAT directory, canonical names, entry reads
-    ra.h/.cpp      RA block decompressor
-    shape3d.h/.cpp .3 container + bytecode virtual machine
-    texture.h/.cpp .tm atlases, colours\2000.col, init3d slots, coltab
-    mesh.h         Vec3f / MeshTriangle / Mesh
-    meshview.h/.cpp OBJ export + PNG contact sheet
-    main.cpp       CLI, stats, PNG export, interactive loop
++-----------------------------------------------------------+
+|  Engine (C++20)                                           |
+|    renderer  |  audio  |  input  |  simulation  |  GUI    |
++-----------------------------------------------------------+
+|  Format layer (C ABI)                                     |
+|    archives | shapes | textures | terrain | text | GUI    |
++-----------------------------------------------------------+
+|  Research tooling (Python)                                |
+|    format probes, catalogues, reference implementations   |
++-----------------------------------------------------------+
 ```
 
-The parser is deliberately independent of SDL and the renderer; the same
-`Dataset` can feed a future core, a campaign/mission generator, or tests.
-`TACTCOM` navigation aliases (`BASE_NAVIGATION`, `3D_POSITION`,
-`NAVIG_CORRIDOR`, `NAVIG_ROUTE`, `WAYPOINT`) are handled.
+- **Format layer.** Pure, dependency-free readers for the original formats.
+  Exposed through a C ABI so the engine, tests and external tools can all use
+  it, and so it can be validated independently.
+- **Engine.** Owns rendering, input, audio and simulation. No format details
+  leak upward.
+- **Research tooling.** Python scripts used to probe and verify formats. These
+  are development tools, not shipped components, and they are the executable
+  form of the specifications in [`docs/FILE_FORMATS.md`](docs/FILE_FORMATS.md).
 
-## Current limitations
+## Requirements: bring your own assets
 
-* The strategic map is still 2D; meshes are viewed in their own window, not
-  placed in a 3D world yet.
-* Textures are `tm\<NAME>.tm` (256 x 192 indexed) coloured with
-  `colours\2000.col`; `--palette NAME` overrides and `--texture NAME` forces
-  one atlas. Markings are small `MARKINGS` patches and look stippled when
-  magnified because index 0 is the transparency key.
-* Airframes are almost entirely flat-shaded with the lighting baked into the
-  mesh, so they read as grey panels with a handful of textured decals.
-* Meshes are open shells with mixed winding, so backface culling is off by
-  default.
-* No ILBM/ANIM loading yet; palettes are read straight from `colours\*.col`.
-* No campaign/mission generator or GUI.
-* No flight model, avionics, audio or network.
-* Map labels can overlap; no zoom/pan yet.
-* Mission index is the file order, not the in-game mission number.
+**OpenEF2000 ships with zero game assets.** No textures, no models, no
+audio, no mission data, and no executable code from the original game is
+included in this repository, in releases, or in build artefacts.
 
-## Next
+To run the engine you must **legally own an original copy of the game** and
+provide its data files yourself. A retail CD-ROM, an official re-release, or a
+lawful archival copy all qualify, subject to the licence terms that came with
+your copy.
 
-1. Put the loaded meshes into a 3D world with the terrain instead of showing
-   them one at a time.
-2. Load IFF/ILBM and `.gui`/`.fad` assets into the viewer.
-2. Add a mission briefing/debrief panel driven by the manual’s campaign UI.
-3. Reimplement the operational mission generator against `MISSION.CFG`.
-4. Add zoom/pan and a clickable target/mission list.
+### Expected layout
+
+Point the engine at a directory containing the original data. The engine reads
+the archives in place and never writes to them.
+
+```
+<game-data>/
+  DID.DAT            primary resource archive
+  DID1ST.DAT         secondary archive (some releases)
+  CLUMP_3.TXT        model name list
+  CLUMP_SS.TXT       shape-scene name list
+  ...                any other files shipped with your copy
+```
+
+The default lookup is a `game-data` directory next to the binary, so the
+simplest setup is to create it and copy your files in. Otherwise pass the
+directory explicitly:
+
+```bash
+openef2000 --data "/path/to/game-data"
+```
+
+### What you must not do
+
+- Do not commit game data to this repository.
+- Do not attach game data to issues, discussions or pull requests.
+- Do not publish extracted assets (textures, models, palettes, audio, mission
+  files) derived from the game, in any form.
+
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full policy.
+
+## Build and run
+
+### Prerequisites
+
+- A C++20 compiler (GCC 11+, Clang 14+, MSVC 19.30+)
+- CMake 3.20 or newer
+- SDL2, SDL2_ttf and SDL2_image development packages
+- Python 3.10+ (optional, for the research tooling)
+
+Install the dependencies:
+
+```bash
+# Debian / Ubuntu
+sudo apt install build-essential cmake pkg-config libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev
+
+# Fedora
+sudo dnf install gcc-c++ cmake pkgconf-pkg-config SDL2-devel SDL2_ttf-devel SDL2_image-devel
+
+# macOS (Homebrew)
+brew install cmake sdl2 sdl2_ttf sdl2_image
+```
+
+### Configure and build
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+### Run
+
+```bash
+./build/openef2000 --data "/path/to/game-data"
+```
+
+Examples:
+
+```bash
+# Print archive statistics
+./build/openef2000 --data "/path/to/game-data" --stats
+
+# List the GUI screens found in the archive
+./build/openef2000 --data "/path/to/game-data" --gui-list
+
+# Render a GUI screen headlessly
+./build/openef2000 --data "/path/to/game-data" --gui mainmenu --gui-render menu.png
+
+# Render a 3D model headlessly
+./build/openef2000 --data "/path/to/game-data" --mesh efa1 --render efa.png
+```
+
+### Tests
+
+```bash
+ctest --test-dir build --output-on-failure
+```
+
+## Repository layout
+
+```
+CMakeLists.txt        build definition
+src/                  engine and format layer (C++20)
+  did, ra            archive container and block decompression
+  shape3d            `.3` container and bytecode interpreter
+  texture            textures, palettes, global texture slots
+  gui, guirender     `.gui` parser, runtime and software renderer
+  ilbm               IFF/ILBM image decoder
+  parser, model      mission and campaign text, world model
+  render, meshview   strategic map and mesh export
+  modelview          orbit-camera 3D viewer
+docs/                 published specifications and engine notes
+CONTRIBUTING.md       contribution and clean-room policy
+```
+
+Anything derived from the original game — extracted archives, decoded images,
+relocated executables — is excluded by `.gitignore` and must never be
+committed.
+
+## Documentation
+
+| Document | Contents |
+|---|---|
+| [`docs/FILE_FORMATS.md`](docs/FILE_FORMATS.md) | Clean-room specifications for the archive, mesh, texture, terrain, mission and GUI formats |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | Clean-room rules, what is accepted, review process |
+| [`docs/ENGINE-NOTES.md`](docs/ENGINE-NOTES.md) | Module map, build targets, viewer controls, limitations |
+
+The specifications are written for interoperability. They describe byte
+layouts, field meanings, compression schemes and state machines — facts about
+the data, not code from the game.
+
+## Contributing
+
+Contributions are welcome, and the project is explicitly designed to make
+clean contributions easy. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md)
+before opening a pull request. In short:
+
+- Submit **original code** and **factual format specifications**.
+- Do not submit disassembled or decompiled code, executable hex dumps, or game
+  assets.
+- Sign off your commits to attest that the work is your own.
+
+## Legal and trademark disclaimer
+
+OpenEF2000 is an independent, non-commercial interoperability project.
+
+- **OpenEF2000 is not affiliated with, endorsed by, sponsored by, or
+  connected to Digital Image Design, Ocean Software, Atari, Bandai Namco, or
+  Eurofighter Jagdflugzeug GmbH**, nor to any of their subsidiaries,
+  affiliates or successors.
+- **All trademarks, service marks, trade names and logos are the property of
+  their respective owners.** References to a game title, company name or
+  product name are made solely to identify the software that this engine is
+  designed to interoperate with. Such references do not imply any association
+  or approval.
+- **No original game assets are distributed.** This repository contains no
+  textures, 3D models, audio, mission data, executables or other copyrighted
+  material from the original game. Users must supply their own lawfully
+  obtained copy.
+- **No original code is distributed.** The engine is a clean-room
+  reimplementation. It was produced by observing and documenting the
+  behaviour and file formats of the shipped software, not by copying its
+  source. Any decompiled or disassembled material used during research is
+  treated as documentation of facts and is not redistributed.
+- **Interoperability only.** The purpose of this project is to allow
+  lawfully-owned software to run on modern hardware, which is a legitimate
+  interoperability goal. The project does not circumvent copy protection, does
+  not distribute keys, and does not enable use of the software without a
+  licensed copy.
+
+If you are a rights holder and believe something in this repository is
+infringing, please open an issue or contact the maintainers so it can be
+addressed promptly.
+
+## License
+
+*Placeholder.* The engine source is intended to be released under
+`[LICENSE]`. Documentation is intended to be released under
+`[DOCUMENTATION_LICENSE]`. Game data is **not** covered by either and is not
+distributed.

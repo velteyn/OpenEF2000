@@ -1,2 +1,60 @@
+# ---------------------------------------------------------------------------
+# OpenEF2000 keeps no original game material in the repository.
+#
+# The engine reads game data in place and never writes to it. Nothing derived
+# from the original game may be tracked: no archives, textures, models, audio,
+# mission data, executables or extracted assets. See CONTRIBUTING.md.
+# ---------------------------------------------------------------------------
+
+# Game data supplied by the user (default location).
+game-data/
+/game-data/
+
+# In case someone drops an installation in the tree: catch the common shapes.
+DID.DAT
+DID1ST.DAT
+CLUMP_3.TXT
+CLUMP_SS.TXT
+*.dat
+*.DAT
+*.lbm
+*.tm
+*.ssd
+*.lev
+*.4e2
+*.wld
+*.exe
+*.dll
+*.iso
+*.bin
+*.img
+
+# Build trees.
 build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+CMakeUserPresets.json
+compile_commands.json
+*.o
+*.obj
+*.a
+*.so
+*.dylib
+*.pdb
+
+# Generated output.
 *.png
+*.obj
+
+# Editors and OS.
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local scratch space.
+scratch/
+*.local.md

@@ -23,8 +23,8 @@ namespace {
 
 void usage() {
     std::printf(
-        "EF2000 Mission Explorer\n"
-        "  --data DIR          game data directory (default: ../EF20003DFX2)\n"
+        "OpenEF2000\n"
+        "  --data DIR          game data directory (default: ./game-data)\n"
         "  --mission N         mission index (default: 0)\n"
         "  --stats             print dataset counts\n"
         "  --list              list missions\n"
@@ -47,11 +47,18 @@ void usage() {
         "  --gui-lang LANG     en|fr|de (default en)\n");
 }
 
+//! Locates the game data when --data is not given. The engine never ships
+//! assets, so the conventional place is a local `game-data` directory that the
+//! user populates from their own copy of the game.
 std::string default_data() {
     namespace fs = std::filesystem;
-    if (fs::exists("../EF20003DFX2/MISSION.CFG")) return "../EF20003DFX2";
-    if (fs::exists("EF20003DFX2/MISSION.CFG")) return "EF20003DFX2";
-    return "../EF20003DFX2";
+    for (const char* candidate : {"game-data", "../game-data", "../../game-data"}) {
+        if (fs::exists(fs::path(candidate) / "DID.DAT") ||
+            fs::exists(fs::path(candidate) / "MISSION.CFG")) {
+            return candidate;
+        }
+    }
+    return "game-data";
 }
 
 int run_interactive(const ef::Dataset& ds, int selected, bool focus) {
@@ -59,7 +66,7 @@ int run_interactive(const ef::Dataset& ds, int selected, bool focus) {
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_Window* win = SDL_CreateWindow("EF2000 Mission Explorer",
+    SDL_Window* win = SDL_CreateWindow("OpenEF2000",
                                        SDL_WINDOWPOS_CENTERED,
                                        SDL_WINDOWPOS_CENTERED, 1280, 900, 0);
     SDL_Renderer* ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
@@ -195,7 +202,7 @@ std::vector<std::string> shape_names(const std::filesystem::path& data,
     std::vector<fs::path> candidates;
     if (!override_path.empty()) candidates.emplace_back(override_path);
     candidates.push_back(data / "CLUMP_3.TXT");
-    candidates.push_back(data.parent_path() / "EF2000" / "CLUMP_3.TXT");
+    candidates.push_back(data.parent_path() / "CLUMP_3.TXT");
 
     std::vector<std::string> names;
     for (const auto& path : candidates) {
@@ -264,7 +271,7 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_Window* win = SDL_CreateWindow("EF2000 Model Viewer",
+    SDL_Window* win = SDL_CreateWindow("OpenEF2000 Model Viewer",
                                        SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                        1280, 900, SDL_WINDOW_RESIZABLE);
     SDL_Renderer* ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
@@ -400,7 +407,7 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
-    SDL_Window* window = SDL_CreateWindow("EF2000 GUI", SDL_WINDOWPOS_CENTERED,
+    SDL_Window* window = SDL_CreateWindow("OpenEF2000 GUI", SDL_WINDOWPOS_CENTERED,
                                           SDL_WINDOWPOS_CENTERED, 960, 600, SDL_WINDOW_SHOWN);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (window == nullptr || renderer == nullptr) {
@@ -649,7 +656,7 @@ int main(int argc, char** argv) {
                 // archive so the aircraft -> mesh mapping is visible.
                 fs::path clumps = fs::path(data) / "CLUMP_3.TXT";
                 if (!fs::exists(clumps)) {
-                    clumps = fs::path(data).parent_path() / "EF2000" / "CLUMP_3.TXT";
+                    clumps = fs::path(data).parent_path() / "CLUMP_3.TXT";
                 }
                 std::ifstream list(clumps);
                 if (!list) {

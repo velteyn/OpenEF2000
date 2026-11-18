@@ -267,7 +267,7 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     SDL_Color dim{150, 165, 185, 255};
     SDL_Color gold{255, 220, 90, 255};
 
-    draw_text(c, f_big, 20, 14, "EF2000 Mission Explorer", white);
+    draw_text(c, f_big, 20, 14, "OpenEF2000", white);
     {
         std::ostringstream os;
         os << "missions " << ds.missions.size() << "   bases "

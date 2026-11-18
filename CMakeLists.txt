@@ -10,7 +10,7 @@ pkg_check_modules(SDL2 REQUIRED IMPORTED_TARGET sdl2)
 pkg_check_modules(SDL2_TTF REQUIRED IMPORTED_TARGET SDL2_ttf)
 pkg_check_modules(SDL2_IMAGE REQUIRED IMPORTED_TARGET SDL2_image)
 
-add_executable(ef2000-explorer
+add_executable(openef2000
     src/main.cpp
     src/parser.cpp
     src/render.cpp
@@ -24,9 +24,9 @@ add_executable(ef2000-explorer
     src/guirender.cpp
     src/ilbm.cpp)
 
-target_link_libraries(ef2000-explorer PRIVATE
+target_link_libraries(openef2000 PRIVATE
     PkgConfig::SDL2
     PkgConfig::SDL2_TTF
     PkgConfig::SDL2_IMAGE)
 
-target_compile_options(ef2000-explorer PRIVATE -Wall -Wextra -Wpedantic)
+target_compile_options(openef2000 PRIVATE -Wall -Wextra -Wpedantic)
