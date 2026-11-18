@@ -55,7 +55,25 @@ Options:
 --lod N             level of detail (default 0)
 --export-mesh FILE  write the mesh as Wavefront OBJ
 --mesh-preview FILE render a side/top/front PNG contact sheet
+--camera YAW,PITCH[,ZOOM]  viewer camera angles in degrees
+--clumps FILE       clump-name list for the model viewer
 ```
+
+### Model viewer
+
+`--mesh NAME --interactive` opens an orbit-camera viewport. The model list is
+read from `CLUMP_3.TXT` (or a built-in aircraft list when the file is absent).
+
+| input | action |
+|---|---|
+| drag / arrow keys | orbit |
+| mouse wheel, `+` / `-` | zoom |
+| `N` / `P` | next / previous model |
+| `L` | cycle level of detail |
+| `W` | wireframe |
+| `C` | backface culling |
+| `D` | marking decals |
+| `Esc` | quit |
 
 Controls in the window: `N`/`Down` next mission, `P`/`Up` previous,
 `Home`/`End`, `S` save `ef2000-mission.png`, `Esc` quit.
@@ -132,9 +150,12 @@ The parser is deliberately independent of SDL and the renderer; the same
 
 ## Current limitations
 
-* The strategic map is still 2D; meshes are exported/rendered offline, not
-  placed in a 3D scene yet.
-* Textures and UVs are parsed but not sampled, so meshes are flat-shaded.
+* The strategic map is still 2D; meshes are viewed in their own window, not
+  placed in a 3D world yet.
+* Textures and UVs are parsed but not sampled, so meshes are flat-shaded and
+  the marking decals show as grey shapes.
+* Meshes are open shells with mixed winding, so backface culling is off by
+  default.
 * No resource/asset loading; no IFF/ILBM/ANIM/palette yet.
 * No campaign/mission generator or GUI.
 * No flight model, avionics, audio or network.

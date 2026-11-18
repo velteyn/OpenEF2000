@@ -1,5 +1,6 @@
 #include "did.h"
 #include "meshview.h"
+#include "modelview.h"
 #include "parser.h"
 #include "render.h"
 #include "shape3d.h"
@@ -12,7 +13,9 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -30,7 +33,9 @@ void usage() {
         "  --mesh NAME         load one shape (e.g. efa, f22) from DID.DAT\n"
         "  --lod N             level of detail for --mesh (default: 0)\n"
         "  --export-mesh FILE  write the loaded mesh as Wavefront OBJ\n"
-        "  --mesh-preview FILE render the loaded mesh to a PNG sheet\n");
+        "  --mesh-preview FILE render the loaded mesh to a PNG sheet\n"
+        "  --clumps FILE       clump-name list for the model viewer\n"
+        "  --camera YAW,PITCH[,ZOOM]  viewer camera angles in degrees\n");
 }
 
 std::string default_data() {
@@ -131,6 +136,193 @@ int run_interactive(const ef::Dataset& ds, int selected, bool focus) {
     return 0;
 }
 
+// A set of `.3` shapes that the interactive viewer can cycle through.
+class ModelSet {
+public:
+    ModelSet(const ef::DidArchive& archive, std::vector<std::string> names)
+        : archive_(archive), names_(std::move(names)) {}
+
+    const std::vector<std::string>& names() const { return names_; }
+    int size() const { return static_cast<int>(names_.size()); }
+    int lod() const { return lod_; }
+    const std::string& current_name() const { return current_; }
+    const ef::Mesh& mesh() const { return mesh_; }
+    const ef::Shape* shape() const { return shape_.get(); }
+
+    bool load(int index, int lod) {
+        if (names_.empty()) return false;
+        index = ((index % size()) + size()) % size();
+        lod_ = lod;
+        index_ = index;
+
+        auto entry = archive_.resolve(names_[static_cast<std::size_t>(index)], "3\\", ".3");
+        if (!entry) return false;
+        auto bytes = archive_.read(*entry);
+        if (!bytes) return false;
+        auto shape = std::make_unique<ef::Shape>(ef::Shape::parse(*bytes));
+        if (lod < 0 || static_cast<std::size_t>(lod) >= shape->lods().size()) return false;
+        mesh_ = ef::execute_shape(*shape, static_cast<std::size_t>(lod), ef::ShapeParameters{}, 0);
+        shape_ = std::move(shape);
+        current_ = names_[static_cast<std::size_t>(index)];
+        return true;
+    }
+
+    int index() const { return index_; }
+
+private:
+    const ef::DidArchive& archive_;
+    std::vector<std::string> names_;
+    std::unique_ptr<ef::Shape> shape_;
+    ef::Mesh mesh_;
+    std::string current_;
+    int lod_ = 0;
+    int index_ = 0;
+};
+
+std::vector<std::string> shape_names(const std::filesystem::path& data,
+                                     const ef::DidArchive& archive,
+                                     const std::string& override_path) {
+    namespace fs = std::filesystem;
+    std::vector<fs::path> candidates;
+    if (!override_path.empty()) candidates.emplace_back(override_path);
+    candidates.push_back(data / "CLUMP_3.TXT");
+    candidates.push_back(data.parent_path() / "EF2000" / "CLUMP_3.TXT");
+
+    std::vector<std::string> names;
+    for (const auto& path : candidates) {
+        std::ifstream list(path);
+        if (!list) continue;
+        std::string name;
+        while (std::getline(list, name)) {
+            while (!name.empty() && (name.back() == '\r' || name.back() == ' ')) name.pop_back();
+            if (name.empty()) continue;
+            if (archive.resolve(name, "3\\", ".3")) names.push_back(name);
+        }
+        if (!names.empty()) {
+            std::printf("model list: %s (%zu meshes)\n", path.string().c_str(), names.size());
+            break;
+        }
+    }
+    if (names.empty()) {
+        names = {"efa", "f22", "a10", "f15", "f16", "tornado", "su27", "mig29",
+                 "mi24", "f117a", "b2", "harrier", "jas39", "f14", "f18", "su35",
+                 "mig21", "r767", "hercules", "efacpt"};
+        std::vector<std::string> filtered;
+        for (const auto& n : names) {
+            if (archive.resolve(n, "3\\", ".3")) filtered.push_back(n);
+        }
+        names = std::move(filtered);
+        std::printf("model list: built-in (%zu meshes)\n", names.size());
+    }
+    return names;
+}
+
+int run_model_viewer(ModelSet& models, int start, bool wireframe, ef::OrbitCamera camera) {
+    if (models.size() == 0) {
+        std::fprintf(stderr, "no meshes to show\n");
+        return 1;
+    }
+    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+        std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
+        return 1;
+    }
+    SDL_Window* win = SDL_CreateWindow("EF2000 Model Viewer",
+                                       SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                       1280, 900, SDL_WINDOW_RESIZABLE);
+    SDL_Renderer* ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED);
+    if (!ren) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
+    if (!win || !ren) {
+        std::fprintf(stderr, "SDL window: %s\n", SDL_GetError());
+        SDL_Quit();
+        return 1;
+    }
+
+    models.load(start, 0);
+    camera.wireframe = wireframe;
+    bool running = true;
+    bool dirty = true;
+    int drag_x = 0, drag_y = 0;
+    bool dragging = false;
+
+    while (running) {
+        SDL_Event ev;
+        while (SDL_PollEvent(&ev)) {
+            if (ev.type == SDL_QUIT) {
+                running = false;
+            } else if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
+                dragging = true;
+                drag_x = ev.button.x;
+                drag_y = ev.button.y;
+            } else if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT) {
+                dragging = false;
+            } else if (ev.type == SDL_MOUSEMOTION && dragging) {
+                camera.rotate(static_cast<float>(ev.motion.x - drag_x) * 0.01f,
+                              static_cast<float>(ev.motion.y - drag_y) * 0.01f);
+                drag_x = ev.motion.x;
+                drag_y = ev.motion.y;
+                dirty = true;
+            } else if (ev.type == SDL_MOUSEWHEEL) {
+                camera.dolly(ev.wheel.y > 0 ? 1.1f : 1.0f / 1.1f);
+                dirty = true;
+            } else if (ev.type == SDL_KEYDOWN) {
+                const int lod = models.lod();
+                switch (ev.key.keysym.sym) {
+                    case SDLK_ESCAPE: running = false; break;
+                    case SDLK_LEFT: camera.rotate(-0.1f, 0.0f); dirty = true; break;
+                    case SDLK_RIGHT: camera.rotate(0.1f, 0.0f); dirty = true; break;
+                    case SDLK_UP: camera.rotate(0.0f, -0.1f); dirty = true; break;
+                    case SDLK_DOWN: camera.rotate(0.0f, 0.1f); dirty = true; break;
+                    case SDLK_EQUALS: case SDLK_PLUS: camera.dolly(1.15f); dirty = true; break;
+                    case SDLK_MINUS: camera.dolly(1.0f / 1.15f); dirty = true; break;
+                    case SDLK_w: camera.wireframe = !camera.wireframe; dirty = true; break;
+                    case SDLK_d: camera.decals = !camera.decals; dirty = true; break;
+                    case SDLK_c: camera.cull = !camera.cull; dirty = true; break;
+                    case SDLK_n: models.load(models.index() + 1, 0); dirty = true; break;
+                    case SDLK_p: models.load(models.index() - 1, 0); dirty = true; break;
+                    case SDLK_l: {
+                        const auto* shape = models.shape();
+                        const int count = shape ? static_cast<int>(shape->lods().size()) : 1;
+                        models.load(models.index(), (lod + 1) % (count > 0 ? count : 1));
+                        dirty = true;
+                        break;
+                    }
+                    case SDLK_s: dirty = true; break;
+                    default: break;
+                }
+            }
+        }
+
+        if (dirty) {
+            int w = 0, h = 0;
+            SDL_GetRendererOutputSize(ren, &w, &h);
+            SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
+            if (surf) {
+                ef::draw_model(surf, models.mesh(), camera, 0, 0, w, h);
+                SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
+                if (tex) {
+                    SDL_RenderClear(ren);
+                    SDL_RenderCopy(ren, tex, nullptr, nullptr);
+                    SDL_RenderPresent(ren);
+                    SDL_DestroyTexture(tex);
+                }
+                SDL_FreeSurface(surf);
+            }
+            std::printf("\r%-10s LOD %d  %zu tris  yaw %.2f pitch %.2f zoom %.2f%s   ",
+                        models.current_name().c_str(), models.lod(),
+                        models.mesh().triangle_count(), camera.yaw, camera.pitch,
+                        camera.zoom, camera.decals ? "  +decals" : "");
+            std::fflush(stdout);
+            dirty = false;
+        }
+        SDL_Delay(8);
+    }
+
+    SDL_DestroyRenderer(ren);
+    SDL_DestroyWindow(win);
+    SDL_Quit();
+    return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -139,6 +331,8 @@ int main(int argc, char** argv) {
     std::string mesh_name;
     std::string export_mesh;
     std::string mesh_preview;
+    std::string clumps_path;
+    float cam_yaw = 0.75f, cam_pitch = 0.35f, cam_zoom = 1.0f;
     int mission = 0;
     int lod = 0;
     bool stats = false, list = false, interactive = false, focus = false;
@@ -165,6 +359,14 @@ int main(int argc, char** argv) {
             export_mesh = argv[++i];
         } else if (std::strcmp(argv[i], "--mesh-preview") == 0 && i + 1 < argc) {
             mesh_preview = argv[++i];
+        } else if (std::strcmp(argv[i], "--clumps") == 0 && i + 1 < argc) {
+            clumps_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--camera") == 0 && i + 1 < argc) {
+            // "yaw,pitch,zoom" in degrees (zoom optional)
+            if (std::sscanf(argv[++i], "%f,%f,%f", &cam_yaw, &cam_pitch, &cam_zoom) >= 2) {
+                cam_yaw = cam_yaw * 3.14159265358979f / 180.0f;
+                cam_pitch = cam_pitch * 3.14159265358979f / 180.0f;
+            }
         } else if (std::strcmp(argv[i], "--focus") == 0) {
             focus = true;
         } else if (std::strcmp(argv[i], "--interactive") == 0) {
@@ -266,6 +468,19 @@ int main(int argc, char** argv) {
                         return 1;
                     }
                     std::printf("wrote %s\n", mesh_preview.c_str());
+                }
+                if (interactive) {
+                    auto names = shape_names(std::filesystem::path(data), did, clumps_path);
+                    int start_index = 0;
+                    for (std::size_t k = 0; k < names.size(); ++k) {
+                        if (names[k] == mesh_name) start_index = static_cast<int>(k);
+                    }
+                    ModelSet models(did, std::move(names));
+                    ef::OrbitCamera camera;
+                    camera.yaw = cam_yaw;
+                    camera.pitch = cam_pitch;
+                    camera.zoom = cam_zoom;
+                    return run_model_viewer(models, start_index, false, camera);
                 }
             }
         } catch (const std::exception& exc) {

@@ -16,6 +16,9 @@ struct MeshTriangle {
     bool textured = false;
     //! Billboards face the viewer, so their vertices are not object space.
     bool sprite = false;
+    //! Masked/blended overlay (markings, canopy, afterburner). Meaningless
+    //! without texture sampling, so viewers hide it by default.
+    bool decal = false;
 };
 
 struct Mesh {

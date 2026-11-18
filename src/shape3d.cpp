@@ -282,7 +282,7 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
     stack.push_back(Routine{std::nullopt, Mat{}, false});
 
     auto emit = [&](const std::vector<std::uint16_t>& indices,
-                    const std::vector<int>& color_slots) {
+                    const std::vector<int>& color_slots, bool decal = false) {
         const Routine& r = stack.back();
         std::vector<Vec3f> pts;
         pts.reserve(indices.size());
@@ -298,6 +298,7 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
             t.c = pts[k + 1];
             t.textured = textured;
             t.sprite = r.sprite;
+            t.decal = decal;
             const auto c0 = static_cast<std::uint8_t>(colors[static_cast<std::size_t>(color_slots[0])]);
             const auto c1 = static_cast<std::uint8_t>(colors[static_cast<std::size_t>(color_slots[k])]);
             const auto c2 = static_cast<std::uint8_t>(colors[static_cast<std::size_t>(color_slots[k + 1])]);
@@ -642,7 +643,7 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
                 indices.push_back(w[ip + 1 + static_cast<std::size_t>(k)]);
                 slots.push_back(k);
             }
-            emit(indices, slots);
+            emit(indices, slots, op != 0x2F);
             ip += 1 + static_cast<std::size_t>(count);
             continue;
         }

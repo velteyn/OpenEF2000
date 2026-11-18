@@ -49,6 +49,7 @@ std::string mesh_to_obj(const Mesh& mesh, const std::string& name, bool include_
 
     for (const auto& t : mesh.triangles) {
         if (t.sprite && !include_sprites) continue;
+        if (t.decal && !include_sprites) continue;
         const std::size_t ia = vertex(t.a);
         const std::size_t ib = vertex(t.b);
         const std::size_t ic = vertex(t.c);
@@ -90,6 +91,7 @@ bool render_mesh_png(const Mesh& mesh, const std::string& path, int tile) {
         };
         for (const auto& t : mesh.triangles) {
             if (t.sprite) continue;
+            if (t.decal) continue;
             for (const Vec3f* p : {&t.a, &t.b, &t.c}) {
                 for (int k = 0; k < 2; ++k) {
                     const int axis = k == 0 ? view.a : view.b;
@@ -120,6 +122,7 @@ bool render_mesh_png(const Mesh& mesh, const std::string& path, int tile) {
 
         for (const auto& t : mesh.triangles) {
             if (t.sprite) continue;
+            if (t.decal) continue;
             const P2 p0 = project(t.a), p1 = project(t.b), p2 = project(t.c);
             const float d0 = coord(t.a, view.depth);
             const float d1 = coord(t.b, view.depth);
