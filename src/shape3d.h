@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 velteyn
+
 #pragma once
 
 // Parser and bytecode interpreter for Digital Image Design `.3` shape files.

@@ -1,0 +1,68 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright (C) 2026 velteyn
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and guard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            build-essential cmake pkg-config \
+            libsdl2-dev libsdl2-ttf-dev libsdl2-image-dev
+
+      # The repository is published on the promise that it holds no game
+      # assets, no binaries and no decompiled material. Enforce it in CI so a
+      # bad commit cannot land by accident.
+      - name: Guard the public tree
+        run: ./scripts/check-public-tree.sh
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Smoke test
+        run: |
+          ./build/openef2000 --help
+          # The engine must fail cleanly, not crash, when no game data is present.
+          ./build/openef2000 --data ./does-not-exist --stats || true
+
+  style:
+    name: Source hygiene
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Every source file carries an SPDX identifier
+        run: |
+          missing=0
+          for f in src/*.cpp src/*.h CMakeLists.txt scripts/*.sh; do
+            if ! grep -q "SPDX-License-Identifier: GPL-3.0-or-later" "$f"; then
+              echo "missing SPDX identifier: $f"
+              missing=1
+            fi
+          done
+          exit "$missing"

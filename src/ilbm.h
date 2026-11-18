@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 velteyn
+
 #pragma once
 
 // Minimal IFF/ILBM reader for EF2000's `iff\256\*.lbm` screens and backdrops.

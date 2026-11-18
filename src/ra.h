@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 velteyn
+
 #pragma once
 
 // Decoder for DiD "RA" compressed blocks (EF2000, Super EF2000 and v2.0).

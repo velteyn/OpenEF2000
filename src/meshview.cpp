@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 velteyn
+
 #include "meshview.h"
 
 #include <SDL2/SDL.h>

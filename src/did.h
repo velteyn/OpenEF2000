@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Copyright (C) 2026 velteyn
+
 #pragma once
 
 // Reader for DiD's `DID.DAT` / `DID1ST.DAT` shape archives.
