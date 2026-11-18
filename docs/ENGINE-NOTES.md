@@ -214,17 +214,51 @@ Two practical notes learned the hard way:
 
 | Observation | Conclusion |
 |---|---|
-| Pressing `C` opens a dialog titled **Campaign Level Setting** listing TopGun…Rookie, "Player Performace / Influence Campaign?" Yes/No and Accept | `gpwClickCampaign` opens the `campaign_level` window |
-| The dialog's position, size, labels and the `Performace` typo match `gui\mainmenu.gui` byte for byte | the parser reads the window geometry and localised text correctly |
-| Hovering a menu panel highlights its title bar; the pointer is an X | selection state is driven by `select entering` / `unselect leaving`, as modelled |
+| Pressing `C` opens **Campaign Level Setting** (TopGun…Rookie, "Player Performace / Influence Campaign?" Yes/No, Accept) | `gpwClickCampaign` opens the `campaign_level` window |
+| That dialog's position, size, labels and the `Performace` typo match `gui\mainmenu.gui` exactly | the parser reads geometry and localised text correctly |
+| Hovering a panel highlights its title bar; the pointer is an X | selection is driven by `select entering` / `unselect leaving`, as modelled |
+| Pressing `Esc` at the main menu does nothing | the menu bar's `efamenu` widget also binds `esc` (with no routine) and wins over `quitsel`; this matches the runtime's topmost-window-first dispatch |
+| A synthesised click on the `campaign_level` **Yes** checkbox toggles it | widgets that bind `call click` do receive synthetic input |
 
-The `campaign_level` window is modal in practice: it has no `close` verb, so it
-stays up until Accept. That limits how far a single run can explore without
-starting a campaign.
+### Harness limitation: `call release` is not reachable synthetically
 
-The game's panels render grey-green; the reconstruction currently draws them
-blue-grey from `colours\gui.col`, so the GUI palette for this build is not
-`gui.col` and still needs identifying.
+The main-menu panels bind `call release`, and no combination tried here
+activated them: press durations of 0.3 s, 1.0 s and 1.2 s; clicks on the body
+and on the title strip; with and without a warm-up click; with motion after
+release to force polling. Hover always worked, and a `call click` widget did
+toggle, so input reaches the guest — the *release* transition does not.
+
+The consequence is a boundary on what this harness can harvest:
+
+- **reachable** — keyboard-bound widgets (`key`), and `call click` widgets;
+- **not reachable** — window-level panels that activate on `call release`,
+  which includes the Quit confirmation (`QuitEF2000` → `sure`) and campaign
+  start (`gcStartNewCampaign`).
+
+`Return` also failed to trigger `arcadesel` (`key ret`, `screen arcade`) even
+though `C` works, so the keyboard path is not uniformly reliable either; the
+likely cause is that `screen arcade` needs state that the main menu has not
+set up, but that is unresolved.
+
+### Where that leaves the routine harvest
+
+Three ways forward, in increasing cost:
+
+1. **Ask for observations from play.** Someone playing the game can report what
+   each menu entry does; that is the cheapest source for the remaining names.
+2. **Spice86.** It emulates the hardware rather than forwarding host input, so
+   its mouse button handling may latch the transitions DOSBox-X drops.
+3. **Repack a scratch copy of the archive** with `call release` changed to
+   `call click` for the panels, and observe the handlers. This modifies only a
+   local scratch copy of the data, never the repository, and would settle every
+   remaining main-menu routine quickly.
+
+### Palette discrepancy
+
+The running menu draws its panels **grey-green**; the reconstruction draws them
+blue-grey from `colours\gui.col`. This build's GUI palette is therefore not
+`gui.col`. That is a concrete rendering difference that file inspection alone
+did not reveal.
 
 ## Current limitations
 
