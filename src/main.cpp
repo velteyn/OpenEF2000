@@ -4,6 +4,7 @@
 #include "parser.h"
 #include "render.h"
 #include "shape3d.h"
+#include "texture.h"
 
 #include <SDL2/SDL.h>
 
@@ -35,7 +36,8 @@ void usage() {
         "  --export-mesh FILE  write the loaded mesh as Wavefront OBJ\n"
         "  --mesh-preview FILE render the loaded mesh to a PNG sheet\n"
         "  --clumps FILE       clump-name list for the model viewer\n"
-        "  --camera YAW,PITCH[,ZOOM]  viewer camera angles in degrees\n");
+        "  --camera YAW,PITCH[,ZOOM]  viewer camera angles in degrees\n"
+        "  --texture NAME      force one .tm atlas for every polygon\n");
 }
 
 std::string default_data() {
@@ -217,7 +219,28 @@ std::vector<std::string> shape_names(const std::filesystem::path& data,
     return names;
 }
 
-int run_model_viewer(ModelSet& models, int start, bool wireframe, ef::OrbitCamera camera) {
+// Slot 0 is the shape's hard-coded texture; slot k is `init3d.txt` global k.
+ef::TextureSlots build_slots(const ef::TextureBank& textures, const ef::Shape& shape,
+                             const std::string& override_name) {
+    const std::size_t count = textures.global_slots().size() + 1;
+    ef::TextureSlots slots(count, nullptr);
+    if (!override_name.empty()) {
+        const ef::Texture* forced = textures.get(override_name);
+        for (auto& slot : slots) slot = forced;
+        if (forced) slots[0] = forced;
+        return slots;
+    }
+    if (shape.texture_name()) slots[0] = textures.get(*shape.texture_name());
+    const auto& globals = textures.global_slots();
+    for (std::size_t k = 1; k < globals.size() && k < count; ++k) {
+        if (!globals[k].empty()) slots[k] = textures.get(globals[k]);
+    }
+    return slots;
+}
+
+int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int start,
+                     bool wireframe, ef::OrbitCamera camera,
+                     const std::string& texture_override = {}) {
     if (models.size() == 0) {
         std::fprintf(stderr, "no meshes to show\n");
         return 1;
@@ -277,6 +300,7 @@ int run_model_viewer(ModelSet& models, int start, bool wireframe, ef::OrbitCamer
                     case SDLK_w: camera.wireframe = !camera.wireframe; dirty = true; break;
                     case SDLK_d: camera.decals = !camera.decals; dirty = true; break;
                     case SDLK_c: camera.cull = !camera.cull; dirty = true; break;
+                    case SDLK_t: camera.textured = !camera.textured; dirty = true; break;
                     case SDLK_n: models.load(models.index() + 1, 0); dirty = true; break;
                     case SDLK_p: models.load(models.index() - 1, 0); dirty = true; break;
                     case SDLK_l: {
@@ -297,7 +321,12 @@ int run_model_viewer(ModelSet& models, int start, bool wireframe, ef::OrbitCamer
             SDL_GetRendererOutputSize(ren, &w, &h);
             SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
             if (surf) {
-                ef::draw_model(surf, models.mesh(), camera, 0, 0, w, h);
+                ef::TextureSlots slots;
+                if (camera.textured && models.shape()) {
+                    slots = build_slots(textures, *models.shape(), texture_override);
+                }
+                ef::draw_model(surf, models.mesh(), camera, 0, 0, w, h,
+                               camera.textured ? &slots : nullptr);
                 SDL_Texture* tex = SDL_CreateTextureFromSurface(ren, surf);
                 if (tex) {
                     SDL_RenderClear(ren);
@@ -307,10 +336,12 @@ int run_model_viewer(ModelSet& models, int start, bool wireframe, ef::OrbitCamer
                 }
                 SDL_FreeSurface(surf);
             }
-            std::printf("\r%-10s LOD %d  %zu tris  yaw %.2f pitch %.2f zoom %.2f%s   ",
+            std::printf("\r%-10s LOD %d  %zu tris  tex %-8s%s%s   ",
                         models.current_name().c_str(), models.lod(),
-                        models.mesh().triangle_count(), camera.yaw, camera.pitch,
-                        camera.zoom, camera.decals ? "  +decals" : "");
+                        models.mesh().triangle_count(),
+                        (models.shape() && models.shape()->texture_name())
+                            ? models.shape()->texture_name()->c_str() : "-",
+                        camera.textured ? " +tex" : "", camera.decals ? " +decals" : "");
             std::fflush(stdout);
             dirty = false;
         }
@@ -332,6 +363,7 @@ int main(int argc, char** argv) {
     std::string export_mesh;
     std::string mesh_preview;
     std::string clumps_path;
+    std::string texture_override;
     float cam_yaw = 0.75f, cam_pitch = 0.35f, cam_zoom = 1.0f;
     int mission = 0;
     int lod = 0;
@@ -361,6 +393,8 @@ int main(int argc, char** argv) {
             mesh_preview = argv[++i];
         } else if (std::strcmp(argv[i], "--clumps") == 0 && i + 1 < argc) {
             clumps_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--texture") == 0 && i + 1 < argc) {
+            texture_override = argv[++i];
         } else if (std::strcmp(argv[i], "--camera") == 0 && i + 1 < argc) {
             // "yaw,pitch,zoom" in degrees (zoom optional)
             if (std::sscanf(argv[++i], "%f,%f,%f", &cam_yaw, &cam_pitch, &cam_zoom) >= 2) {
@@ -478,12 +512,19 @@ int main(int argc, char** argv) {
                     for (std::size_t k = 0; k < names.size(); ++k) {
                         if (names[k] == mesh_name) start_index = static_cast<int>(k);
                     }
-                    ModelSet models(did, std::move(names));
                     ef::OrbitCamera camera;
                     camera.yaw = cam_yaw;
                     camera.pitch = cam_pitch;
                     camera.zoom = cam_zoom;
-                    return run_model_viewer(models, start_index, false, camera);
+                    ModelSet models(did, std::move(names));
+                    ef::TextureBank textures(did);
+                    if (textures.ready()) {
+                        std::printf("palette: colours\\%s\n", textures.palette_name().c_str());
+                    } else {
+                        std::fprintf(stderr, "warning: no palette found; textures disabled\n");
+                    }
+                    return run_model_viewer(models, textures, start_index, false, camera,
+                                            texture_override);
                 }
             }
         } catch (const std::exception& exc) {

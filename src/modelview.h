@@ -5,6 +5,7 @@
 // so it can be blitted into the normal viewer window.
 
 #include "mesh.h"
+#include "texture.h"
 
 #include <SDL2/SDL.h>
 
@@ -21,13 +22,17 @@ struct OrbitCamera {
     //! The meshes are open shells with mixed winding, so culling hides as
     //! much as it fixes; off by default, toggle with C in the viewer.
     bool cull = false;
+    bool textured = true;
 
     void rotate(float dx, float dy);
     void dolly(float factor);
 };
 
 // Draws `mesh` into `surface`'s rectangle (x, y, w, h).
+// Per-triangle texture lookup: ``slots[mesh.triangle.texture_slot]``.
+using TextureSlots = std::vector<const Texture*>;
+
 void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camera,
-                int x, int y, int w, int h);
+                int x, int y, int w, int h, const TextureSlots* textures = nullptr);
 
 }  // namespace ef

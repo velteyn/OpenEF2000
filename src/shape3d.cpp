@@ -274,6 +274,7 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
     std::array<std::uint8_t, kMaxPolygonVertices> colors{};
     std::vector<std::pair<int, int>> uvs;
     int current_texture = 0;
+    int portion_u = 0, portion_v = 0;
     bool textured = false;
     float scale = 1.0f;
     int current_parameter = parameters[0];
@@ -297,8 +298,18 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
             t.b = pts[k];
             t.c = pts[k + 1];
             t.textured = textured;
+            t.texture_slot = current_texture;
             t.sprite = r.sprite;
             t.decal = decal;
+            if (textured && uvs.size() >= indices.size()) {
+                t.has_uv = true;
+                t.uv[0][0] = static_cast<float>(uvs[color_slots[0]].first + portion_u);
+                t.uv[0][1] = static_cast<float>(uvs[color_slots[0]].second + portion_v);
+                t.uv[1][0] = static_cast<float>(uvs[color_slots[k]].first + portion_u);
+                t.uv[1][1] = static_cast<float>(uvs[color_slots[k]].second + portion_v);
+                t.uv[2][0] = static_cast<float>(uvs[color_slots[k + 1]].first + portion_u);
+                t.uv[2][1] = static_cast<float>(uvs[color_slots[k + 1]].second + portion_v);
+            }
             const auto c0 = static_cast<std::uint8_t>(colors[static_cast<std::size_t>(color_slots[0])]);
             const auto c1 = static_cast<std::uint8_t>(colors[static_cast<std::size_t>(color_slots[k])]);
             const auto c2 = static_cast<std::uint8_t>(colors[static_cast<std::size_t>(color_slots[k + 1])]);
@@ -562,8 +573,16 @@ Mesh execute_shape(const Shape& shape, std::size_t lod,
             ip += 2 + 2 * static_cast<std::size_t>(count);
             continue;
         }
-        if (op == 0x83) { ip += 4; continue; }
-        if (op == 0x84) { continue; }
+        if (op == 0x83) {
+            portion_u = w[ip];
+            portion_v = w[ip + 1];
+            ip += 4;
+            continue;
+        }
+        if (op == 0x84) {
+            portion_u = portion_v = 0;
+            continue;
+        }
         if (op == 0x4C) {
             colors[0] = static_cast<std::uint8_t>(w[ip] & 0xFF);
             colors[1] = static_cast<std::uint8_t>(w[ip] >> 8);

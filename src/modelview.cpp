@@ -36,7 +36,7 @@ void OrbitCamera::dolly(float factor) {
 }
 
 void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camera,
-                int ox, int oy, int w, int h) {
+                int ox, int oy, int w, int h, const TextureSlots* textures) {
     fill_rect(surface, ox, oy, w, h, SDL_MapRGBA(surface->format, 12, 13, 16, 255));
     if (w <= 0 || h <= 0) return;
 
@@ -126,11 +126,18 @@ void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camer
         const int y1 = std::min(static_cast<int>(std::ceil(std::max({p0.y, p1.y, p2.y}))), oy + h - 1);
         if (x1 < x0 || y1 < y0) continue;
 
+        const Texture* texture = nullptr;
+        if (textures != nullptr && static_cast<std::size_t>(t.texture_slot) < textures->size()) {
+            texture = (*textures)[static_cast<std::size_t>(t.texture_slot)];
+        }
+        const bool sample = texture != nullptr && t.has_uv;
         const float base = 0.30f + 0.70f * shade;
-        const auto r = static_cast<Uint8>(std::clamp(base * 150.0f + 20.0f, 0.0f, 255.0f));
-        const auto g = static_cast<Uint8>(std::clamp(base * 162.0f + 22.0f, 0.0f, 255.0f));
-        const auto b = static_cast<Uint8>(std::clamp(base * 178.0f + 26.0f, 0.0f, 255.0f));
-        const Uint32 colour = SDL_MapRGBA(fmt, r, g, b, 255);
+        const auto flat_r = static_cast<float>(std::clamp(base * 150.0f + 20.0f, 0.0f, 255.0f));
+        const auto flat_g = static_cast<float>(std::clamp(base * 162.0f + 22.0f, 0.0f, 255.0f));
+        const auto flat_b = static_cast<float>(std::clamp(base * 178.0f + 26.0f, 0.0f, 255.0f));
+        const Uint32 flat_colour = SDL_MapRGBA(
+            fmt, static_cast<Uint8>(flat_r), static_cast<Uint8>(flat_g),
+            static_cast<Uint8>(flat_b), 255);
 
         for (int y = y0; y <= y1; ++y) {
             for (int x = x0; x <= x1; ++x) {
@@ -140,6 +147,23 @@ void draw_model(SDL_Surface* surface, const Mesh& mesh, const OrbitCamera& camer
                 const float w1 = ((p2.x - px) * (p0.y - py) - (p0.x - px) * (p2.y - py)) / area;
                 const float w2 = 1.0f - w0 - w1;
                 if (w0 < 0.0f || w1 < 0.0f || w2 < 0.0f) continue;
+
+                Uint32 colour = flat_colour;
+                if (sample) {
+                    const float u = w0 * t.uv[0][0] + w1 * t.uv[1][0] + w2 * t.uv[2][0];
+                    const float v = w0 * t.uv[0][1] + w1 * t.uv[1][1] + w2 * t.uv[2][1];
+                    const std::uint32_t texel = texture->at(static_cast<int>(u),
+                                                            static_cast<int>(v));
+                    if ((texel & 0xFF000000u) == 0) continue;  // masked out
+                    const auto tr = static_cast<float>((texel >> 16) & 0xFF);
+                    const auto tg = static_cast<float>((texel >> 8) & 0xFF);
+                    const auto tb = static_cast<float>(texel & 0xFF);
+                    const float k = 0.45f + 0.55f * shade;
+                    colour = SDL_MapRGBA(
+                        fmt, static_cast<Uint8>(std::clamp(tr * k, 0.0f, 255.0f)),
+                        static_cast<Uint8>(std::clamp(tg * k, 0.0f, 255.0f)),
+                        static_cast<Uint8>(std::clamp(tb * k, 0.0f, 255.0f)), 255);
+                }
 
                 const float z = w0 * z0 + w1 * z1 + w2 * z2;
                 float& slot = zbuf[static_cast<std::size_t>(y - oy) * static_cast<std::size_t>(w) +
