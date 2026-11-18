@@ -157,8 +157,8 @@ Use `git commit -s`. The sign-off is a statement that:
    submit;
 2. you have not included material from the original game's executable or
    assets;
-3. you agree the contribution is licensed under the project licence
-   (`[LICENSE]`).
+3. you agree the contribution is licensed under the project licence,
+   `GPL-3.0-or-later`.
 
 If part of your contribution is based on research into the shipped software,
 add a short `Provenance:` paragraph to the commit body or the accompanying

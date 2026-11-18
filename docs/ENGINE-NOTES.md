@@ -88,7 +88,7 @@ Controls in the window: `N`/`Down` next mission, `P`/`Up` previous,
 
 ## Validation
 
-`--stats` on `EF20003DFX2` matches the Python parser exactly:
+`--stats` on a retail installation matches an independent parser exactly:
 
 | Metric | Value |
 |---|---:|

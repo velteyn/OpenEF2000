@@ -44,7 +44,10 @@ Rules for this document:
 4. **Reproducible claims.** Where a statement is inferred rather than
    confirmed, it is marked as such and the evidence class is given.
 
-Licensing: this document is released under `[DOCUMENTATION_LICENSE]`.
+Licensing: this document is released under `GPL-3.0-or-later`, the same
+licence as the engine. Implementing a format from this description does not
+require copying the document, so independent implementations remain free to
+choose their own licence for their own code.
 
 ## Conventions
 

@@ -248,6 +248,8 @@ src/                  engine and format layer (C++20)
   render, meshview   strategic map and mesh export
   modelview          orbit-camera 3D viewer
 docs/                 published specifications and engine notes
+scripts/              repository guard (see AGENTS.md)
+AGENTS.md             working rules: the private/public boundary
 CONTRIBUTING.md       contribution and clean-room policy
 ```
 
@@ -262,6 +264,7 @@ committed.
 | [`docs/FILE_FORMATS.md`](docs/FILE_FORMATS.md) | Clean-room specifications for the archive, mesh, texture, terrain, mission and GUI formats |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Clean-room rules, what is accepted, review process |
 | [`docs/ENGINE-NOTES.md`](docs/ENGINE-NOTES.md) | Module map, build targets, viewer controls, limitations |
+| [`AGENTS.md`](AGENTS.md) | Working rules for automated agents: the private/public boundary and pre-commit checks |
 
 The specifications are written for interoperability. They describe byte
 layouts, field meanings, compression schemes and state machines — facts about
@@ -312,7 +315,14 @@ addressed promptly.
 
 ## License
 
-*Placeholder.* The engine source is intended to be released under
-`[LICENSE]`. Documentation is intended to be released under
-`[DOCUMENTATION_LICENSE]`. Game data is **not** covered by either and is not
-distributed.
+The engine source and the documentation in `docs/` are released under the
+**GNU General Public License v3.0 or later** (`GPL-3.0-or-later`). See
+[`LICENSE`](LICENSE) for the full text.
+
+Game data is **not** covered by this licence and is **not** distributed. Any
+data you supply remains subject to the terms of the licence that came with your
+copy of the game.
+
+In short: you may use, study, share and modify this engine, provided derivative
+works remain under the same licence and you keep the source available. See the
+full text for the authoritative terms.
