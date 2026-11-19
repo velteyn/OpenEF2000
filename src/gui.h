@@ -205,7 +205,16 @@ public:
 
     //! Routines: the C half of the GUI. Registration lets the driver supply
     //! behaviour for names the `.gui` files reference but cannot define.
-    void register_routine(const std::string& name, std::function<void(GuiSystem&)> handler);
+    //! The handler is told which window and icon fired it, because several
+    //! routines are shared by a whole group (a radio set, a mission grid).
+    void register_routine(const std::string& name,
+                          std::function<void(GuiSystem&, const std::string& window,
+                                            const std::string& icon)> handler);
+
+    //! Set by the Quick Combat Accept routine. The reconstruction has no
+    //! mission loader yet, so this records the decision instead.
+    void set_arcade_accepted(bool on) { arcade_accepted_ = on; }
+    bool arcade_accepted() const { return arcade_accepted_; }
     //! Routines referenced by the current screen but not registered.
     std::vector<std::string> missing_routines() const;
     //! Every routine name the current screen references, sorted.
@@ -224,11 +233,14 @@ private:
     GuiScreen screen_;
     int next_z_ = 1;
     std::map<std::pair<std::string, std::string>, bool> selected_;
+    bool arcade_accepted_ = false;
     std::vector<std::string> screen_requests_;
     std::vector<std::string> log_;
 
     std::pair<std::string, std::string> focus_;  //!< window, icon
-    std::map<std::string, std::function<void(GuiSystem&)>> routines_;
+    std::map<std::string,
+             std::function<void(GuiSystem&, const std::string&, const std::string&)>>
+        routines_;
     std::vector<std::string> unimplemented_;
     bool quit_requested_ = false;
 };

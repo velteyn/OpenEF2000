@@ -691,6 +691,38 @@ ysize 10
 call click
 submenu extra
 
+icon radioA
+xpos 20
+ypos 20
+xsize 10
+ysize 10
+esg 5
+
+icon radioB
+xpos 35
+ypos 20
+xsize 10
+ysize 10
+esg 5
+
+icon ctx
+xpos 50
+ypos 20
+xsize 10
+ysize 10
+key z
+call click
+routine Capture
+
+icon skeyed
+xpos 65
+ypos 20
+xsize 10
+ysize 10
+skey y
+call click
+routine ScreenKey
+
 window extra
 xpos 200
 ypos 0
@@ -713,8 +745,16 @@ ysize 50
           system.find_window("extra") != nullptr && !system.find_window("extra")->visible);
 
     // Screens declare a `startup` routine; the driver supplies its behaviour.
-    system.register_routine("TestStartup", [](ef::GuiSystem& gui) {
+    system.register_routine("TestStartup", [](ef::GuiSystem& gui,
+                                               const std::string&,
+                                               const std::string&) {
         gui.open_window("extra");
+    });
+    std::string ctx_window, ctx_icon;
+    system.register_routine("Capture", [&](ef::GuiSystem&, const std::string& window,
+                                           const std::string& icon) {
+        ctx_window = window;
+        ctx_icon = icon;
     });
     check("startup routine runs and can raise a window",
           system.run_startup() && system.find_window("extra")->visible);
@@ -745,6 +785,22 @@ ysize 50
     system.fire("test", "sub", "click");
     check("submenu opens the named window in the same file",
           system.find_window("extra") != nullptr && system.find_window("extra")->visible);
+
+    check("routine receives the window and icon that fired it",
+          system.key_press("z") && ctx_window == "test" && ctx_icon == "ctx");
+
+    bool screen_key_fired = false;
+    system.register_routine("ScreenKey", [&](ef::GuiSystem&, const std::string&,
+                                             const std::string&) {
+        screen_key_fired = true;
+    });
+    check("skey is a screen-local binding, not shift+key",
+          system.key_press("y") && screen_key_fired);
+
+    system.select("test", "radioA", true);
+    system.select("test", "radioB", true);
+    check("same-esg icons behave as a radio group",
+          !system.is_selected("test", "radioA") && system.is_selected("test", "radioB"));
 
     std::printf("%s (%d failure%s)\n", failures == 0 ? "gui selftest: PASS" : "gui selftest: FAIL",
                 failures, failures == 1 ? "" : "s");

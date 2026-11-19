@@ -207,11 +207,11 @@ EF2000.BAT
 Two practical notes learned the hard way:
 
 - **The keyboard is the reliable input path.** Each menu widget declares
-  `key <k>` in the `.gui` file, so pressing that key activates it. This doubles
-  as a check that the DSL's bindings are read correctly.
-- **Synthetic mouse clicks need a long press.** A guest polling the PS/2 mouse
-  can miss a short synthetic click; holding the button for about a second
-  registers reliably.
+  `key <k>` or `skey <k>` in the `.gui` file, so pressing that key activates it.
+  This doubles as a check that the DSL's bindings are read correctly.
+- **Synthetic mouse clicks do not dispatch.** The pointer moves and the guest
+  receives the button, but the engine's own GUI does not act on it. Use the
+  keyboard bindings; the input section below has the evidence.
 
 ### Confirmed so far
 
@@ -221,7 +221,7 @@ Two practical notes learned the hard way:
 | That dialog's position, size, labels and the `Performace` typo match `gui\mainmenu.gui` exactly | the parser reads geometry and localised text correctly |
 | Hovering a panel highlights its title bar; the pointer is an X | selection is driven by `select entering` / `unselect leaving`, as modelled |
 | Pressing `Esc` at the main menu does nothing | the menu bar's `efamenu` widget also binds `esc` (with no routine) and wins over `quitsel`; this matches the runtime's topmost-window-first dispatch |
-| A synthesised click on the `campaign_level` **Yes** checkbox toggles it | widgets that bind `call click` do receive synthetic input |
+| `R`/`P`/`T` move the Quick Combat difficulty radio (`gpwChangeDifficulty`); `F1`..`F12` select missions and rewrite the Summary (`gpwSelectLevel`); `Return` accepts (`gpwArcadeAccepted`) | per-icon `skey`/`key` bindings dispatch the same routines as the mouse |
 
 ### Boot sequence
 
@@ -290,20 +290,23 @@ panel needs `gfxcred.txt` only on the v2 builds.
 `HISCORES.DAT` differs per installation (developer names differ between DOS and
 3DFX), so hi-score contents are never a reliable test fixture.
 
-### Harness: dosbox-x-mcp
+### Harness: DOSBox-X
 
-`tools/dosbox-x-mcp/` is an MCP server that drives a DOSBox-X session: launch,
-screenshot the guest screen, send keys and clicks in guest coordinates, and wait
-until the screen stops changing. It was built after the Spice86 maintainers
-pointed out that protected-mode titles cannot run under their emulator.
+Two layers, built in this order.
 
-It makes observation deterministic — captures are 640x400 with no window chrome
-or host pointer — and each tool is exercised by `--selftest`.
+`tools/dosbox-x-mcp/` drives a DOSBox-X session from outside: launch,
+screenshot, keys and clicks in guest coordinates. Deterministic capture, but
+host-level input.
 
-It does not solve input delivery. Widgets bound to a **click** event activate;
-panels bound to **release** do not, for holds up to 900 ms, with or without
-DOSBox-X mouse capture, and with the pointer correctly hovering the panel.
-Keyboard bindings do work. That asymmetry is documented in the tool's README.
+A local DOSBox-X build with an **in-process** MCP server goes further: tools
+call the emulator's own input and renderer paths, and it adds guest memory
+access and an instruction tracer. Captures come from the renderer, buttons go
+through `Mouse_ButtonPressed`, and the tracer records `CS:EIP`, registers and
+opcode bytes. This is what produced the input findings below. It is a patch
+series against DOSBox-X, not part of this repository.
+
+Neither tool contains game data, and neither is needed to build or run
+OpenEF2000.
 
 ### Spice86: launches, but DOS4GW aborts
 
@@ -364,27 +367,56 @@ Their names are not recoverable by hashing plausible stems, so the engine cannot
 address them by name yet; the content is documented here so it can be located
 again.
 
-### Harness limitation: `call release` is not reachable synthetically
+### Mouse clicks reach the guest, but the GUI does not dispatch `call release`
 
-The main-menu panels bind `call release`, and no combination tried here
-activated them: press durations of 0.3 s, 1.0 s and 1.2 s; clicks on the body
-and on the title strip; with and without a warm-up click; with motion after
-release to force polling. Hover always worked, and a `call click` widget did
-toggle, so input reaches the guest — the *release* transition does not.
+A driver-level trace settles the old ambiguity. The engine reads INT 33h
+function 3 every frame, and its own button state flips while the button is
+held and back on release; a real-mode probe confirms `BX=0001` during the
+hold. The guest polls the driver hundreds of times per click.
 
-The consequence is a boundary on what this harness can harvest:
+What does not happen is the widget dispatch. An instruction trace covering
+tens of thousands of instructions around a press and release shows no call
+into a GUI routine, and the screen never changes. The engine gates its button
+reads behind a driver-present flag set at startup from INT 33h function 0;
+that flag is open, so the failure is later, inside its own event state
+machine.
 
-- **reachable** — keyboard-bound widgets (`key`), and `call click` widgets;
-- **not reachable** — window-level panels that activate on `call release`,
-  which includes the Quit confirmation (`QuitEF2000` → `sure`) and campaign
-  start (`gcStartNewCampaign`).
+Hover still works because position and motion take a different path — the
+engine reads the relative motion counters (function 0x0B) and maintains its
+own cursor.
 
-`Return` also failed to trigger `arcadesel` (`key ret`, `screen arcade`) even
-though `C` works, so the keyboard path is not uniformly reliable either; the
-likely cause is that `screen arcade` needs state that the main menu has not
-set up, but that is unresolved.
+So synthetic clicks are not a usable harvesting route for this engine.
+Keyboard is.
+
+### Keyboard is the authoritative path
+
+Verified on the main menu and Quick Combat:
+
+- main menu: `S` simulator, `C` campaign, `M` multiplay, `Esc`; `Return`
+  opens Quick Combat.
+- difficulty: `R` rookie, `P` pro, `T` topgun (`gpwChangeDifficulty`); the
+  radio indicator moves.
+- mission: `F1`..`F12` (`gpwSelectLevel`); the grid selection and Summary
+  text change.
+- accept: `Return` (`gpwArcadeAccepted`); the mission loads and the cockpit
+  appears.
+
+Panels bound to `call release` fire when the same icon also has a `key` or
+`skey` binding, because the binding takes the same routine path. Arrow keys
+and Tab do nothing on these screens: bindings are per-icon hotkeys, not a
+focus ring.
+
+`skey` is a **screen-local binding, not Shift+key**: plain `R`/`P`/`T` and
+`F1`..`F12` trigger it in the shipped game.
 
 ### Where that leaves the routine harvest
+
+All three arcade routines are now harvested this way, and are implemented in
+the runtime: `--gui arcade --gui-routines` reports 4 of 4 (the three above plus
+`InitArcade`). The main-menu routines also have bindings (`C` for campaign,
+`S`, `M`, `Esc`), so the keyboard route covers every panel that declares one;
+only icons with no `key`/`skey` remain out of reach, and none of those are
+known yet.
 
 Three ways forward, in increasing cost:
 
@@ -418,7 +450,9 @@ did not reveal.
   default.
 * ILBM screens load; ANIM playback is not implemented.
 * The GUI parses and renders, but screen navigation depends on routines from
-  the original code that are not reconstructed yet.
+  the original code that are not reconstructed yet. Quick Combat's difficulty,
+  mission selection and Accept are implemented; its Summary text (mission
+  data) and the mission loader are not.
 * No campaign/mission generator.
 * No flight model, avionics, audio or network.
 * Map labels can overlap; no zoom/pan yet.

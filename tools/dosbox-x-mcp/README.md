@@ -72,12 +72,10 @@ python3 dosbox_x_mcp.py --selftest /path/to/dbx.conf
   is sent twice, because some window managers need an event before motion
   registers.
 
-## Known limitation: release-bound widgets
+## Known limitation: host-level mouse input
 
-Reported here so the next person does not rediscover it. In the DOS program this
-was built for, widgets bound to a **click** event activate under this server's
-input, while widgets bound to a **release** event do not. Observed with a DOS
-GUI whose panels bind `call release`:
+In the DOS program this was built for, no synthetic mouse click activates a
+widget, whether it binds `call click` or `call release`:
 
 - moving the pointer over a panel produces its hover highlight, so motion is
   delivered;
@@ -86,9 +84,14 @@ GUI whose panels bind `call release`:
   absolute moves become relative, which moves the guest pointer unexpectedly;
 - keyboard bindings do work.
 
-The likely cause is that the program only performs a widget's release action if
-it saw the press on that widget, and the press is not being delivered as a
-distinct polled state. Any fix belongs in input delivery, not in this server.
+Later analysis with an in-process server showed the cause is not this tool:
+buttons injected directly through DOSBox-X's `Mouse_ButtonPressed` reach the
+game's own input variables (they flip while held and back on release), yet its
+GUI never dispatches the widget routine. The game's event layer, not the
+harness, drops the click.
+
+For that program, drive it by keyboard: every panel it exposes has a key or
+`skey` binding.
 
 ## Status
 

@@ -472,7 +472,7 @@ std::vector<GuiAction> GuiSystem::fire(const std::string& window,
         }
         if (a.verb == "routine") {
             if (auto it = routines_.find(a.value); it != routines_.end()) {
-                it->second(*this);
+                it->second(*this, window, icon);
             } else if (std::find(unimplemented_.begin(), unimplemented_.end(), a.value) ==
                        unimplemented_.end()) {
                 unimplemented_.push_back(a.value);
@@ -534,8 +534,15 @@ bool GuiSystem::key_press(const std::string& raw) {
     for (GuiWindow* w : order) {
         for (auto& icon : w->icons) {
             if (icon.disable || icon.hidden) continue;
-            const std::string& bound = shift ? icon.skey : icon.key;
-            if (bound.empty() || bound != key) continue;
+            // `skey` is a screen-local binding, not shift+key: the shipped
+            // Quick Combat screen activates on plain R/P/T and F1..F12. With
+            // Shift held, prefer the shift binding but still accept the plain
+            // one, which is what the original does.
+            const bool matches_plain = !icon.key.empty() && icon.key == key;
+            const bool matches_screen = !icon.skey.empty() && icon.skey == key;
+            if (!(shift ? (matches_screen || matches_plain)
+                        : (matches_plain || matches_screen)))
+                continue;
             // A key activates the widget the same way releasing the mouse does;
             // fire both activation events and let the file's verbs decide.
             fire(w->name, icon.name, "release");
@@ -578,7 +585,7 @@ bool GuiSystem::backspace() {
 bool GuiSystem::run_startup() {
     if (screen_.startup.empty()) return false;
     if (auto it = routines_.find(screen_.startup); it != routines_.end()) {
-        it->second(*this);
+        it->second(*this, screen_.name, std::string());
         return true;
     }
     if (std::find(unimplemented_.begin(), unimplemented_.end(), screen_.startup) ==
@@ -589,7 +596,8 @@ bool GuiSystem::run_startup() {
 }
 
 void GuiSystem::register_routine(const std::string& name,
-                                 std::function<void(GuiSystem&)> handler) {
+                                 std::function<void(GuiSystem&, const std::string&,
+                                                   const std::string&)> handler) {
     routines_[name] = std::move(handler);
 }
 
@@ -639,32 +647,68 @@ void register_observed_routines(GuiSystem& system) {
     // observing the result, with the `.gui` data corroborating it.
 
     // Quit raises the `sure` dialog ("Quit EF2000 ?" with Yes/No).
-    system.register_routine("QuitEF2000", [](GuiSystem& gui) {
+    system.register_routine("QuitEF2000", [](GuiSystem& gui, const std::string&,
+                                              const std::string&) {
         gui.open_window("sure");
     });
-    system.register_routine("QuitEF2000yes", [](GuiSystem& gui) {
+    system.register_routine("QuitEF2000yes", [](GuiSystem& gui, const std::string&,
+                                                 const std::string&) {
         gui.request_quit();
     });
-    system.register_routine("QuitEF2000no", [](GuiSystem& gui) {
+    system.register_routine("QuitEF2000no", [](GuiSystem& gui, const std::string&,
+                                                const std::string&) {
         gui.close_window("sure");
     });
 
     // Campaign raises the "Campaign Level Setting" dialog.
-    system.register_routine("gpwClickCampaign", [](GuiSystem& gui) {
+    system.register_routine("gpwClickCampaign", [](GuiSystem& gui, const std::string&,
+                                                    const std::string&) {
         gui.open_window("campaign_level");
     });
 
     // Multiplay: Network Settings and IPX Settings, both opened by the screen's
     // `startup gnStartup`.
-    system.register_routine("gnStartup", [](GuiSystem& gui) {
+    system.register_routine("gnStartup", [](GuiSystem& gui, const std::string&,
+                                             const std::string&) {
         gui.open_window("settings");
         gui.open_window("IpxSettings");
     });
 
     // Quick Combat: the included hi-score panel is not marked `open`, so the
     // screen's startup routine raises it.
-    system.register_routine("InitArcade", [](GuiSystem& gui) {
+    system.register_routine("InitArcade", [](GuiSystem& gui, const std::string&,
+                                              const std::string&) {
         gui.open_window("hiscores");
+    });
+
+    // Quick Combat: Rookie/Pro/Topgun share `esg 1`, so selecting one clears
+    // the others and the indicator follows the selection.
+    system.register_routine("gpwChangeDifficulty",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        if (window != "difficulty") return;
+        if (icon != "rookie" && icon != "pro" && icon != "topgun") return;
+        gui.select(window, icon, true);
+    });
+
+    // Quick Combat: mission grid 01..12 shares `esg 2`. Selecting a cell moves
+    // the highlight; the Summary text is mission data and is not wired yet.
+    system.register_routine("gpwSelectLevel",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        if (window != "miss_sel") return;
+        if (icon.size() != 2) return;
+        if (icon[0] < '0' || icon[0] > '9') return;
+        if (icon[1] < '0' || icon[1] > '9') return;
+        gui.select(window, icon, true);
+    });
+
+    // Quick Combat: Accept starts the chosen mission. The reconstruction has
+    // no mission loader, so record the decision for the driver.
+    system.register_routine("gpwArcadeAccepted",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_arcade_accepted(true);
     });
 }
 
