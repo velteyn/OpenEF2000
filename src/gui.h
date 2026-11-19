@@ -375,6 +375,11 @@ public:
     int camp_pan_x() const { return camp_pan_x_; }
     int camp_pan_y() const { return camp_pan_y_; }
 
+    //! Map interaction mode: edit (select/move waypoints) or zoom. The
+    //! original toggles it with `a` (`gcChangeMode`/`mpChangeMode`).
+    void set_camp_zoom_mode(bool v) { camp_zoom_mode_ = v; }
+    bool camp_zoom_mode() const { return camp_zoom_mode_; }
+
     //! Weapons configuration: selected pylon/missile, view preset
     //! (0 angled, 1 front, 2 side, 3 underneath), rotation, and whether the
     //! loadout was cleared or accepted.
@@ -450,7 +455,7 @@ private:
     int debrief_pilot_ = 0;
     int camp_side_ = 0;
     int camp_layer_ = 0;
-    bool camp_flags_ = false;
+    bool camp_flags_ = true;
     bool camp_sam_ = false;
     bool camp_ewr_ = false;
     int camp_map_mode_ = 0;
@@ -483,6 +488,7 @@ private:
     unsigned camp_layer_mask_ = 0x3Fu;  //!< all six layers
     int camp_pan_x_ = 0;
     int camp_pan_y_ = 0;
+    bool camp_zoom_mode_ = false;
     std::string summary_selected_;
     std::string weap_selected_;
     int weap_view_ = 0;

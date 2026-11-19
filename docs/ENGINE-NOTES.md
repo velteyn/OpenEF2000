@@ -507,6 +507,32 @@ rendered bare and driven by the GUI state:
   and Clear Route removes the appended points. These edits live in the GUI
   model, so the rendered map surface stays cacheable.
 
+### Map tools (verified against the running original)
+
+The campaign bar in the running game shows `Map`, `Flags`, `SAMs`, `EWR` and
+`mAp mode: EDIT`, with the keys `m`, `f`, `s`, `e` and `a`. The planner adds
+`Fuel` (`u`) and `z-In` (hold to repeat) / `z-Out` (click). The map window also
+carries vertical/horizontal scrollbars (the campaign work area is 400x400 in a
+400x355 window) and the usual title-bar buttons.
+
+- **Map** cycles four styles. The captures show two distinct looks: a dark
+  relief map (states 0 and 3) and a light political map with place labels
+  (states 1 and 2). The reconstruction implements both looks.
+- **Flags** hides unit and airbase markers but keeps target areas and the
+  coverage rings, matching the `f` capture.
+- **SAMs** and **EWR** are independent ring layers, coloured by the owning side.
+- **EDIT/ZOOM** changes the mouse behaviour. In ZOOM, a left click zooms in,
+  a right click zooms out, and a drag rubber-bands a rectangle; in EDIT, a click
+  selects a target or appends a waypoint and a drag pans. The bar label follows
+  the state.
+- **Fuel** is a planner-only toggle. The shipped files carry no fuel-capacity
+  table, so the state is recorded but no fuel overlay is drawn.
+
+The reconstruction also supports wheel zoom around the cursor and drag panning
+in either mode. `--camp-mode N` and `--camp-noflags` render the styles and the
+flag state headlessly. The map cache keys on the style and flag state, so a
+toggle redraws on the next frame.
+
 The original campaign screen was captured at **640x400** through the DOSBox-X
 control server. It draws every side's flags by default, so the reconstruction
 initialises both filters to "all" and treats the checkboxes as an additive

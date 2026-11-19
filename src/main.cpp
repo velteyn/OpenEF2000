@@ -63,6 +63,8 @@ void usage() {
         "  --camp-layer N      layer bitmask (1 airdef, 2 airsup, 4 navy,\n"
         "                      8 comms, 16 supply, 32 political)\n"
         "  --camp-pan X,Y      pan the map by world units\n"
+        "  --camp-mode N       map style 0..3 (0/3 relief, 1/2 political)\n"
+        "  --camp-noflags      hide unit markers (the `f` toggle)\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
@@ -519,6 +521,9 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     // pointer barely moved, counts as a click.
     std::string map_press_window;
     int map_last_x = 0, map_last_y = 0, map_moved = 0;
+    // Zoom mode rubber band (the original's EDIT/ZOOM `a` toggle).
+    bool band_active = false;
+    int band_x0 = 0, band_y0 = 0, band_x1 = 0, band_y1 = 0;
     std::size_t printed_logs = 0;
     bool dirty = true, running = true;
     while (running) {
@@ -556,7 +561,36 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                 const std::string name = ef::gui_key_name(ev.key.keysym);
                 if (!name.empty() && !have_field) {
                     const bool shift = (ev.key.keysym.mod & KMOD_SHIFT) != 0;
-                    if (system.key_press(shift ? "shift+" + name : name)) dirty = true;
+                    const bool handled =
+                        system.key_press(shift ? "shift+" + name : name);
+                    // The map bar binds f/s/e/m/u/a in the shipped data, but
+                    // the loaded variant does not always keep those keys. Fall
+                    // back to the same map state when no widget handled them.
+                    const bool on_map =
+                        system.find_window("mp_map") != nullptr ||
+                        system.find_window("map") != nullptr;
+                    if (!handled && !shift && on_map) {
+                        if (name == "a") {
+                            system.set_camp_zoom_mode(!system.camp_zoom_mode());
+                            dirty = true;
+                        } else if (name == "f") {
+                            system.set_camp_flags(!system.camp_flags());
+                            dirty = true;
+                        } else if (name == "s") {
+                            system.set_camp_sam(!system.camp_sam());
+                            dirty = true;
+                        } else if (name == "e") {
+                            system.set_camp_ewr(!system.camp_ewr());
+                            dirty = true;
+                        } else if (name == "m") {
+                            system.set_camp_map_mode((system.camp_map_mode() + 1) % 4);
+                            dirty = true;
+                        } else if (name == "u") {
+                            system.set_mp_icons(!system.mp_icons());
+                            dirty = true;
+                        }
+                    }
+                    if (handled) dirty = true;
                 }
                 continue;
             }
@@ -612,7 +646,14 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                 if (ev.type == SDL_MOUSEMOTION && !map_press_window.empty() &&
                     (ev.motion.state & SDL_BUTTON_LMASK) != 0 &&
                     dataset.has_value()) {
-                    if (auto* mw = system.find_window(map_press_window)) {
+                    if (band_active) {
+                        band_x1 = px;
+                        band_y1 = py;
+                        map_moved += std::abs(px - map_last_x) + std::abs(py - map_last_y);
+                        map_last_x = px;
+                        map_last_y = py;
+                        dirty = true;
+                    } else if (auto* mw = system.find_window(map_press_window)) {
                         const int dx = px - map_last_x, dy = py - map_last_y;
                         if (dx != 0 || dy != 0) {
                             if (ef::gui_map_pan(system, *dataset, *mw, dx, dy)) {
@@ -631,6 +672,13 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     if (!hover_icon.empty()) system.fire(hover_window, hover_icon, "entering");
                     dirty = true;
                 }
+                if (ev.type == SDL_MOUSEBUTTONDOWN &&
+                    ev.button.button == SDL_BUTTON_RIGHT && win != nullptr &&
+                    dataset.has_value() && ef::gui_is_map_window(win->name)) {
+                    if (ef::gui_map_zoom_at(system, *dataset, *win, px, py, -1)) {
+                        dirty = true;
+                    }
+                }
                 if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
                     SDL_Rect map_client{};
                     bool in_map_client = false;
@@ -645,11 +693,17 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     if (in_map_client && dataset.has_value()) {
                         // A press starts either a pan or, if the pointer does
                         // not move, a click. Resolve it on release so dragging
-                        // never edits the plan.
+                        // never edits the plan. In zoom mode the press starts
+                        // a rubber-band zoom instead.
                         map_press_window = win->name;
                         map_last_x = px;
                         map_last_y = py;
                         map_moved = 0;
+                        if (system.camp_zoom_mode()) {
+                            band_active = true;
+                            band_x0 = band_x1 = px;
+                            band_y0 = band_y1 = py;
+                        }
                         dirty = true;
                     } else if (!hover_icon.empty()) {
                         // Clicking a text field focuses it; clicking elsewhere blurs.
@@ -663,7 +717,19 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     dirty = true;
                 }
                 if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT) {
-                    if (!map_press_window.empty()) {
+                    if (band_active) {
+                        if (auto* mw = system.find_window(map_press_window)) {
+                            if (dataset.has_value() && map_moved < 4) {
+                                ef::gui_map_zoom_at(system, *dataset, *mw, px, py, 1);
+                            } else if (dataset.has_value()) {
+                                ef::gui_map_zoom_rect(system, *dataset, *mw,
+                                                      band_x0, band_y0, px, py);
+                            }
+                        }
+                        band_active = false;
+                        map_press_window.clear();
+                        dirty = true;
+                    } else if (!map_press_window.empty()) {
                         // A press that did not pan is a click: the campaign map
                         // binds its handler to release.
                         if (dataset.has_value() && map_moved < 4 &&
@@ -727,6 +793,11 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
             if (surface != nullptr) {
                 options.cursor = true;
                 options.dataset = dataset ? &*dataset : nullptr;
+                options.band = band_active;
+                options.band_x0 = band_x0;
+                options.band_y0 = band_y0;
+                options.band_x1 = band_x1;
+                options.band_y1 = band_y1;
                 options.hover_window = hover_window;
                 options.hover_icon = hover_icon;
                 ef::draw_gui(surface, system, palette, options,
@@ -1181,6 +1252,37 @@ ysize 100
 open
 call release
 routine CampMoveWP
+
+window mapbar
+xpos 0
+ypos 0
+xsize 100
+ysize 10
+open
+
+icon m_type
+xpos 0
+ypos 0
+xsize 10
+ysize 10
+call click
+routine mpCycleMap
+
+icon flags
+xpos 20
+ypos 0
+xsize 10
+ysize 10
+call click
+routine mpToggleFlags
+
+icon mode
+xpos 40
+ypos 0
+xsize 10
+ysize 10
+call click
+routine gcChangeMode
 )";
         ef::GuiSystem map;
         map.set_screen(ef::GuiLoader::parse("maptest", map_dsl));
@@ -1211,6 +1313,14 @@ routine CampMoveWP
         map.fire_window("map", "release");
         check("campaign map click selects the nearest mission",
               map.camp_mission() == 1);
+
+        map.fire("mapbar", "m_type", "click");
+        check("map style cycles", map.camp_map_mode() == 1);
+        const bool flags_before = map.camp_flags();
+        map.fire("mapbar", "flags", "click");
+        check("flags toggle", map.camp_flags() != flags_before);
+        map.fire("mapbar", "mode", "click");
+        check("edit/zoom mode toggles", map.camp_zoom_mode());
     }
 
     std::printf("%s (%d failure%s)\n", failures == 0 ? "gui selftest: PASS" : "gui selftest: FAIL",
@@ -1239,6 +1349,7 @@ int main(int argc, char** argv) {
     int camp_zoom = -1;
     int camp_sides = -1, camp_layers = -1;
     int camp_pan_x = 0, camp_pan_y = 0;
+    int camp_mode = -1, camp_flags = -1;
     bool camp_sam = false, camp_ewr = false;
     bool gui_selftest = false;
     bool boot = false;
@@ -1311,6 +1422,10 @@ int main(int argc, char** argv) {
             camp_layers = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--camp-pan") == 0 && i + 1 < argc) {
             std::sscanf(argv[++i], "%d,%d", &camp_pan_x, &camp_pan_y);
+        } else if (std::strcmp(argv[i], "--camp-mode") == 0 && i + 1 < argc) {
+            camp_mode = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--camp-noflags") == 0) {
+            camp_flags = 0;
         } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
             gui_selftest = true;
         } else if (std::strcmp(argv[i], "--boot") == 0) {
@@ -1496,6 +1611,8 @@ int main(int argc, char** argv) {
             options.camp_layers = camp_layers;
             options.camp_pan_x = camp_pan_x;
             options.camp_pan_y = camp_pan_y;
+            options.camp_mode = camp_mode;
+            options.camp_flags = camp_flags;
             if (!ef::render_gui_png(did, gui_screen, gui_render, options)) {
                 return 1;
             }

@@ -1082,6 +1082,7 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset) {
         // mission rather than inheriting the campaign map's pan and zoom.
         gui.set_camp_zoom(0);
         gui.set_camp_pan(0, 0);
+        gui.set_camp_flags(true);
         // The shipped screen marks only `help` open; the planner's own
         // startup raises its panels. The data's left-hand windows overlap
         // (the role/aircraft and assignment panels occupy the same rows as
@@ -1380,6 +1381,8 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset) {
         // screen (captured at 640x400) draws every side's flags, so the
         // checkboxes start as an additive filter rather than preselecting the
         // home side.
+        gui.set_camp_flags(true);
+        gui.set_camp_zoom_mode(false);
         gui.set_camp_side_mask(7u);    // all sides
         gui.set_camp_layer(0);
         gui.set_camp_layer_mask(0x3Fu);  // all layers
@@ -1434,6 +1437,15 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset) {
         gui.set_camp_map_mode((gui.camp_map_mode() + 1) % 4);
         gui.select(window, icon, true);
     });
+    // `a` toggles the map between editing and zooming in the original. The
+    // label on the bar changes from EDIT to ZOOM; the renderer reads the state
+    // rather than mutating the `.gui` text.
+    for (const char* name : {"gcChangeMode", "mpChangeMode"}) {
+        system.register_routine(name, [](GuiSystem& gui, const std::string&,
+                                         const std::string&) {
+            gui.set_camp_zoom_mode(!gui.camp_zoom_mode());
+        });
+    }
     system.register_routine("mpZoomInMap",
                             [](GuiSystem& gui, const std::string&,
                                const std::string&) {

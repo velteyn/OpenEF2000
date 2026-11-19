@@ -105,6 +105,8 @@ struct MapCache {
     unsigned sides = 0, layers = 0;
     int pan_x = 0, pan_y = 0;
     bool focus = false;
+    int mode = 0;
+    bool flags = true;
 };
 
 MapCache g_map_cache;
@@ -115,7 +117,7 @@ RenderOptions map_options(const GuiSystem& system, const GuiWindow& win, int w, 
     opt.width = w;
     opt.height = h;
     opt.selected = system.camp_mission();
-    opt.labels = false;
+    opt.labels = true;
     // The campaign map is a theatre overview; the planner frames the mission
     // being edited.
     opt.focus = (win.name == "mp_map");
@@ -124,6 +126,8 @@ RenderOptions map_options(const GuiSystem& system, const GuiWindow& win, int w, 
     opt.zoom = std::pow(1.4f, static_cast<float>(system.camp_zoom()));
     opt.pan_x = system.camp_pan_x();
     opt.pan_y = system.camp_pan_y();
+    opt.map_mode = system.camp_map_mode();
+    opt.flags = system.camp_flags();
     // The campaign screen has the Map Options checkboxes; the planner has no
     // side/layer controls, so its map always shows the whole theatre.
     if (win.name == "mp_map") {
@@ -147,7 +151,8 @@ SDL_Surface* map_for(const Dataset& ds, const GuiSystem& system, const GuiWindow
         g_map_cache.sam == opt.sam_coverage && g_map_cache.ewr == opt.ewr_coverage &&
         g_map_cache.sides == opt.side_mask && g_map_cache.layers == opt.layer_mask &&
         g_map_cache.pan_x == opt.pan_x && g_map_cache.pan_y == opt.pan_y &&
-        g_map_cache.focus == opt.focus) {
+        g_map_cache.focus == opt.focus && g_map_cache.mode == opt.map_mode &&
+        g_map_cache.flags == opt.flags) {
         return g_map_cache.surface;
     }
     SDL_Surface* raw = render_map(ds, opt);
@@ -159,7 +164,8 @@ SDL_Surface* map_for(const Dataset& ds, const GuiSystem& system, const GuiWindow
     g_map_cache = MapCache{converted, w, h, system.camp_zoom(),
                            system.camp_mission(), opt.sam_coverage,
                            opt.ewr_coverage, opt.side_mask, opt.layer_mask,
-                           opt.pan_x, opt.pan_y, opt.focus};
+                           opt.pan_x, opt.pan_y, opt.focus, opt.map_mode,
+                           opt.flags};
     return converted;
 }
 
@@ -237,6 +243,46 @@ bool gui_map_zoom_at(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
         (my - after.top) * spany / std::max(1, after.bottom - after.top)));
 
     system.set_camp_zoom(next);
+    system.set_camp_pan(panx, pany);
+    return true;
+}
+
+bool gui_map_zoom_rect(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
+                       int x0, int y0, int x1, int y1) {
+    const SDL_Rect client = GuiSystem::client_rect(win);
+    if (client.w <= 0 || client.h <= 0) return false;
+    const int ax = std::min(x0, x1), bx = std::max(x0, x1);
+    const int ay = std::min(y0, y1), by = std::max(y0, y1);
+    if (bx - ax < 8 || by - ay < 8) return false;
+
+    const RenderOptions cur = map_options(system, win, client.w, client.h);
+    const MapProjection before = map_projection(ds, cur);
+    const int mx0 = std::clamp(ax - client.x, before.left + 1, before.right - 1);
+    const int my0 = std::clamp(ay - client.y, before.top + 1, before.bottom - 1);
+    const int mx1 = std::clamp(bx - client.x, before.left + 1, before.right - 1);
+    const int my1 = std::clamp(by - client.y, before.top + 1, before.bottom - 1);
+    if (mx1 - mx0 < 4 || my1 - my0 < 4) return false;
+
+    const int wx0 = before.world_x(mx0), wx1 = before.world_x(mx1);
+    const int wy0 = before.world_y(my1), wy1 = before.world_y(my0);  // y is inverted
+    const double rect_w = std::max(1, wx1 - wx0);
+    const double rect_h = std::max(1, wy1 - wy0);
+    const double span_x = std::max(1, before.world_max_x - before.world_min_x);
+    const double span_y = std::max(1, before.world_max_y - before.world_min_y);
+    const double factor =
+        std::min(span_x / rect_w, span_y / rect_h);
+    int level = static_cast<int>(std::ceil(std::log(factor) / std::log(1.4)));
+    level = std::clamp(level, 0, 6);
+
+    RenderOptions updated = cur;
+    updated.zoom = std::pow(1.4f, static_cast<float>(level));
+    updated.pan_x = 0;
+    updated.pan_y = 0;
+    const MapProjection after = map_projection(ds, updated);
+    const int cx = (wx0 + wx1) / 2, cy = (wy0 + wy1) / 2;
+    const int panx = cx - (after.world_min_x + after.world_max_x) / 2;
+    const int pany = cy - (after.world_min_y + after.world_max_y) / 2;
+    system.set_camp_zoom(level);
     system.set_camp_pan(panx, pany);
     return true;
 }
@@ -392,6 +438,28 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                             }
                         }
                     }
+
+                    // Zoom-mode rubber band: screen coordinates clipped to
+                    // this map's client area.
+                    if (options.band) {
+                        const Uint32 band = map_rgb(fmt, 0xFFF1A0);
+                        const int bx0 = std::clamp(
+                            std::min(options.band_x0, options.band_x1), client.x,
+                            client.x + client.w - 1);
+                        const int bx1 = std::clamp(
+                            std::max(options.band_x0, options.band_x1), client.x,
+                            client.x + client.w - 1);
+                        const int by0 = std::clamp(
+                            std::min(options.band_y0, options.band_y1), client.y,
+                            client.y + client.h - 1);
+                        const int by1 = std::clamp(
+                            std::max(options.band_y0, options.band_y1), client.y,
+                            client.y + client.h - 1);
+                        hline(surface, bx0, by0, bx1 - bx0 + 1, band);
+                        hline(surface, bx0, by1, bx1 - bx0 + 1, band);
+                        vline(surface, bx0, by0, by1 - by0 + 1, band);
+                        vline(surface, bx1, by0, by1 - by0 + 1, band);
+                    }
                 }
             }
         }
@@ -442,6 +510,8 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                 label = system.mp_target().empty() ? "N/A" : "YES";
             } else if (win->name == "mp_base_set" && icon.name == "base") {
                 label = system.mp_base().empty() ? "------" : system.mp_base();
+            } else if (icon.name == "mode" || icon.name == "mapmode") {
+                label = system.camp_zoom_mode() ? "ZOOM" : "EDIT";
             }
             if (!label.empty()) {
                 const int tw = text_width(label);
@@ -542,6 +612,8 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
         system.set_camp_layer_mask(static_cast<unsigned>(options.camp_layers));
     if (options.camp_pan_x != 0 || options.camp_pan_y != 0)
         system.set_camp_pan(options.camp_pan_x, options.camp_pan_y);
+    if (options.camp_mode >= 0) system.set_camp_map_mode(options.camp_mode);
+    if (options.camp_flags >= 0) system.set_camp_flags(options.camp_flags != 0);
     if (!options.open_window.empty()) {
         system.open_window(options.open_window);
         system.bring_to_front(options.open_window);

@@ -77,6 +77,12 @@ struct RenderOptions {
     //! Filters shared with the campaign screen's Map Options dialog.
     unsigned side_mask = MapSideAll;
     unsigned layer_mask = MapLayerAll;
+    //! Map style: 0/3 relief, 1/2 political. Political modes use a light
+    //! background and place labels, matching the original's `m` cycle.
+    int map_mode = 0;
+    //! Flags toggle (`f`): unit, flight and airbase markers. Target areas and
+    //! coverage rings are independent overlays.
+    bool flags = true;
     //! Pan offset in world units (drag-to-pan and zoom-to-cursor).
     int pan_x = 0, pan_y = 0;
 

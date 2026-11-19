@@ -358,10 +358,16 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     c.s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888);
     if (!c.s) return nullptr;
     c.w = W; c.h = H;
-    c.fill(0, 0, W, H, c.rgb(10, 16, 24));
+    // The original's `m` cycle alternates a dark relief map (modes 0/3) with
+    // a light political map that labels places (modes 1/2).
+    const bool political = (opt.map_mode == 1 || opt.map_mode == 2);
+    c.fill(0, 0, W, H,
+           political ? c.rgb(150, 156, 164) : c.rgb(10, 16, 24));
     if (!opt.bare) {
-        c.fill(right + 10, 0, 380, H, c.rgb(18, 24, 34));
-        c.fill(0, H - 36, W, 36, c.rgb(14, 20, 30));
+        c.fill(right + 10, 0, 380, H,
+               political ? c.rgb(132, 138, 148) : c.rgb(18, 24, 34));
+        c.fill(0, H - 36, W, 36,
+               political ? c.rgb(120, 126, 136) : c.rgb(14, 20, 30));
     }
 
     const int sel = std::clamp(opt.selected, 0,
@@ -371,8 +377,8 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     const int maxx = extent.maxx, maxy = extent.maxy;
     // Empty checkboxes mean "no filter", which is how the original campaign
     // map opens: it shows every side's flags until a box restricts it.
-    const unsigned side_mask = side_mask ? side_mask : MapSideAll;
-    const unsigned layer_mask = layer_mask ? layer_mask : MapLayerAll;
+    const unsigned side_mask = opt.side_mask ? opt.side_mask : MapSideAll;
+    const unsigned layer_mask = opt.layer_mask ? opt.layer_mask : MapLayerAll;
 
 
     auto px = [&](int x) {
@@ -382,8 +388,20 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         return bottom - (y - miny) * (bottom - top) / (maxy - miny);
     };
 
+    // Side colours are darkened a little on the light political map so the
+    // markers keep contrast.
+    auto side_rgb = [&](const std::string& side) {
+        SDL_Color sc = side_color(side);
+        if (political) {
+            sc.r = static_cast<Uint8>(sc.r * 3 / 4);
+            sc.g = static_cast<Uint8>(sc.g * 3 / 4);
+            sc.b = static_cast<Uint8>(sc.b * 3 / 4);
+        }
+        return c.rgb(sc.r, sc.g, sc.b);
+    };
+
     c.lock();
-    const Uint32 grid = c.rgb(30, 42, 58);
+    const Uint32 grid = political ? c.rgb(108, 114, 122) : c.rgb(30, 42, 58);
     int step = 50;
     int span = std::max(maxx - minx, maxy - miny);
     if (span > 2000) step = 500;
@@ -401,8 +419,7 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     // all target areas (muted), filtered by the Map Options side and layer
     for (const auto& m : ds.missions) {
         if ((map_side_bits(m.side) & side_mask) == 0) continue;
-        SDL_Color sc = side_color(m.side);
-        Uint32 col = c.rgb(sc.r, sc.g, sc.b);
+        const Uint32 col = side_rgb(m.side);
         for (const auto& t : m.targets) {
             for (const auto& a : t.areas) {
                 if (!a.pos) continue;
@@ -424,38 +441,39 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
 
     // Ground units and flights are the flags the campaign map filters by side
     // and layer. Groups are squares, flights are diamonds, airbases are open
-    // boxes.
-    for (const auto& m : ds.missions) {
-        if ((map_side_bits(m.side) & side_mask) == 0) continue;
-        const SDL_Color sc = side_color(m.side);
-        const Uint32 col = c.rgb(sc.r, sc.g, sc.b);
-        for (const auto& g : m.groups) {
-            if (!g.pos) continue;
-            if ((map_layer_bits(g.type, g.role) & layer_mask) == 0) continue;
-            const int x = px(g.pos->x), y = py(g.pos->y);
-            c.fill(x - 1, y - 1, 3, 3, col);
+    // boxes. The `f` toggle hides the markers but keeps target areas and the
+    // coverage rings.
+    if (opt.flags) {
+        for (const auto& m : ds.missions) {
+            if ((map_side_bits(m.side) & side_mask) == 0) continue;
+            const Uint32 col = side_rgb(m.side);
+            for (const auto& g : m.groups) {
+                if (!g.pos) continue;
+                if ((map_layer_bits(g.type, g.role) & layer_mask) == 0) continue;
+                const int x = px(g.pos->x), y = py(g.pos->y);
+                c.fill(x - 1, y - 1, 3, 3, col);
+            }
+            for (const auto& f : m.flights) {
+                if (!f.pos) continue;
+                if ((MapLayerAirSupport & layer_mask) == 0) continue;
+                const int x = px(f.pos->x), y = py(f.pos->y);
+                c.pixel(x, y - 2, col); c.pixel(x - 1, y - 1, col);
+                c.pixel(x + 1, y - 1, col); c.pixel(x - 2, y, col);
+                c.pixel(x + 2, y, col); c.pixel(x - 1, y + 1, col);
+                c.pixel(x + 1, y + 1, col); c.pixel(x, y + 2, col);
+            }
         }
-        for (const auto& f : m.flights) {
-            if (!f.pos) continue;
-            if ((MapLayerAirSupport & layer_mask) == 0) continue;
-            const int x = px(f.pos->x), y = py(f.pos->y);
-            c.pixel(x, y - 2, col); c.pixel(x - 1, y - 1, col);
-            c.pixel(x + 1, y - 1, col); c.pixel(x - 2, y, col);
-            c.pixel(x + 2, y, col); c.pixel(x - 1, y + 1, col);
-            c.pixel(x + 1, y + 1, col); c.pixel(x, y + 2, col);
-        }
-    }
 
-    for (const auto& b : ds.bases) {
-        if (!b.pos) continue;
-        if ((map_side_bits(b.side) & side_mask) == 0) continue;
-        if ((MapLayerAirSupport & layer_mask) == 0) continue;
-        const SDL_Color sc = side_color(b.side);
-        const Uint32 col = c.rgb(sc.r, sc.g, sc.b);
-        const int x = px(b.pos->x), y = py(b.pos->y);
-        for (int d = -3; d <= 3; ++d) {
-            c.pixel(x + d, y - 3, col); c.pixel(x + d, y + 3, col);
-            c.pixel(x - 3, y + d, col); c.pixel(x + 3, y + d, col);
+        for (const auto& b : ds.bases) {
+            if (!b.pos) continue;
+            if ((map_side_bits(b.side) & side_mask) == 0) continue;
+            if ((MapLayerAirSupport & layer_mask) == 0) continue;
+            const Uint32 col = side_rgb(b.side);
+            const int x = px(b.pos->x), y = py(b.pos->y);
+            for (int d = -3; d <= 3; ++d) {
+                c.pixel(x + d, y - 3, col); c.pixel(x + d, y + 3, col);
+                c.pixel(x - 3, y + d, col); c.pixel(x + 3, y + d, col);
+            }
         }
     }
 
@@ -476,8 +494,7 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
             if (kind != Threat::ewr && !opt.sam_coverage) return;
             const int radius = static_cast<int>(std::lround(
                 cells * opt.coverage_scale * scale));
-            const SDL_Color sc = side_color(side);
-            c.ring(px(p.x), py(p.y), radius, c.rgb(sc.r, sc.g, sc.b));
+            c.ring(px(p.x), py(p.y), radius, side_rgb(side));
         };
 
         // The same site is referenced by many mission records, so draw each
@@ -546,6 +563,50 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         }
     }
     c.unlock();
+
+    // Political map modes label the airbases and navigation points, as the
+    // original does. Relief modes stay unlabelled.
+    if (opt.labels && political) {
+        if (TTF_WasInit() == 0) TTF_Init();
+        TTF_Font* label_font = TTF_OpenFont(kFontPath, 10);
+        if (label_font != nullptr) {
+            const auto unquote = [](std::string t) {
+                if (!t.empty() && t.front() == '"') t.erase(t.begin());
+                if (!t.empty() && t.back() == '"') t.pop_back();
+                return t;
+            };
+            const SDL_Color ink{30, 34, 40, 255};
+            // The same airbase appears in every mission pack; label each name
+            // once or the political map turns into a wall of text.
+            std::set<std::string> labelled;
+            std::vector<std::pair<int, int>> placed;
+            for (const auto& b : ds.bases) {
+                if (!b.pos) continue;
+                const std::string name = unquote(b.name);
+                if (!labelled.insert(name).second) continue;
+                const int lx = px(b.pos->x) + 5, ly = py(b.pos->y) + 2;
+                // Drop labels that would overprint an earlier one; the
+                // original map only names the larger places for this reason.
+                bool crowded = false;
+                for (const auto& p : placed) {
+                    if (std::abs(lx - p.first) < 55 && std::abs(ly - p.second) < 12) {
+                        crowded = true;
+                        break;
+                    }
+                }
+                if (crowded) continue;
+                placed.emplace_back(lx, ly);
+                draw_text(c, label_font, lx, ly, name, ink);
+            }
+            for (const auto& b : ds.bnas) {
+                if (!b.pos) continue;
+                if (b.type != "PORT") continue;
+                draw_text(c, label_font, px(b.pos->x) + 5, py(b.pos->y) + 2,
+                          b.type, ink);
+            }
+            TTF_CloseFont(label_font);
+        }
+    }
 
     // Bare mode is embedded inside a GUI window: the caller supplies the
     // surrounding chrome, so do not draw the side panel or any text.
