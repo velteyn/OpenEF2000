@@ -113,6 +113,11 @@ struct GuiWindow {
     //! Routine references that run when the window closes or per frame.
     std::string close_down, main_loop;
 
+    //! Window-level verbs. The map windows bind a routine to the client area
+    //! (`call Pressed` + `routine mpClickMap`), so clicks that miss every icon
+    //! still reach the handler.
+    std::vector<GuiAction> actions;
+
     std::vector<GuiWidget> icons;
 
     //! Plain text block, one entry per line. Used by windows whose content is
@@ -185,6 +190,10 @@ public:
     //! Records a fired event for `--trace`; returns the verbs it ran.
     std::vector<GuiAction> fire(const std::string& window, const std::string& icon,
                                 const std::string& event);
+
+    //! Runs the window's own verbs (map clicks and other client-area events).
+    std::vector<GuiAction> fire_window(const std::string& window,
+                                       const std::string& event);
 
     //! Screens queued by `screen`/`task` verbs; consumed by the driver.
     std::vector<std::string> take_screen_requests();
@@ -326,6 +335,46 @@ public:
     void set_mp_fly(bool v) { mp_fly_ = v; }
     bool mp_fly() const { return mp_fly_; }
 
+    //! Map clicks. The viewer converts the screen point to world coordinates
+    //! and leaves both the point and the pick radius (world units) here; the
+    //! `mpClickMap`/`gcClickMap` routines read them.
+    void set_map_click(int x, int y, int radius) {
+        map_click_x_ = x; map_click_y_ = y; map_click_radius_ = radius;
+        map_click_valid_ = true;
+    }
+    void clear_map_click() { map_click_valid_ = false; }
+    bool map_click_valid() const { return map_click_valid_; }
+    int map_click_x() const { return map_click_x_; }
+    int map_click_y() const { return map_click_y_; }
+    int map_click_radius() const { return map_click_radius_; }
+
+    //! Planner edits made on the map: the takeoff base chosen by clicking,
+    //! waypoints appended to the strike route, and the selected target area.
+    //! They stay in the GUI model until the mission loader consumes them.
+    void set_mp_base(const std::string& v) { mp_base_ = v; }
+    const std::string& mp_base() const { return mp_base_; }
+    void set_mp_target_area(int target, int area) {
+        mp_target_index_ = target; mp_area_index_ = area;
+    }
+    int mp_target_index() const { return mp_target_index_; }
+    int mp_area_index() const { return mp_area_index_; }
+    void add_mp_waypoint(int x, int y) { mp_waypoints_.emplace_back(x, y); }
+    void clear_mp_waypoints() { mp_waypoints_.clear(); }
+    const std::vector<std::pair<int, int>>& mp_waypoints() const {
+        return mp_waypoints_;
+    }
+
+    //! Strategic-map filters. Bits follow `MapSide`/`MapLayer` in render.h.
+    void set_camp_side_mask(unsigned v) { camp_side_mask_ = v; }
+    unsigned camp_side_mask() const { return camp_side_mask_; }
+    void set_camp_layer_mask(unsigned v) { camp_layer_mask_ = v; }
+    unsigned camp_layer_mask() const { return camp_layer_mask_; }
+
+    //! Pan offset in world units for the embedded map.
+    void set_camp_pan(int x, int y) { camp_pan_x_ = x; camp_pan_y_ = y; }
+    int camp_pan_x() const { return camp_pan_x_; }
+    int camp_pan_y() const { return camp_pan_y_; }
+
     //! Weapons configuration: selected pylon/missile, view preset
     //! (0 angled, 1 front, 2 side, 3 underneath), rotation, and whether the
     //! loadout was cleared or accepted.
@@ -376,6 +425,13 @@ public:
     const std::vector<std::string>& log() const { return log_; }
 
 private:
+    //! Executes the verbs of `actions` matching `event`. Shared by widget and
+    //! window-level dispatch.
+    std::vector<GuiAction> run_actions(const std::vector<GuiAction>& actions,
+                                       const std::string& window,
+                                       const std::string& icon,
+                                       const std::string& event);
+
     GuiScreen screen_;
     int next_z_ = 1;
     std::map<std::pair<std::string, std::string>, bool> selected_;
@@ -415,6 +471,18 @@ private:
     bool mp_windows_ = true;
     bool mp_wp_zoom_ = false;
     bool mp_fly_ = false;
+    std::string mp_base_;
+    int mp_target_index_ = -1;
+    int mp_area_index_ = -1;
+    std::vector<std::pair<int, int>> mp_waypoints_;
+    int map_click_x_ = 0;
+    int map_click_y_ = 0;
+    int map_click_radius_ = 0;
+    bool map_click_valid_ = false;
+    unsigned camp_side_mask_ = 7;   //!< NATO | Russian | Neutral
+    unsigned camp_layer_mask_ = 0x3Fu;  //!< all six layers
+    int camp_pan_x_ = 0;
+    int camp_pan_y_ = 0;
     std::string summary_selected_;
     std::string weap_selected_;
     int weap_view_ = 0;
@@ -444,10 +512,13 @@ private:
     bool quit_requested_ = false;
 };
 
-//! Registers the routines whose behaviour has been established by running the
-//! original software and observing it. Deliberately small: everything else is
-//! reported as missing rather than guessed.
-void register_observed_routines(GuiSystem& system);
+//! Registers every routine the shipped `.gui` files reference. Each entry is
+//! evidence-backed (runtime observation or data-entailed); the rest are
+//! reported as missing rather than guessed. `dataset` is optional: the
+//! strategic-map handlers need it to resolve a click to a target, base or
+//! waypoint. Screens that do not use the map work without it.
+struct Dataset;
+void register_observed_routines(GuiSystem& system, const Dataset* dataset = nullptr);
 
 //! Fills the `hiscores` window from the loose `HISCORES.DAT` file: a 4-byte
 //! header then ten 25-byte records of name[16], three pad bytes, level u8 and

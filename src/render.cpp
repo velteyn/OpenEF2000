@@ -156,25 +156,98 @@ std::string mission_label(const Mission& m, int idx) {
 
 }  // namespace
 
-SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
-    const int W = std::max(opt.bare ? 16 : 640, opt.width);
-    const int H = std::max(opt.bare ? 16 : 480, opt.height);
-    const int panel_w = opt.bare ? 0 : 380;
-    const int left = opt.bare ? 0 : 55, top = opt.bare ? 0 : 55;
-    const int right = opt.bare ? W : W - panel_w - 20;
-    const int bottom = opt.bare ? H : H - 55;
-
-    Canvas c;
-    c.s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888);
-    if (!c.s) return nullptr;
-    c.w = W; c.h = H;
-    c.fill(0, 0, W, H, c.rgb(10, 16, 24));
-    if (!opt.bare) {
-        c.fill(right + 10, 0, panel_w, H, c.rgb(18, 24, 34));
-        c.fill(0, H - 36, W, 36, c.rgb(14, 20, 30));
+unsigned map_side_bits(const std::string& side) {
+    if (side == "NATO") return MapSideNato;
+    if (side == "RUSSIAN") return MapSideRussian;
+    if (side == "SWEDISH" || side == "FINNISH" || side == "BALTIC" ||
+        side == "NEUTRAL") {
+        return MapSideNeutral;
     }
+    // An unknown actor must not disappear when a filter is applied.
+    return MapSideAll;
+}
 
-    int sel = std::clamp(opt.selected, 0, std::max(0, static_cast<int>(ds.missions.size()) - 1));
+unsigned map_layer_bits(const std::string& type, const std::string& role) {
+    const auto has = [&](const char* needle) {
+        return type.find(needle) != std::string::npos;
+    };
+    if (role == "AIR_SUPPORT") return MapLayerAirSupport;
+    if (has("MARCONI") || has("EWR") || has("RADAR") || has("WARNING"))
+        return MapLayerComms;
+    if (has("TANKER") || has("SHIP") || has("TYPE42") || has("NEUTRASHIMY") ||
+        has("NAVAL") || has("PORT") || has("VESSEL")) {
+        return MapLayerNavy;
+    }
+    if (role == "SUPPLY" || has("SUPPLY") || has("DEPOT") || has("LOGISTIC"))
+        return MapLayerSupply;
+    if (has("POL_") || has("POLITICAL") || has("INDUSTRIAL") || has("OIL") ||
+        has("REFINERY") || has("POWER")) {
+        return MapLayerPolitical;
+    }
+    if (has("AIRFIELD") || has("AIR_BASE") || has("AIRBASE"))
+        return MapLayerAirSupport;
+    if (has("PATRIOT") || has("SA_") || has("RAPIER") || has("ROLAND") ||
+        has("BUK") || has("KUB") || has("VULCAN") || has("SHILKA") ||
+        has("ZSU") || has("SAM") || has("AAA")) {
+        return MapLayerAirDefence;
+    }
+    // Choke points and unknown site kinds stay visible under every layer.
+    return MapLayerAll;
+}
+
+int MapProjection::world_x(int sx) const {
+    const double span = std::max(1, right - left);
+    return static_cast<int>(std::lround(
+        world_min_x + (sx - left) * static_cast<double>(world_max_x - world_min_x) / span));
+}
+
+int MapProjection::world_y(int sy) const {
+    const double span = std::max(1, bottom - top);
+    return static_cast<int>(std::lround(
+        world_max_y - (sy - top) * static_cast<double>(world_max_y - world_min_y) / span));
+}
+
+int MapProjection::screen_x(int x) const {
+    const double span = std::max(1, world_max_x - world_min_x);
+    return static_cast<int>(std::lround(
+        left + (x - world_min_x) * static_cast<double>(right - left) / span));
+}
+
+int MapProjection::screen_y(int y) const {
+    const double span = std::max(1, world_max_y - world_min_y);
+    return static_cast<int>(std::lround(
+        bottom - (y - world_min_y) * static_cast<double>(bottom - top) / span));
+}
+
+bool MapProjection::contains(int sx, int sy) const {
+    return sx >= left && sx < right && sy >= top && sy < bottom;
+}
+
+namespace {
+
+struct MapLayout {
+    int w = 0, h = 0, left = 0, top = 0, right = 0, bottom = 0;
+};
+
+MapLayout map_layout(const RenderOptions& opt) {
+    MapLayout l;
+    l.w = std::max(opt.bare ? 16 : 640, opt.width);
+    l.h = std::max(opt.bare ? 16 : 480, opt.height);
+    const int panel_w = opt.bare ? 0 : 380;
+    l.left = opt.bare ? 0 : 55;
+    l.top = opt.bare ? 0 : 55;
+    l.right = opt.bare ? l.w : l.w - panel_w - 20;
+    l.bottom = opt.bare ? l.h : l.h - 55;
+    return l;
+}
+
+struct MapExtent {
+    int minx = 0, miny = 0, maxx = 100, maxy = 100;
+};
+
+MapExtent map_extent(const Dataset& ds, const RenderOptions& opt) {
+    const int sel = std::clamp(opt.selected, 0,
+                               std::max(0, static_cast<int>(ds.missions.size()) - 1));
 
     // Collect every coordinate, then take a robust extent: a handful of
     // records carry wildly out-of-range values, and a raw min/max would shrink
@@ -191,13 +264,9 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         for (const auto& t : m.targets) {
             if (t.pos) add(*t.pos);
             for (const auto& a : t.areas) if (a.pos) add(*a.pos);
-            for (const auto& p : t.patterns)
-                for (const auto& r : p.routes)
-                    for (const auto& n : r.nodes) add(n.p);
-            for (const auto& a : t.areas)
-                for (const auto& p : a.patterns)
-                    for (const auto& r : p.routes)
-                        for (const auto& n : r.nodes) add(n.p);
+            // Attack-pattern nodes are local target geometry (thousands of
+            // units around the aim point), not map positions. Including them
+            // would collapse the theatre to a dot.
         }
         for (const auto& r : m.routes)
             for (const auto& w : r.waypoints) add(w.p);
@@ -208,42 +277,103 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         for (const auto& m : ds.missions) add_mission(m);
     }
 
+    MapExtent e;
     // Bases are deliberately excluded from the extent. They come from a
     // different data set with its own coordinate space, and including them
     // collapses the theatre to a dot.
-    int minx = 0, miny = 0, maxx = 100, maxy = 100;
     if (opt.bounds) {
-        minx = (*opt.bounds)[0]; miny = (*opt.bounds)[1];
-        maxx = (*opt.bounds)[2]; maxy = (*opt.bounds)[3];
+        e.minx = (*opt.bounds)[0]; e.miny = (*opt.bounds)[1];
+        e.maxx = (*opt.bounds)[2]; e.maxy = (*opt.bounds)[3];
     } else if (!xs.empty()) {
-        minx = *std::min_element(xs.begin(), xs.end());
-        maxx = *std::max_element(xs.begin(), xs.end());
-        miny = *std::min_element(ys.begin(), ys.end());
-        maxy = *std::max_element(ys.begin(), ys.end());
+        e.minx = *std::min_element(xs.begin(), xs.end());
+        e.maxx = *std::max_element(xs.begin(), xs.end());
+        e.miny = *std::min_element(ys.begin(), ys.end());
+        e.maxy = *std::max_element(ys.begin(), ys.end());
     }
-    if (maxx - minx < 1) maxx = minx + 1;
-    if (maxy - miny < 1) maxy = miny + 1;
+    if (e.maxx - e.minx < 1) e.maxx = e.minx + 1;
+    if (e.maxy - e.miny < 1) e.maxy = e.miny + 1;
 
     // Coverage rings extend beyond their unit, so widen the view to contain
     // the largest radius when an overlay is on.
     if (opt.sam_coverage || opt.ewr_coverage) {
         const int ring = static_cast<int>(std::lround(
             (opt.ewr_coverage ? kEwrRangeCells : kSamRangeCells) * opt.coverage_scale));
-        minx -= ring; maxx += ring; miny -= ring; maxy += ring;
+        e.minx -= ring; e.maxx += ring; e.miny -= ring; e.maxy += ring;
     }
 
-    const int padx = std::max(1, (maxx - minx) / 20);
-    const int pady = std::max(1, (maxy - miny) / 20);
-    minx -= padx; maxx += padx; miny -= pady; maxy += pady;
+    const int padx = std::max(1, (e.maxx - e.minx) / 20);
+    const int pady = std::max(1, (e.maxy - e.miny) / 20);
+    e.minx -= padx; e.maxx += padx; e.miny -= pady; e.maxy += pady;
+
+    // A focused mission with only a waypoint or two would otherwise zoom to a
+    // dot; keep enough surrounding theatre in view to give context.
+    if (opt.focus) {
+        const int minimum = 160;
+        if (e.maxx - e.minx < minimum) {
+            const int cx = (e.minx + e.maxx) / 2;
+            e.minx = cx - minimum / 2;
+            e.maxx = cx + minimum / 2;
+        }
+        if (e.maxy - e.miny < minimum) {
+            const int cy = (e.miny + e.maxy) / 2;
+            e.miny = cy - minimum / 2;
+            e.maxy = cy + minimum / 2;
+        }
+    }
 
     // Zoom keeps the centre of the current extent and shrinks the half-size,
     // which is what the planner's z-In/z-Out controls expect.
     if (opt.zoom > 1.0f) {
-        const int cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
-        const int hw = std::max(1, static_cast<int>((maxx - minx) / (2.0f * opt.zoom)));
-        const int hh = std::max(1, static_cast<int>((maxy - miny) / (2.0f * opt.zoom)));
-        minx = cx - hw; maxx = cx + hw; miny = cy - hh; maxy = cy + hh;
+        const int cx = (e.minx + e.maxx) / 2, cy = (e.miny + e.maxy) / 2;
+        const int hw = std::max(1, static_cast<int>((e.maxx - e.minx) / (2.0f * opt.zoom)));
+        const int hh = std::max(1, static_cast<int>((e.maxy - e.miny) / (2.0f * opt.zoom)));
+        e.minx = cx - hw; e.maxx = cx + hw; e.miny = cy - hh; e.maxy = cy + hh;
     }
+
+    // Drag-to-pan shifts the visible window over the theatre.
+    e.minx += opt.pan_x; e.maxx += opt.pan_x;
+    e.miny += opt.pan_y; e.maxy += opt.pan_y;
+    return e;
+}
+
+}  // namespace
+
+MapProjection map_projection(const Dataset& ds, const RenderOptions& opt) {
+    const MapLayout l = map_layout(opt);
+    const MapExtent e = map_extent(ds, opt);
+    MapProjection p;
+    p.world_min_x = e.minx; p.world_min_y = e.miny;
+    p.world_max_x = e.maxx; p.world_max_y = e.maxy;
+    p.left = l.left; p.top = l.top; p.right = l.right; p.bottom = l.bottom;
+    return p;
+}
+
+SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
+    const MapLayout layout = map_layout(opt);
+    const int W = layout.w, H = layout.h;
+    const int left = layout.left, top = layout.top;
+    const int right = layout.right, bottom = layout.bottom;
+
+    Canvas c;
+    c.s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888);
+    if (!c.s) return nullptr;
+    c.w = W; c.h = H;
+    c.fill(0, 0, W, H, c.rgb(10, 16, 24));
+    if (!opt.bare) {
+        c.fill(right + 10, 0, 380, H, c.rgb(18, 24, 34));
+        c.fill(0, H - 36, W, 36, c.rgb(14, 20, 30));
+    }
+
+    const int sel = std::clamp(opt.selected, 0,
+                               std::max(0, static_cast<int>(ds.missions.size()) - 1));
+    const MapExtent extent = map_extent(ds, opt);
+    const int minx = extent.minx, miny = extent.miny;
+    const int maxx = extent.maxx, maxy = extent.maxy;
+    // Empty checkboxes mean "no filter", which is how the original campaign
+    // map opens: it shows every side's flags until a box restricts it.
+    const unsigned side_mask = side_mask ? side_mask : MapSideAll;
+    const unsigned layer_mask = layer_mask ? layer_mask : MapLayerAll;
+
 
     auto px = [&](int x) {
         return left + (x - minx) * (right - left) / (maxx - minx);
@@ -268,13 +398,15 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         c.line(left, sy, right, sy, grid);
     }
 
-    // all target areas (muted)
+    // all target areas (muted), filtered by the Map Options side and layer
     for (const auto& m : ds.missions) {
+        if ((map_side_bits(m.side) & side_mask) == 0) continue;
         SDL_Color sc = side_color(m.side);
         Uint32 col = c.rgb(sc.r, sc.g, sc.b);
         for (const auto& t : m.targets) {
             for (const auto& a : t.areas) {
                 if (!a.pos) continue;
+                if ((map_layer_bits(a.type) & layer_mask) == 0) continue;
                 c.circle(px(a.pos->x), py(a.pos->y), 2, col);
             }
         }
@@ -283,14 +415,54 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     // bases / navigation points
     for (const auto& b : ds.bnas) {
         if (!b.pos) continue;
+        if ((map_layer_bits(b.type) & layer_mask) == 0) continue;
         int x = px(b.pos->x), y = py(b.pos->y);
         Uint32 col = (b.type == "PORT") ? c.rgb(110, 220, 150) : c.rgb(100, 180, 255);
         for (int dy = -3; dy <= 3; ++dy)
             for (int dx = -3; dx <= 3; ++dx) c.pixel(x + dx, y + dy, col);
     }
 
+    // Ground units and flights are the flags the campaign map filters by side
+    // and layer. Groups are squares, flights are diamonds, airbases are open
+    // boxes.
+    for (const auto& m : ds.missions) {
+        if ((map_side_bits(m.side) & side_mask) == 0) continue;
+        const SDL_Color sc = side_color(m.side);
+        const Uint32 col = c.rgb(sc.r, sc.g, sc.b);
+        for (const auto& g : m.groups) {
+            if (!g.pos) continue;
+            if ((map_layer_bits(g.type, g.role) & layer_mask) == 0) continue;
+            const int x = px(g.pos->x), y = py(g.pos->y);
+            c.fill(x - 1, y - 1, 3, 3, col);
+        }
+        for (const auto& f : m.flights) {
+            if (!f.pos) continue;
+            if ((MapLayerAirSupport & layer_mask) == 0) continue;
+            const int x = px(f.pos->x), y = py(f.pos->y);
+            c.pixel(x, y - 2, col); c.pixel(x - 1, y - 1, col);
+            c.pixel(x + 1, y - 1, col); c.pixel(x - 2, y, col);
+            c.pixel(x + 2, y, col); c.pixel(x - 1, y + 1, col);
+            c.pixel(x + 1, y + 1, col); c.pixel(x, y + 2, col);
+        }
+    }
+
+    for (const auto& b : ds.bases) {
+        if (!b.pos) continue;
+        if ((map_side_bits(b.side) & side_mask) == 0) continue;
+        if ((MapLayerAirSupport & layer_mask) == 0) continue;
+        const SDL_Color sc = side_color(b.side);
+        const Uint32 col = c.rgb(sc.r, sc.g, sc.b);
+        const int x = px(b.pos->x), y = py(b.pos->y);
+        for (int d = -3; d <= 3; ++d) {
+            c.pixel(x + d, y - 3, col); c.pixel(x + d, y + 3, col);
+            c.pixel(x - 3, y + d, col); c.pixel(x + 3, y + d, col);
+        }
+    }
+
     // Coverage overlays. Rings are drawn for every ground unit in the theatre,
     // coloured by the side that owns it, matching the planner's two toggles.
+    // The side filter applies; the layer mask does not, because the two rings
+    // already have their own switches.
     if (opt.sam_coverage || opt.ewr_coverage) {
         const double scale = static_cast<double>(right - left) /
                              static_cast<double>(std::max(maxx - minx, 1));
@@ -318,6 +490,7 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         };
 
         for (const auto& m : ds.missions) {
+            if ((map_side_bits(m.side) & side_mask) == 0) continue;
             // `MISSION.CFG` carries ground units as GROUP records; the archive
             // mission dialect uses FLIGHT. Accept both.
             for (const auto& g : m.groups) {
@@ -342,13 +515,13 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         }
     }
 
+    // The mission being planned always draws, even when its side or layer is
+    // filtered out of the background: it is the thing the user is editing.
     if (!ds.missions.empty()) {
         const Mission& m = ds.missions[sel];
-        SDL_Color sc = side_color(m.side);
         Uint32 route_col = c.rgb(255, 220, 90);
         Uint32 wp_col = c.rgb(255, 255, 255);
         Uint32 tgt_col = c.rgb(255, 90, 90);
-        Uint32 atk_col = c.rgb(255, 150, 60);
 
         for (const auto& r : m.routes) {
             for (std::size_t i = 1; i < r.waypoints.size(); ++i) {
@@ -368,25 +541,19 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
                 c.circle(x, y, 7, tgt_col);
                 c.circle(x, y, 8, tgt_col);
             }
-            auto draw_patterns = [&](const std::vector<AttackPattern>& pats) {
-                for (const auto& p : pats) {
-                    for (const auto& r : p.routes) {
-                        for (std::size_t i = 1; i < r.nodes.size(); ++i) {
-                            const auto& a = r.nodes[i - 1];
-                            const auto& b = r.nodes[i];
-                            c.line(px(a.p.x), py(a.p.y), px(b.p.x), py(b.p.y), atk_col);
-                        }
-                        for (const auto& n : r.nodes)
-                            c.circle(px(n.p.x), py(n.p.y), 2, atk_col);
-                    }
-                }
-            };
-            draw_patterns(t.patterns);
-            for (const auto& a : t.areas) draw_patterns(a.patterns);
+            // Attack patterns belong to the target view: their nodes are local
+            // to the aim point, not theatre coordinates.
         }
-        (void)sc;
     }
     c.unlock();
+
+    // Bare mode is embedded inside a GUI window: the caller supplies the
+    // surrounding chrome, so do not draw the side panel or any text.
+    if (opt.bare) {
+        SDL_Surface* out = c.s;
+        c.s = nullptr;  // Canvas owns the surface; detach before returning
+        return out;
+    }
 
     if (TTF_WasInit() == 0) TTF_Init();
     TTF_Font* f_big = TTF_OpenFont(kFontPath, 22);
@@ -395,8 +562,8 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     SDL_Color dim{150, 165, 185, 255};
     SDL_Color gold{255, 220, 90, 255};
 
-    if (!opt.bare) {
-        draw_text(c, f_big, 20, 14, "OpenEF2000", white);
+    draw_text(c, f_big, 20, 14, "OpenEF2000", white);
+    {
         std::ostringstream os;
         os << "missions " << ds.missions.size() << "   bases "
            << ds.bnas.size() << "   target areas " << ds.areas.size()
@@ -405,66 +572,8 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         draw_text(c, f_small, 20, H - 27, os.str(), dim);
     }
 
-    // Coverage overlays. Rings are drawn for every ground unit in the theatre,
-    // coloured by the side that owns it, matching the planner's two toggles.
-    if (opt.sam_coverage || opt.ewr_coverage) {
-        const double scale = static_cast<double>(right - left) /
-                             static_cast<double>(std::max(maxx - minx, 1));
-        auto draw_ring = [&](const Vec3& p, Threat kind, const std::string& side) {
-            int cells = 0;
-            if (kind == Threat::ewr) cells = kEwrRangeCells;
-            else if (kind == Threat::sam) cells = kSamRangeCells;
-            else if (kind == Threat::aaa) cells = kAaaRangeCells;
-            if (cells == 0) return;
-            if (kind == Threat::ewr && !opt.ewr_coverage) return;
-            if (kind != Threat::ewr && !opt.sam_coverage) return;
-            const int radius = static_cast<int>(std::lround(
-                cells * opt.coverage_scale * scale));
-            const SDL_Color sc = side_color(side);
-            c.ring(px(p.x), py(p.y), radius, c.rgb(sc.r, sc.g, sc.b));
-        };
-
-        // The same site is referenced by many mission records, so draw each
-        // (position, side, class) once or the map turns into a ball of rings.
-        std::set<std::tuple<int, int, int, std::string>> seen;
-        auto draw_once = [&](const Vec3& p, Threat kind, const std::string& side) {
-            const int cls = static_cast<int>(kind);
-            if (!seen.emplace(p.x, p.y, cls, side).second) return;
-            draw_ring(p, kind, side);
-        };
-
-        for (const auto& m : ds.missions) {
-            // `MISSION.CFG` carries ground units as GROUP records; the archive
-            // mission dialect uses FLIGHT. Accept both.
-            for (const auto& g : m.groups) {
-                if (!g.pos) continue;
-                draw_once(*g.pos, classify_threat(g.type), m.side);
-            }
-            for (const auto& f : m.flights) {
-                if (!f.pos) continue;
-                draw_once(*f.pos, classify_threat(f.aircraft), m.side);
-            }
-            // Early-warning sites also appear as target areas.
-            for (const auto& t : m.targets) {
-                for (const auto& a : t.areas) {
-                    if (!a.pos) continue;
-                    if (a.type.find("EWR") == std::string::npos &&
-                        a.name.find("WARNING") == std::string::npos) {
-                        continue;
-                    }
-                    draw_once(*a.pos, Threat::ewr, m.side);
-                }
-            }
-        }
-    }
-
     if (!ds.missions.empty()) {
         const Mission& m = ds.missions[sel];
-        if (opt.bare) {
-            SDL_Surface* out = c.s;
-            c.s = nullptr;  // Canvas owns the surface; detach before returning
-            return out;
-        }
         int x = right + 25, y = 18;
         draw_text(c, f_big, x, y, "Mission", gold); y += 32;
         draw_text(c, f_small, x, y, mission_label(m, sel), white); y += 22;
@@ -527,59 +636,6 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     }
 
     // selected mission target labels and waypoint indices
-    // Coverage overlays. Rings are drawn for every ground unit in the theatre,
-    // coloured by the side that owns it, matching the planner's two toggles.
-    if (opt.sam_coverage || opt.ewr_coverage) {
-        const double scale = static_cast<double>(right - left) /
-                             static_cast<double>(std::max(maxx - minx, 1));
-        auto draw_ring = [&](const Vec3& p, Threat kind, const std::string& side) {
-            int cells = 0;
-            if (kind == Threat::ewr) cells = kEwrRangeCells;
-            else if (kind == Threat::sam) cells = kSamRangeCells;
-            else if (kind == Threat::aaa) cells = kAaaRangeCells;
-            if (cells == 0) return;
-            if (kind == Threat::ewr && !opt.ewr_coverage) return;
-            if (kind != Threat::ewr && !opt.sam_coverage) return;
-            const int radius = static_cast<int>(std::lround(
-                cells * opt.coverage_scale * scale));
-            const SDL_Color sc = side_color(side);
-            c.ring(px(p.x), py(p.y), radius, c.rgb(sc.r, sc.g, sc.b));
-        };
-
-        // The same site is referenced by many mission records, so draw each
-        // (position, side, class) once or the map turns into a ball of rings.
-        std::set<std::tuple<int, int, int, std::string>> seen;
-        auto draw_once = [&](const Vec3& p, Threat kind, const std::string& side) {
-            const int cls = static_cast<int>(kind);
-            if (!seen.emplace(p.x, p.y, cls, side).second) return;
-            draw_ring(p, kind, side);
-        };
-
-        for (const auto& m : ds.missions) {
-            // `MISSION.CFG` carries ground units as GROUP records; the archive
-            // mission dialect uses FLIGHT. Accept both.
-            for (const auto& g : m.groups) {
-                if (!g.pos) continue;
-                draw_once(*g.pos, classify_threat(g.type), m.side);
-            }
-            for (const auto& f : m.flights) {
-                if (!f.pos) continue;
-                draw_once(*f.pos, classify_threat(f.aircraft), m.side);
-            }
-            // Early-warning sites also appear as target areas.
-            for (const auto& t : m.targets) {
-                for (const auto& a : t.areas) {
-                    if (!a.pos) continue;
-                    if (a.type.find("EWR") == std::string::npos &&
-                        a.name.find("WARNING") == std::string::npos) {
-                        continue;
-                    }
-                    draw_once(*a.pos, Threat::ewr, m.side);
-                }
-            }
-        }
-    }
-
     if (!ds.missions.empty()) {
         const Mission& m = ds.missions[sel];
         for (const auto& t : m.targets) {

@@ -3,8 +3,11 @@
 
 #include "gui.h"
 
+#include "model.h"
+
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -112,6 +115,10 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
     auto add_action = [&](const std::string& verb, const std::string& value) {
         if (auto* icon = current_icon()) {
             icon->actions.push_back(GuiAction{event, verb, value});
+        } else if (auto* win = current_window()) {
+            // Window-level verbs: the map windows bind their click handler
+            // this way (`call Pressed` + `routine mpClickMap`).
+            win->actions.push_back(GuiAction{event, verb, value});
         }
     };
 
@@ -447,7 +454,10 @@ void GuiSystem::select(const std::string& window, const std::string& icon, bool 
         if (i.name == icon) target = &i;
     }
     if (target == nullptr) return;
-    if (target->esg >= 0) {
+    // `esg 0` means "no exclusive group" in the shipped files: the map
+    // option checkboxes and plain buttons use it. Only positive groups are
+    // exclusive.
+    if (target->esg > 0) {
         for (auto& other : w->icons) {
             if (&other != target && other.esg == target->esg) {
                 selected_[{window, other.name}] = false;
@@ -465,20 +475,45 @@ bool GuiSystem::is_selected(const std::string& window, const std::string& icon) 
 std::vector<GuiAction> GuiSystem::fire(const std::string& window,
                                        const std::string& icon,
                                        const std::string& event) {
-    std::vector<GuiAction> ran;
     auto* widget = find_widget(window, icon);
-    if (widget == nullptr) return ran;
-
+    if (widget == nullptr) return {};
     // Copy: handlers may mutate the widget list through open/close.
     const auto actions = widget->actions;
+    return run_actions(actions, window, icon, event);
+}
+
+std::vector<GuiAction> GuiSystem::fire_window(const std::string& window,
+                                              const std::string& event) {
+    auto* w = find_window(window);
+    if (w == nullptr) return {};
+    const auto actions = w->actions;
+    return run_actions(actions, window, std::string(), event);
+}
+
+std::vector<GuiAction> GuiSystem::run_actions(const std::vector<GuiAction>& actions,
+                                              const std::string& window,
+                                              const std::string& icon,
+                                              const std::string& event) {
+    std::vector<GuiAction> ran;
     for (const auto& a : actions) {
         if (a.event != event) continue;
         if (a.verb == "select") {
-            const bool flip = widget->toggle && is_selected(window, icon);
-            select(window, icon, !flip);
+            if (!icon.empty()) {
+                const bool flip = [&] {
+                    auto* w = find_window(window);
+                    if (w == nullptr) return false;
+                    for (auto& i : w->icons)
+                        if (i.name == icon) return i.toggle;
+                    return false;
+                }() && is_selected(window, icon);
+                select(window, icon, !flip);
+            }
             continue;
         }
-        if (a.verb == "unselect") { select(window, icon, false); continue; }
+        if (a.verb == "unselect") {
+            if (!icon.empty()) select(window, icon, false);
+            continue;
+        }
         if (a.verb == "screen" || a.verb == "task") screen_requests_.push_back(a.value);
         if (a.verb == "openwindow") open_window(a.value);
         if (a.verb == "closewindow") close_window(a.value);
@@ -500,8 +535,8 @@ std::vector<GuiAction> GuiSystem::fire(const std::string& window,
                 unimplemented_.push_back(a.value);
             }
         }
-        log_.push_back(window + "." + icon + ":" + event + " -> " + a.verb +
-                       (a.value.empty() ? "" : " " + a.value));
+        log_.push_back(window + (icon.empty() ? "" : "." + icon) + ":" + event +
+                       " -> " + a.verb + (a.value.empty() ? "" : " " + a.value));
         ran.push_back(a);
     }
     return ran;
@@ -637,6 +672,9 @@ std::vector<std::string> GuiSystem::referenced_routines() const {
         add(w.update);
         add(w.close_down);
         add(w.main_loop);
+        for (const auto& a : w.actions) {
+            if (a.verb == "routine") add(a.value);
+        }
         for (const auto& icon : w.icons) {
             for (const auto& a : icon.actions) {
                 if (a.verb == "routine") add(a.value);
@@ -664,7 +702,7 @@ std::vector<std::string> GuiSystem::take_screen_requests() {
 // Routines whose effect has been established by running the original software
 // and observing the result. Keep this list small and evidence-backed: each
 // entry is a fact, not a guess, and the rest stay unimplemented on purpose.
-void register_observed_routines(GuiSystem& system) {
+void register_observed_routines(GuiSystem& system, const Dataset* dataset) {
     // Each entry below was established by running the shipped software and
     // observing the result, with the `.gui` data corroborating it.
 
@@ -1040,11 +1078,36 @@ void register_observed_routines(GuiSystem& system) {
         gui.set_mp_speed(500);
         gui.set_mp_slot(0);
         gui.set_mp_assign(0);
+        // Entering the planner starts from a clean view of the selected
+        // mission rather than inheriting the campaign map's pan and zoom.
+        gui.set_camp_zoom(0);
+        gui.set_camp_pan(0, 0);
+        // The shipped screen marks only `help` open; the planner's own
+        // startup raises its panels. The data's left-hand windows overlap
+        // (the role/aircraft and assignment panels occupy the same rows as
+        // the strike list), so the default page is the non-overlapping core:
+        // option tabs, map and map bar, strike list, Fly Mission.
+        for (const char* w : {"campaign", "mp_options", "mp_map",
+                              "mp_map_options", "mp_strike_list",
+                              "mp_add_mission"}) {
+            gui.open_window(w);
+        }
     });
     system.register_routine("mpSetWindows",
                             [](GuiSystem& gui, const std::string&,
                                const std::string&) {
-        gui.set_mp_windows(!gui.mp_windows());
+        // "Strike Type" is the only option tab the data wires (esg 1). Show
+        // its panel set and hide the mutually positioned siblings.
+        gui.set_mp_windows(true);
+        for (const char* w : {"mp_strike_list", "mp_add_mission"}) {
+            gui.open_window(w);
+        }
+        for (const char* w : {"mp_strike_info", "mp_role_type", "mp_ac_types",
+                              "mp_base_set", "mp_base_flights", "mp_target_list",
+                              "mp_assign_targ", "mp_wp_set", "mp_wp_heights",
+                              "mp_atc_set", "mp_atc_list"}) {
+            gui.close_window(w);
+        }
     });
     system.register_routine("mpToggleIcons",
                             [](GuiSystem& gui, const std::string&,
@@ -1118,6 +1181,8 @@ void register_observed_routines(GuiSystem& system) {
                             [](GuiSystem& gui, const std::string&,
                                const std::string&) {
         gui.set_mp_target(std::string());
+        gui.set_mp_target_area(-1, -1);
+        gui.clear_mp_waypoints();
     });
     system.register_routine("mpIncSpeed",
                             [](GuiSystem& gui, const std::string&,
@@ -1168,6 +1233,135 @@ void register_observed_routines(GuiSystem& system) {
                                const std::string&) {
         gui.close_window("mp_warning");
     });
+
+    // Strategic map clicks -------------------------------------------------
+    // The window binds `mpMapSelect` (or `mpClickMap` in the other shipped
+    // variant) to the client area; the campaign map binds `CampMoveWP` on
+    // release. The driver converts the screen point to world coordinates and
+    // leaves it in the model, so these handlers only resolve it against data.
+    const auto unquote = [](std::string s) {
+        if (!s.empty() && s.front() == '"') s.erase(s.begin());
+        if (!s.empty() && s.back() == '"') s.pop_back();
+        return s;
+    };
+    const auto dist2 = [](const Vec3& a, int x, int y) {
+        const long long dx = a.x - x, dy = a.y - y;
+        return dx * dx + dy * dy;
+    };
+
+    const auto planner_map_click = [dataset, unquote, dist2](GuiSystem& gui) {
+        if (dataset == nullptr || !gui.map_click_valid()) return;
+        const Dataset& ds = *dataset;
+        if (ds.missions.empty()) return;
+        const int cx = gui.map_click_x(), cy = gui.map_click_y();
+        const long long pick = std::max(1, gui.map_click_radius());
+        const long long pick2 = pick * pick;
+        const int mi = std::clamp(gui.camp_mission(), 0,
+                                  static_cast<int>(ds.missions.size()) - 1);
+        const Mission& m = ds.missions[mi];
+
+        // A target area of the selected mission: the map draws its ring, so a
+        // click inside the pick radius selects it and reflects it in the
+        // strike list.
+        int best_t = -1, best_a = -1;
+        long long best_d = LLONG_MAX;
+        for (int t = 0; t < static_cast<int>(m.targets.size()); ++t) {
+            const auto& areas = m.targets[t].areas;
+            for (int a = 0; a < static_cast<int>(areas.size()); ++a) {
+                if (!areas[a].pos) continue;
+                const long long d = dist2(*areas[a].pos, cx, cy);
+                if (d < best_d) { best_d = d; best_t = t; best_a = a; }
+            }
+        }
+        if (best_t >= 0 && best_d <= pick2) {
+            const auto& area = m.targets[best_t].areas[best_a];
+            gui.set_mp_target(unquote(area.name));
+            gui.set_mp_target_area(best_t, best_a);
+            static const std::pair<const char*, const char*> kAreaIcons[] = {
+                {"EWR", "ewr_site"},       {"CHOKE", "choke_point"},
+                {"POLITICAL", "pol_indust_site"}, {"POL_", "pol_site"},
+                {"AIRFIELD", "airfield"},  {"PORT", "port"},
+                {"DAM", "dam"},
+            };
+            for (const auto& e : kAreaIcons) {
+                if (area.type.find(e.first) != std::string::npos) {
+                    gui.select("mp_strike_list", e.second, true);
+                    break;
+                }
+            }
+            return;
+        }
+
+        // A takeoff base: BASE records carry a position in MISSION.CFG.
+        int best_b = -1;
+        best_d = LLONG_MAX;
+        for (int b = 0; b < static_cast<int>(ds.bases.size()); ++b) {
+            if (!ds.bases[b].pos) continue;
+            const long long d = dist2(*ds.bases[b].pos, cx, cy);
+            if (d < best_d) { best_d = d; best_b = b; }
+        }
+        if (best_b >= 0 && best_d <= pick2 * 4) {
+            gui.set_mp_base(unquote(ds.bases[best_b].name));
+            return;
+        }
+
+        // Empty map: append a waypoint to the strike route.
+        gui.add_mp_waypoint(cx, cy);
+    };
+
+    const auto campaign_map_click = [dataset, dist2](GuiSystem& gui) {
+        if (dataset == nullptr || !gui.map_click_valid()) return;
+        const Dataset& ds = *dataset;
+        const int cx = gui.map_click_x(), cy = gui.map_click_y();
+        const long long pick = std::max(1, gui.map_click_radius());
+        const long long reach = pick * pick * 9;  // mission blobs are larger
+        int best = -1;
+        long long best_d = LLONG_MAX;
+        for (int i = 0; i < static_cast<int>(ds.missions.size()); ++i) {
+            const Mission& m = ds.missions[i];
+            if (m.pos) {
+                const long long d = dist2(*m.pos, cx, cy);
+                if (d < best_d) { best_d = d; best = i; }
+            }
+            for (const auto& t : m.targets) {
+                for (const auto& a : t.areas) {
+                    if (!a.pos) continue;
+                    const long long d = dist2(*a.pos, cx, cy);
+                    if (d < best_d) { best_d = d; best = i; }
+                }
+            }
+        }
+        if (best >= 0 && best_d <= reach) {
+            gui.set_camp_mission(best);
+            gui.select("missionsel", std::to_string(best + 1), true);
+        }
+    };
+
+    for (const char* name : {"mpMapSelect", "mpClickMap"}) {
+        system.register_routine(
+            name, [planner_map_click](GuiSystem& gui, const std::string&,
+                                      const std::string&) {
+                planner_map_click(gui);
+            });
+    }
+    for (const char* name : {"gcClickMap", "CampMoveWP"}) {
+        system.register_routine(
+            name, [campaign_map_click](GuiSystem& gui, const std::string&,
+                                       const std::string&) {
+                campaign_map_click(gui);
+            });
+    }
+    // The waypoint-height strip is a drag surface drawn by the renderer.
+    system.register_routine("mpClickWPHeight",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+    // Leaving the Options popup dismisses it, as the data's `call leaving`
+    // asks.
+    system.register_routine("onleaveOptions",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.close_window("pickoption");
+    });
     // Per-frame redraw hooks; the map and target view are renderer-owned.
     for (const char* name : {"mpDrawFuelBar", "mpRedrawMap", "mpUpdateMap",
                              "mpRedrawTargetView", "mpRedrawWPHeights"}) {
@@ -1182,7 +1376,13 @@ void register_observed_routines(GuiSystem& system) {
                             [](GuiSystem& gui, const std::string&,
                                const std::string&) {
         gui.set_camp_side(0);
-        gui.select("mapmodeswin", "nato", true);
+        // The map opens showing the whole theatre. The original campaign
+        // screen (captured at 640x400) draws every side's flags, so the
+        // checkboxes start as an additive filter rather than preselecting the
+        // home side.
+        gui.set_camp_side_mask(7u);    // all sides
+        gui.set_camp_layer(0);
+        gui.set_camp_layer_mask(0x3Fu);  // all layers
         gui.set_camp_mission(0);
         gui.select("missionsel", "1", true);
     });
@@ -1258,14 +1458,20 @@ void register_observed_routines(GuiSystem& system) {
         const bool on = !gui.is_selected(window, icon);
         for (const auto& e : sides) {
             if (icon == e.first) {
+                const unsigned bit = 1u << e.second;
                 gui.set_camp_side(e.second);
+                gui.set_camp_side_mask(on ? (gui.camp_side_mask() | bit)
+                                          : (gui.camp_side_mask() & ~bit));
                 gui.select(window, icon, on);
                 return;
             }
         }
         for (const auto& e : layers) {
             if (icon == e.first) {
+                const unsigned bit = 1u << e.second;
                 gui.set_camp_layer(e.second);
+                gui.set_camp_layer_mask(on ? (gui.camp_layer_mask() | bit)
+                                           : (gui.camp_layer_mask() & ~bit));
                 gui.select(window, icon, on);
                 return;
             }

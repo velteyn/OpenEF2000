@@ -480,22 +480,46 @@ loader itself is not reconstructed.
 
 Campaign shell (`camp`): map option toggles (flags, SAM and EWR coverage),
 side and layer map modes, zoom, mission list, 8-hour time advance, target view,
-debrief tabs/next, accept/ready and campaign exit. Coverage is 28 of 29.
+debrief tabs/next, accept/ready and campaign exit. Coverage is 30 of 31 (only
+the shared help overlay is missing).
 
 Mission planner (`missplan`): map options, strike and target lists, role and
 aircraft type, four mission slots, assignment cursor (prev/next/make/view),
 waypoint speed and clearance, ATC selection, fly/return and the scrap-mission
-confirmation. Coverage is 40 of 41.
+confirmation. Coverage is 42 of 43 (again only the help overlay).
 
-The planner's map window now draws the real strategic map rather than a blank
-panel: it is rendered bare, framed on the selected mission, and driven by the
-planner state — zo-In/z-Out change the view, and the SAM/EWR toggles control the
-coverage rings. `--camp-zoom N`, `--camp-sam` and `--camp-ewr` set that state
-for `--gui-render`. Side and layer filters are recorded but not yet applied to
-the drawing.
+The map is now an interactive strategic display, not a blank panel. It is
+rendered bare and driven by the GUI state:
+
+- the campaign map frames the whole theatre; the planner frames the selected
+  mission, with a 160-unit minimum so a one-waypoint mission still shows
+  context;
+- **z-In/z-Out** change the zoom and **wheel over the map zooms around the
+  cursor**; dragging inside a map window pans. A press that does not move is
+  treated as a click, so panning never edits the plan;
+- the **side** (Nato/Russian/Neutral) and **layer** (air defences, air support,
+  navy, comms, supply, political) checkboxes filter what is drawn. Ground units
+  are squares, flights diamonds, airbases open boxes and target areas circles,
+  coloured by side. Unknown site kinds stay visible under every layer, and
+  unknown sides are not filtered out;
+- clicking a target area selects it and updates the strike list; clicking a
+  base records it as the takeoff base; clicking empty map appends a waypoint,
+  and Clear Route removes the appended points. These edits live in the GUI
+  model, so the rendered map surface stays cacheable.
+
+The original campaign screen was captured at **640x400** through the DOSBox-X
+control server. It draws every side's flags by default, so the reconstruction
+initialises both filters to "all" and treats the checkboxes as an additive
+filter (nothing checked shows everything). That capture also confirms the
+original's own bottom bar is clipped at y=400, matching this layout.
+
+Mission and attack-pattern coordinates live in different spaces: pattern nodes
+are local to the aim point (values in the thousands) and must not enter the map
+extent, or the whole theatre collapses to a dot. They are drawn by the target
+view, not the strategic map.
 
 Summary (`summary`): menu bars, detail requests and the campaign exit. Coverage
-is 12 of 12, but the bar and graph drawing routines are renderer-owned no-ops:
+is 13 of 13, but the bar and graph drawing routines are renderer-owned no-ops:
 the statistics are not computed or drawn yet.
 
 Weapons configuration (`weapons`): pylon/missile selection, four aircraft view
@@ -513,11 +537,20 @@ and `gnet` are network screens (linked players, network mission/briefing,
 DirectPlay) and are out of scope.
 
 `--gui-routines` tracks the routine layer: mainmenu 17 of 19, arcade 4 of 5,
-simulator 16 of 20, custom 5 of 6, campaign 28 of 29, planner 40 of 41,
-summary 12 of 12, weapons 16 of 16, system 2 of 2. The only non-network
-shortfall is the shared help overlay (`GenGUIHelp`, `CampaignHelp`,
-`MissplanHelp`, `CampaignHelp`): the install ships no readable help content,
-so the overlay cannot be reconstructed from data.
+arcade2 5 of 6, simulator 7 of 8, simul2 3 of 4, simpick 1 of 2, custom 5 of 6,
+campaign 30 of 31, planner 42 of 43, summary 13 of 13, weapons 16 of 16,
+system 2 of 2, intro 16 of 18. The only non-network shortfall is the shared
+help overlay (`GenGUIHelp`, `CampaignHelp`, `MissplanHelp`, `CampaignHelp`):
+the install ships no readable help content, so the overlay cannot be
+reconstructed from data.
+
+Two `.gui` parser facts fell out of the map work. Window-level verbs exist:
+the map windows write `call Pressed` / `call Release` followed by
+`routine mpMapSelect` (the installed missplan variant) or `CampMoveWP` (the
+campaign map), and clicks that miss every icon must reach them. The loader now
+keeps those verbs on `GuiWindow` and `GuiSystem::fire_window` dispatches them.
+Also, `esg 0` means "no exclusive group": the map-option checkboxes and plain
+buttons use it, so only positive `esg` values clear their siblings.
 
 The goal is **feature parity, not pixel parity**. Rendering is deliberately a
 separate layer from the GUI model: `.gui` data, runtime state and routines are

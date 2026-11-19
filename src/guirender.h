@@ -42,11 +42,33 @@ struct GuiRenderOptions {
     int camp_zoom = -1;
     bool camp_sam = false;
     bool camp_ewr = false;
+    int camp_sides = -1;   //!< side bitmask; -1 keeps the screen's default
+    int camp_layers = -1;  //!< layer bitmask; -1 keeps the screen's default
+    int camp_pan_x = 0;
+    int camp_pan_y = 0;
 };
 
 //! Draws the active screen of `system` into `surface` (640x400 logical size).
 void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
               const GuiRenderOptions& options, const IlbmImage* backdrop = nullptr);
+
+//! True for the windows that carry the strategic map.
+bool gui_is_map_window(const std::string& name);
+
+//! Maps a screen point inside a map window to world coordinates. `radius` is
+//! the pick radius in world units (ten screen pixels), used when resolving a
+//! click to a target, base or waypoint.
+bool gui_map_world_at(const GuiSystem& system, const Dataset& ds,
+                      const GuiWindow& win, int sx, int sy, int* world_x,
+                      int* world_y, int* radius);
+
+//! Drag-to-pan. `dx`/`dy` are screen deltas since the last motion event.
+bool gui_map_pan(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
+                 int dx, int dy);
+
+//! Wheel zoom that keeps the world point under the cursor fixed.
+bool gui_map_zoom_at(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
+                     int sx, int sy, int steps);
 
 //! Blits an indexed image across the whole surface, using its own palette.
 void draw_image(SDL_Surface* surface, const IlbmImage& image);

@@ -102,40 +102,144 @@ struct MapCache {
     SDL_Surface* surface = nullptr;
     int w = 0, h = 0, zoom = 0, mission = -1;
     bool sam = false, ewr = false;
+    unsigned sides = 0, layers = 0;
+    int pan_x = 0, pan_y = 0;
+    bool focus = false;
 };
 
 MapCache g_map_cache;
 
-// The map is expensive to draw, and the planner changes it rarely, so render
-// it only when one of the inputs changes.
-SDL_Surface* map_for(const Dataset& ds, int w, int h, int zoom, int mission,
-                     bool sam, bool ewr, SDL_PixelFormat* format) {
-    if (g_map_cache.surface != nullptr && g_map_cache.w == w && g_map_cache.h == h &&
-        g_map_cache.zoom == zoom && g_map_cache.mission == mission &&
-        g_map_cache.sam == sam && g_map_cache.ewr == ewr) {
-        return g_map_cache.surface;
-    }
+RenderOptions map_options(const GuiSystem& system, const GuiWindow& win, int w, int h) {
     RenderOptions opt;
     opt.bare = true;
     opt.width = w;
     opt.height = h;
-    opt.selected = mission;
+    opt.selected = system.camp_mission();
     opt.labels = false;
-    opt.focus = true;   // frame the selected mission, not the whole theatre
-    opt.sam_coverage = sam;
-    opt.ewr_coverage = ewr;
-    opt.zoom = std::pow(1.4f, static_cast<float>(zoom));
+    // The campaign map is a theatre overview; the planner frames the mission
+    // being edited.
+    opt.focus = (win.name == "mp_map");
+    opt.sam_coverage = system.camp_sam();
+    opt.ewr_coverage = system.camp_ewr();
+    opt.zoom = std::pow(1.4f, static_cast<float>(system.camp_zoom()));
+    opt.pan_x = system.camp_pan_x();
+    opt.pan_y = system.camp_pan_y();
+    // The campaign screen has the Map Options checkboxes; the planner has no
+    // side/layer controls, so its map always shows the whole theatre.
+    if (win.name == "mp_map") {
+        opt.side_mask = MapSideAll;
+        opt.layer_mask = MapLayerAll;
+    } else {
+        opt.side_mask = system.camp_side_mask();
+        opt.layer_mask = system.camp_layer_mask();
+    }
+    return opt;
+}
+
+// The map is expensive to draw, and the planner changes it rarely, so render
+// it only when one of the inputs changes.
+SDL_Surface* map_for(const Dataset& ds, const GuiSystem& system, const GuiWindow& win,
+                     int w, int h, SDL_PixelFormat* format) {
+    const RenderOptions opt = map_options(system, win, w, h);
+    if (g_map_cache.surface != nullptr && g_map_cache.w == w && g_map_cache.h == h &&
+        g_map_cache.zoom == system.camp_zoom() &&
+        g_map_cache.mission == system.camp_mission() &&
+        g_map_cache.sam == opt.sam_coverage && g_map_cache.ewr == opt.ewr_coverage &&
+        g_map_cache.sides == opt.side_mask && g_map_cache.layers == opt.layer_mask &&
+        g_map_cache.pan_x == opt.pan_x && g_map_cache.pan_y == opt.pan_y &&
+        g_map_cache.focus == opt.focus) {
+        return g_map_cache.surface;
+    }
     SDL_Surface* raw = render_map(ds, opt);
     if (raw == nullptr) return nullptr;
     SDL_Surface* converted = SDL_ConvertSurface(raw, format, 0);
     SDL_FreeSurface(raw);
     if (converted == nullptr) return nullptr;
     if (g_map_cache.surface != nullptr) SDL_FreeSurface(g_map_cache.surface);
-    g_map_cache = MapCache{converted, w, h, zoom, mission, sam, ewr};
+    g_map_cache = MapCache{converted, w, h, system.camp_zoom(),
+                           system.camp_mission(), opt.sam_coverage,
+                           opt.ewr_coverage, opt.side_mask, opt.layer_mask,
+                           opt.pan_x, opt.pan_y, opt.focus};
     return converted;
 }
 
 }  // namespace
+
+bool gui_is_map_window(const std::string& name) {
+    return name == "mp_map" || name == "map";
+}
+
+bool gui_map_world_at(const GuiSystem& system, const Dataset& ds,
+                      const GuiWindow& win, int sx, int sy, int* world_x,
+                      int* world_y, int* radius) {
+    const SDL_Rect client = GuiSystem::client_rect(win);
+    if (sx < client.x || sy < client.y || sx >= client.x + client.w ||
+        sy >= client.y + client.h || client.w <= 0 || client.h <= 0) {
+        return false;
+    }
+    const RenderOptions opt = map_options(system, win, client.w, client.h);
+    const MapProjection p = map_projection(ds, opt);
+    const int mx = sx - client.x, my = sy - client.y;
+    if (!p.contains(mx, my)) return false;
+    if (world_x) *world_x = p.world_x(mx);
+    if (world_y) *world_y = p.world_y(my);
+    if (radius) {
+        const double per_px = static_cast<double>(p.world_max_x - p.world_min_x) /
+                              std::max(1, p.right - p.left);
+        *radius = std::max(1, static_cast<int>(std::lround(per_px * 10.0)));
+    }
+    return true;
+}
+
+bool gui_map_pan(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
+                 int dx, int dy) {
+    const SDL_Rect client = GuiSystem::client_rect(win);
+    if (client.w <= 0 || client.h <= 0) return false;
+    const RenderOptions opt = map_options(system, win, client.w, client.h);
+    const MapProjection p = map_projection(ds, opt);
+    const double per_px_x = static_cast<double>(p.world_max_x - p.world_min_x) /
+                            std::max(1, p.right - p.left);
+    const double per_px_y = static_cast<double>(p.world_max_y - p.world_min_y) /
+                            std::max(1, p.bottom - p.top);
+    system.set_camp_pan(system.camp_pan_x() -
+                            static_cast<int>(std::lround(dx * per_px_x)),
+                        system.camp_pan_y() +
+                            static_cast<int>(std::lround(dy * per_px_y)));
+    return true;
+}
+
+bool gui_map_zoom_at(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
+                     int sx, int sy, int steps) {
+    const int old = system.camp_zoom();
+    const int next = std::clamp(old + steps, 0, 6);
+    if (next == old) return false;
+
+    const SDL_Rect client = GuiSystem::client_rect(win);
+    if (client.w <= 0 || client.h <= 0) return false;
+    const RenderOptions cur = map_options(system, win, client.w, client.h);
+    const MapProjection before = map_projection(ds, cur);
+    const int mx = sx - client.x, my = sy - client.y;
+    if (!before.contains(mx, my)) return false;
+    const int wx = before.world_x(mx), wy = before.world_y(my);
+
+    RenderOptions updated = cur;
+    updated.zoom = std::pow(1.4f, static_cast<float>(next));
+    updated.pan_x = 0;
+    updated.pan_y = 0;
+    const MapProjection after = map_projection(ds, updated);
+    const double spanx = std::max(1, after.world_max_x - after.world_min_x);
+    const double spany = std::max(1, after.world_max_y - after.world_min_y);
+    const int panx = static_cast<int>(std::lround(
+        wx - after.world_min_x -
+        (mx - after.left) * spanx / std::max(1, after.right - after.left)));
+    const int pany = static_cast<int>(std::lround(
+        wy - after.world_max_y +
+        (my - after.top) * spany / std::max(1, after.bottom - after.top)));
+
+    system.set_camp_zoom(next);
+    system.set_camp_pan(panx, pany);
+    return true;
+}
 
 void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
               const GuiRenderOptions& options, const IlbmImage* backdrop) {
@@ -146,7 +250,9 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
     fill_rect(surface, 0, 0, surface->w, surface->h, map_rgb(fmt, palette[0]));
     if (options.backdrop && backdrop != nullptr && backdrop->width > 0 &&
         backdrop->height > 0) {
-        // Nearest-neighbour scale to the surface.
+        // Nearest-neighbour scale to the surface. The shell art is 640x400,
+        // which is also the game's mode (the original's own bottom bars are
+        // clipped at that height too).
         for (int y = 0; y < surface->h; ++y) {
             const int sy = y * backdrop->height / surface->h;
             auto* row = static_cast<Uint32*>(static_cast<void*>(
@@ -220,14 +326,13 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
 
         // Strategic map, when the driver supplied a dataset. The planner and
         // campaign screens name their map window `mp_map` and `map`.
-        if (options.dataset != nullptr &&
-            (win->name == "mp_map" || win->name == "map")) {
+        if (options.dataset != nullptr && gui_is_map_window(win->name)) {
             const SDL_Rect client = GuiSystem::client_rect(*win);
             if (client.w > 8 && client.h > 8) {
-                if (SDL_Surface* map = map_for(*options.dataset, client.w, client.h,
-                                               system.camp_zoom(), system.camp_mission(),
-                                               system.camp_sam(), system.camp_ewr(),
-                                               surface->format)) {
+                SDL_Surface* map =
+                    map_for(*options.dataset, system, *win, client.w, client.h,
+                            surface->format);
+                if (map != nullptr) {
                     // Both surfaces share a format, so copy rows directly.
                     // SDL_BlitSurface rejects some format pairs created this
                     // way, and a memcpy is both safe and fast here.
@@ -247,6 +352,45 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                             SDL_UnlockSurface(map);
                         }
                         SDL_UnlockSurface(surface);
+                    }
+
+                    // Planner edits drawn over the map: appended waypoints and
+                    // the selected target area. They live in the GUI model, so
+                    // the map surface itself stays cacheable.
+                    if (win->name == "mp_map") {
+                        const RenderOptions opt =
+                            map_options(system, *win, client.w, client.h);
+                        const MapProjection p =
+                            map_projection(*options.dataset, opt);
+                        for (const auto& w : system.mp_waypoints()) {
+                            const int x = client.x + p.screen_x(w.first);
+                            const int y = client.y + p.screen_y(w.second);
+                            fill_rect(surface, x - 2, y - 2, 5, 5,
+                                      map_rgb(fmt, 0x33FF99));
+                        }
+                        const auto& missions = options.dataset->missions;
+                        const int mi = system.camp_mission();
+                        if (mi >= 0 && mi < static_cast<int>(missions.size())) {
+                            const auto& m = missions[mi];
+                            const int ti = system.mp_target_index();
+                            const int ai = system.mp_area_index();
+                            if (ti >= 0 && ti < static_cast<int>(m.targets.size()) &&
+                                ai >= 0 &&
+                                ai < static_cast<int>(m.targets[ti].areas.size()) &&
+                                m.targets[ti].areas[ai].pos) {
+                                const auto& pos = *m.targets[ti].areas[ai].pos;
+                                const int cx = client.x + p.screen_x(pos.x);
+                                const int cy = client.y + p.screen_y(pos.y);
+                                const Uint32 ring = map_rgb(fmt, 0xFFF1A0);
+                                for (int a = 0; a < 360; a += 12) {
+                                    const double r = 0.01745329252 * a;
+                                    fill_rect(surface,
+                                              cx + static_cast<int>(std::lround(11 * std::cos(r))),
+                                              cy + static_cast<int>(std::lround(11 * std::sin(r))),
+                                              1, 1, ring);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -288,9 +432,17 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
             }
 
             // An editable field shows its current contents rather than the
-            // declared label.
-            const std::string label =
+            // declared label. A few planner labels are live values from the
+            // GUI model (the selected target and takeoff base).
+            std::string label =
                 icon.editable_len >= 0 ? icon.value : icon.label(options.language);
+            if (win->name == "mp_strike_info" && icon.name == "name") {
+                label = system.mp_target().empty() ? "N/A" : system.mp_target();
+            } else if (win->name == "mp_strike_info" && icon.name == "targeted") {
+                label = system.mp_target().empty() ? "N/A" : "YES";
+            } else if (win->name == "mp_base_set" && icon.name == "base") {
+                label = system.mp_base().empty() ? "------" : system.mp_base();
+            }
             if (!label.empty()) {
                 const int tw = text_width(label);
                 int tx = left + 2;
@@ -379,11 +531,17 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
     // raises (Network Settings, IPX Settings) never appear. The renderer does
     // not know the handlers, so it registers the same observed set as the
     // driver does.
-    ef::register_observed_routines(system);
+    ef::register_observed_routines(system, options.dataset);
     system.run_startup();
     if (options.camp_zoom >= 0) system.set_camp_zoom(options.camp_zoom);
     if (options.camp_sam) system.set_camp_sam(true);
     if (options.camp_ewr) system.set_camp_ewr(true);
+    if (options.camp_sides >= 0)
+        system.set_camp_side_mask(static_cast<unsigned>(options.camp_sides));
+    if (options.camp_layers >= 0)
+        system.set_camp_layer_mask(static_cast<unsigned>(options.camp_layers));
+    if (options.camp_pan_x != 0 || options.camp_pan_y != 0)
+        system.set_camp_pan(options.camp_pan_x, options.camp_pan_y);
     if (!options.open_window.empty()) {
         system.open_window(options.open_window);
         system.bring_to_front(options.open_window);
