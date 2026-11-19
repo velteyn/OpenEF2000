@@ -12,6 +12,7 @@
 
 #include "did.h"
 #include "gui.h"
+#include "model.h"
 #include "ilbm.h"
 #include "texture.h"
 
@@ -34,6 +35,13 @@ struct GuiRenderOptions {
     std::string open_window;
     //! Loose data directory, for files the engine reads directly (HISCORES.DAT).
     std::filesystem::path data_dir;
+    //! When set, the strategic map is drawn inside the planner/campaign map
+    //! windows, using the GUI state for coverage, zoom and selection.
+    const Dataset* dataset = nullptr;
+    //! Headless overrides for the map state (the viewer changes it by input).
+    int camp_zoom = -1;
+    bool camp_sam = false;
+    bool camp_ewr = false;
 };
 
 //! Draws the active screen of `system` into `surface` (640x400 logical size).

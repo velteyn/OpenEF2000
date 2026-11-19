@@ -27,6 +27,12 @@ struct RenderOptions {
     //! Multiplier on the assumed per-class radius (the files carry no range).
     float coverage_scale = 1.0f;
 
+    //! Draw only the map, with no side panel, footer or margins. Used when
+    //! embedding the map inside a GUI window.
+    bool bare = false;
+    //! Zoom factor applied to the computed extent (1.0 = the whole theatre).
+    float zoom = 1.0f;
+
     //! Explicit world rectangle (x0, y0, x1, y1). Used when supplied, because
     //! the shipped data mixes coordinate spaces and an inferred extent can be
     //! dominated by outliers.

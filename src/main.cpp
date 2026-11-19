@@ -57,6 +57,8 @@ void usage() {
         "  --gui-list          list the GUI screens in DID.DAT\n"
         "  --gui-routines      with --gui SCREEN, list the routines it needs\n"
         "  --gui-dump          with --gui SCREEN, print windows, icons, keys and verbs\n"
+        "  --camp-zoom N       headless map zoom for --gui-render\n"
+        "  --camp-sam/--camp-ewr  headless coverage overlays for --gui-render\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
@@ -431,6 +433,13 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     ef::GuiSystem system;
     system.set_screen(std::move(*screen));
 
+    std::optional<ef::Dataset> dataset;
+    try {
+        dataset = ef::load_dataset(data_dir.string());
+    } catch (const std::exception&) {
+        // The shell still works without mission data; the map stays blank.
+    }
+
     ef::register_observed_routines(system);
     system.run_startup();
 
@@ -633,6 +642,7 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                                                                   SDL_PIXELFORMAT_RGBA32);
             if (surface != nullptr) {
                 options.cursor = true;
+                options.dataset = dataset ? &*dataset : nullptr;
                 options.hover_window = hover_window;
                 options.hover_icon = hover_icon;
                 ef::draw_gui(surface, system, palette, options,
@@ -1056,6 +1066,8 @@ int main(int argc, char** argv) {
     bool gui_list = false;
     bool gui_routines = false;
     bool gui_dump = false;
+    int camp_zoom = -1;
+    bool camp_sam = false, camp_ewr = false;
     bool gui_selftest = false;
     bool boot = false;
     bool sam_coverage = false, ewr_coverage = false;
@@ -1115,6 +1127,12 @@ int main(int argc, char** argv) {
             gui_routines = true;
         } else if (std::strcmp(argv[i], "--gui-dump") == 0) {
             gui_dump = true;
+        } else if (std::strcmp(argv[i], "--camp-zoom") == 0 && i + 1 < argc) {
+            camp_zoom = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--camp-sam") == 0) {
+            camp_sam = true;
+        } else if (std::strcmp(argv[i], "--camp-ewr") == 0) {
+            camp_ewr = true;
         } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
             gui_selftest = true;
         } else if (std::strcmp(argv[i], "--boot") == 0) {
@@ -1281,6 +1299,16 @@ int main(int argc, char** argv) {
             options.language = gui_lang;
             options.open_window = gui_window;
             options.data_dir = data;
+            std::optional<ef::Dataset> dataset;
+            try {
+                dataset = ef::load_dataset(data);
+            } catch (const std::exception&) {
+                // Screens without map data still render.
+            }
+            options.dataset = dataset ? &*dataset : nullptr;
+            options.camp_zoom = camp_zoom;
+            options.camp_sam = camp_sam;
+            options.camp_ewr = camp_ewr;
             if (!ef::render_gui_png(did, gui_screen, gui_render, options)) {
                 return 1;
             }

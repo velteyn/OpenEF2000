@@ -157,20 +157,22 @@ std::string mission_label(const Mission& m, int idx) {
 }  // namespace
 
 SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
-    const int W = std::max(640, opt.width);
-    const int H = std::max(480, opt.height);
-    const int panel_w = 380;
-    const int left = 55, top = 55;
-    const int right = W - panel_w - 20;
-    const int bottom = H - 55;
+    const int W = std::max(opt.bare ? 16 : 640, opt.width);
+    const int H = std::max(opt.bare ? 16 : 480, opt.height);
+    const int panel_w = opt.bare ? 0 : 380;
+    const int left = opt.bare ? 0 : 55, top = opt.bare ? 0 : 55;
+    const int right = opt.bare ? W : W - panel_w - 20;
+    const int bottom = opt.bare ? H : H - 55;
 
     Canvas c;
     c.s = SDL_CreateRGBSurfaceWithFormat(0, W, H, 32, SDL_PIXELFORMAT_ARGB8888);
     if (!c.s) return nullptr;
     c.w = W; c.h = H;
     c.fill(0, 0, W, H, c.rgb(10, 16, 24));
-    c.fill(right + 10, 0, panel_w, H, c.rgb(18, 24, 34));
-    c.fill(0, H - 36, W, 36, c.rgb(14, 20, 30));
+    if (!opt.bare) {
+        c.fill(right + 10, 0, panel_w, H, c.rgb(18, 24, 34));
+        c.fill(0, H - 36, W, 36, c.rgb(14, 20, 30));
+    }
 
     int sel = std::clamp(opt.selected, 0, std::max(0, static_cast<int>(ds.missions.size()) - 1));
 
@@ -233,6 +235,15 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     const int padx = std::max(1, (maxx - minx) / 20);
     const int pady = std::max(1, (maxy - miny) / 20);
     minx -= padx; maxx += padx; miny -= pady; maxy += pady;
+
+    // Zoom keeps the centre of the current extent and shrinks the half-size,
+    // which is what the planner's z-In/z-Out controls expect.
+    if (opt.zoom > 1.0f) {
+        const int cx = (minx + maxx) / 2, cy = (miny + maxy) / 2;
+        const int hw = std::max(1, static_cast<int>((maxx - minx) / (2.0f * opt.zoom)));
+        const int hh = std::max(1, static_cast<int>((maxy - miny) / (2.0f * opt.zoom)));
+        minx = cx - hw; maxx = cx + hw; miny = cy - hh; maxy = cy + hh;
+    }
 
     auto px = [&](int x) {
         return left + (x - minx) * (right - left) / (maxx - minx);
@@ -384,8 +395,8 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     SDL_Color dim{150, 165, 185, 255};
     SDL_Color gold{255, 220, 90, 255};
 
-    draw_text(c, f_big, 20, 14, "OpenEF2000", white);
-    {
+    if (!opt.bare) {
+        draw_text(c, f_big, 20, 14, "OpenEF2000", white);
         std::ostringstream os;
         os << "missions " << ds.missions.size() << "   bases "
            << ds.bnas.size() << "   target areas " << ds.areas.size()
@@ -449,6 +460,11 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
 
     if (!ds.missions.empty()) {
         const Mission& m = ds.missions[sel];
+        if (opt.bare) {
+            SDL_Surface* out = c.s;
+            c.s = nullptr;  // Canvas owns the surface; detach before returning
+            return out;
+        }
         int x = right + 25, y = 18;
         draw_text(c, f_big, x, y, "Mission", gold); y += 32;
         draw_text(c, f_small, x, y, mission_label(m, sel), white); y += 22;

@@ -3,6 +3,11 @@
 
 #include "guirender.h"
 
+#include "render.h"
+
+#include <cmath>
+#include <cstring>
+
 #include "ilbm.h"
 
 #include <SDL2/SDL_image.h>
@@ -91,6 +96,47 @@ std::optional<IlbmImage> load_backdrop(const DidArchive& archive, const std::str
     return std::nullopt;
 }
 
+namespace {
+
+struct MapCache {
+    SDL_Surface* surface = nullptr;
+    int w = 0, h = 0, zoom = 0, mission = -1;
+    bool sam = false, ewr = false;
+};
+
+MapCache g_map_cache;
+
+// The map is expensive to draw, and the planner changes it rarely, so render
+// it only when one of the inputs changes.
+SDL_Surface* map_for(const Dataset& ds, int w, int h, int zoom, int mission,
+                     bool sam, bool ewr, SDL_PixelFormat* format) {
+    if (g_map_cache.surface != nullptr && g_map_cache.w == w && g_map_cache.h == h &&
+        g_map_cache.zoom == zoom && g_map_cache.mission == mission &&
+        g_map_cache.sam == sam && g_map_cache.ewr == ewr) {
+        return g_map_cache.surface;
+    }
+    RenderOptions opt;
+    opt.bare = true;
+    opt.width = w;
+    opt.height = h;
+    opt.selected = mission;
+    opt.labels = false;
+    opt.focus = true;   // frame the selected mission, not the whole theatre
+    opt.sam_coverage = sam;
+    opt.ewr_coverage = ewr;
+    opt.zoom = std::pow(1.4f, static_cast<float>(zoom));
+    SDL_Surface* raw = render_map(ds, opt);
+    if (raw == nullptr) return nullptr;
+    SDL_Surface* converted = SDL_ConvertSurface(raw, format, 0);
+    SDL_FreeSurface(raw);
+    if (converted == nullptr) return nullptr;
+    if (g_map_cache.surface != nullptr) SDL_FreeSurface(g_map_cache.surface);
+    g_map_cache = MapCache{converted, w, h, zoom, mission, sam, ewr};
+    return converted;
+}
+
+}  // namespace
+
 void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
               const GuiRenderOptions& options, const IlbmImage* backdrop) {
     if (surface == nullptr) return;
@@ -170,6 +216,40 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
             const int y = text_client.y + 2 + static_cast<int>(i) * 12;
             if (y + 12 > text_client.y + text_client.h) break;
             text(text_client.x + 4, y, win->lines[i], palette[15]);
+        }
+
+        // Strategic map, when the driver supplied a dataset. The planner and
+        // campaign screens name their map window `mp_map` and `map`.
+        if (options.dataset != nullptr &&
+            (win->name == "mp_map" || win->name == "map")) {
+            const SDL_Rect client = GuiSystem::client_rect(*win);
+            if (client.w > 8 && client.h > 8) {
+                if (SDL_Surface* map = map_for(*options.dataset, client.w, client.h,
+                                               system.camp_zoom(), system.camp_mission(),
+                                               system.camp_sam(), system.camp_ewr(),
+                                               surface->format)) {
+                    // Both surfaces share a format, so copy rows directly.
+                    // SDL_BlitSurface rejects some format pairs created this
+                    // way, and a memcpy is both safe and fast here.
+                    if (SDL_LockSurface(surface) == 0) {
+                        if (SDL_LockSurface(map) == 0) {
+                            const int bytes = std::min(client.w, map->w) * 4;
+                            for (int y = 0; y < std::min(client.h, map->h); ++y) {
+                                const int sy = client.y + y;
+                                if (sy < 0 || sy >= surface->h) continue;
+                                Uint8* dst = static_cast<Uint8*>(surface->pixels) +
+                                             sy * surface->pitch + client.x * 4;
+                                const Uint8* src =
+                                    static_cast<const Uint8*>(map->pixels) +
+                                    y * map->pitch;
+                                std::memcpy(dst, src, static_cast<std::size_t>(bytes));
+                            }
+                            SDL_UnlockSurface(map);
+                        }
+                        SDL_UnlockSurface(surface);
+                    }
+                }
+            }
         }
 
         // Icons live in the client area; scrollable windows offset them and
@@ -301,6 +381,9 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
     // driver does.
     ef::register_observed_routines(system);
     system.run_startup();
+    if (options.camp_zoom >= 0) system.set_camp_zoom(options.camp_zoom);
+    if (options.camp_sam) system.set_camp_sam(true);
+    if (options.camp_ewr) system.set_camp_ewr(true);
     if (!options.open_window.empty()) {
         system.open_window(options.open_window);
         system.bring_to_front(options.open_window);

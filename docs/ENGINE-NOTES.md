@@ -487,6 +487,13 @@ aircraft type, four mission slots, assignment cursor (prev/next/make/view),
 waypoint speed and clearance, ATC selection, fly/return and the scrap-mission
 confirmation. Coverage is 40 of 41.
 
+The planner's map window now draws the real strategic map rather than a blank
+panel: it is rendered bare, framed on the selected mission, and driven by the
+planner state — zo-In/z-Out change the view, and the SAM/EWR toggles control the
+coverage rings. `--camp-zoom N`, `--camp-sam` and `--camp-ewr` set that state
+for `--gui-render`. Side and layer filters are recorded but not yet applied to
+the drawing.
+
 Summary (`summary`): menu bars, detail requests and the campaign exit. Coverage
 is 12 of 12, but the bar and graph drawing routines are renderer-owned no-ops:
 the statistics are not computed or drawn yet.
