@@ -551,6 +551,27 @@ are local to the aim point (values in the thousands) and must not enter the map
 extent, or the whole theatre collapses to a dot. They are drawn by the target
 view, not the strategic map.
 
+## Campaign generator
+
+The shipped generator is now specified separately in
+[`CAMPAIGN-GENERATOR.md`](CAMPAIGN-GENERATOR.md). In brief:
+
+* it runs synchronously from the Campaign Level **Accept**, rewrites
+  `CAMPAIGN.CG` and `MISSION.CFG`, and leaves `CONFLICT.CG`/`NAVIG.NAV`
+  untouched;
+* the backbone is fixed: 77 bases from an embedded table, 611 aircraft in a
+  fixed type mix, and fixed role totals;
+* a custom 32-bit additive RNG (state `0x31415926`, seeded from the DOS
+  date/time at startup) randomises target values, air-defence site tasking,
+  flight roles and timeslots, so each launch differs but a fixed seed
+  reproduces a run;
+* observed generated sets range from 722 to 741 missions, with 481–502
+  `GBASED` air-defence missions and 28–33 strike target areas.
+
+The spec includes the phase order, the target-value formula, the 24-hour base
+timeslot schedule, the RNG recurrence and a reconstruction plan with
+fixed-seed acceptance tests.
+
 Summary (`summary`): menu bars, detail requests and the campaign exit. Coverage
 is 13 of 13. The screen now opens on the Balance of Power page (balance plus
 the colour key), and the bar/graph windows are drawn from computed statistics

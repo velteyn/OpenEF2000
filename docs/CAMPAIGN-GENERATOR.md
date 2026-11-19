@@ -1,0 +1,300 @@
+# EF2000 campaign generator — reverse-engineered specification
+
+This document describes how the shipped EF2000 v2.0 executable turns the
+static scenario (`CONFLICT.CG`) and a saved campaign (`CAMPAIGN.CG`) into a
+new campaign: the regenerated `CAMPAIGN.CG` and the mission set
+`MISSION.CFG`. It is a factual specification derived from two evidence
+sources:
+
+* **Runtime capture.** The original game was run under DOSBox-X with the
+  in-process control server; a new campaign was started from the Campaign
+  Level dialog and the generated files were captured. Four generations were
+  compared.
+* **Static analysis.** The shipped v2.0 executable was reconstructed and
+  analysed with Ghidra. Function addresses below refer to that reconstructed
+  image (image base `0x10000`). The code is not reproduced here; only the
+  observed structure and rules are recorded.
+
+No claim in this document is based on a filename or a string alone. Items
+marked *inferred* still need a second evidence source.
+
+## 1. Files
+
+| File | Role in generation |
+|---|---|
+| `CONFLICT.CG` | Static scenario: target areas, mobiles, pilots, allegiances. **Never modified.** |
+| `CAMPAIGN.CG` | Live campaign state. **Rewritten** by the generator. Also the source of the previous state. |
+| `MISSION.CFG` | Generated mission/tasking set. **Rewritten.** |
+| `NAVIG.NAV` | Base navigation. **Not modified** by generation. |
+
+Observed: after generation, `CONFLICT.CG` and `NAVIG.NAV` are byte-identical
+to their pre-run copies; only `CAMPAIGN.CG` and `MISSION.CFG` change.
+
+## 2. Entry point and top-level flow
+
+The generator is built into the game executable and runs synchronously after
+**Accept** on the Campaign Level dialog. The UI shows a small
+`Generating Campaign...` panel until the files are written.
+
+Reference functions (v2 image):
+
+| Address | Role |
+|---|---|
+| `0x1b2a8` | Campaign-level Accept path; calls the generator |
+| `0xbec20` | Campaign generation orchestrator |
+| `0xbe0e0` | Advance campaign clock by 8 hours |
+| `0xca100` | Mission-package size policy |
+| `0x10756c` | Add virtual bases/ports from the embedded base table |
+| `0xca990` | Add a virtual port from a mobile/target record |
+| `0xda738` | Air-defence (SAM/AAA/EWR) mission loop |
+| `0xdabd0` | Build one air-defence mission |
+| `0xcad30` | Mobile/tasking list setup |
+| `0xcbf44` | Pilot assignment |
+| `0xd8a64` | Link sites/mobiles to target areas and set target values |
+| `0xd88b4` | Randomise target values and map-cell indices |
+| `0xc0d28` | Write `CAMPAIGN.CG` |
+| `0xc0e0c` | Write `MISSION.CFG` |
+| `0xb2467` | Custom random-number generator |
+| `0xb2498` | Seed the custom RNG |
+
+Generation follows these phases:
+
+1. **Reset / load.** Clear the live campaign state, load the scenario and the
+   previous campaign, and initialise the world clock.
+2. **Side and theatre setup.** Choose the active sides and the theatre state;
+   the campaign clock (day, 8-hour slot, minute) is part of the state.
+3. **Base and port construction.** Create the fixed set of airfields and ports,
+   count the mobiles assigned to each, and build their 24-hour timeslot
+   schedules.
+4. **Air-defence tasking.** For each target area with an air-defence site
+   list, allocate sites and build `GBASED` / `AIR_DEFENSE` missions.
+5. **Strike, patrol and ship tasking.** Build `PLANE` and `SHIP` missions and
+   their `FLIGHT`/`PYLON`/route records.
+6. **Pilot assignment.** Attach pilots to flights.
+7. **Linking and validation.** Match sites to target areas, set target
+   values, drop invalid or unassigned records, and enforce the victory/defeat
+   checks.
+8. **Write.** Rewrite `CAMPAIGN.CG` and `MISSION.CFG`.
+
+The UI wrapper (`0x1b2a8`) also performs the post-generation screen setup, so
+a failed generation leaves the campaign screen open rather than launching a
+mission.
+
+## 3. Inputs and parameters
+
+### 3.1 Campaign Level dialog
+
+The dialog has ten difficulty rows (0 = Rookie … 6 = Pro … 9 = TopGun), an
+**Influence Campaign?** Yes/No pair, and **Accept**. The dialog's values are
+kept in runtime globals and are written to the campaign file:
+
+* `DIFFICULTY` — one byte, 0..9, read from the difficulty global.
+* `PERFORMANCE` — two values: an influence/performance flag and a rating
+  (observed `1 50`).
+
+Observed: editing `DIFFICULTY` in `CAMPAIGN.CG` alone does **not** change the
+generated difficulty; the dialog's runtime value wins and is written back
+(e.g. an input file set to 0 regenerated as 6). The save file is an output of
+the setting, not its source.
+
+*Inferred:* the difficulty scales mission-package sizes. The package policy
+uses the campaign day: days 0..3 produce a small package (2), later days a
+large one (25); the day parity selects an additional branch. The direct
+mapping from the 0..9 difficulty byte to those thresholds is not yet pinned
+down because our runtime runs all used the Pro setting.
+
+### 3.2 World clock
+
+`WORLD_STATUS` is a packed campaign clock:
+
+* day (starts at 0, displayed as day + 1),
+* 8-hour slot (0, 8, 16) with a day rollover,
+* minute.
+
+The 8-hour advance routine increments the slot, rolls the day at 16, and
+clears the minute. The clock feeds:
+
+* the time-slot schedules of every base,
+* the mission-package policy,
+* the `WORLD_STATUS` header in both output files.
+
+### 3.3 Randomness
+
+The generator uses a **custom 32-bit additive generator**, not the C library
+`rand()`:
+
+* state lives at `0xb2458` (two 16-bit halves), default `0x31415926`;
+* each draw computes `high' = high + low`, then
+  `low' = low + high'` with carry; a zero state is reset to `0x31415926`;
+* the returned value is the new 32-bit state;
+* the seeding routine (`0xb2498`) writes a 32-bit seed; the startup path
+  reads the **DOS date/time** via `INT 21h` and seeds with it
+  (`0x13aa0` → `0xb2428` → `0xffe6d`/`0xfff30`).
+
+Consequences, confirmed by the runtime runs:
+
+* each **game launch** has a different sequence, so two generations from the
+  same files produce different mission counts and target values;
+* within one launch the generator is deterministic: the same state and the
+  same input files reproduce the same output;
+* a reset path in the GUI/engine sets the state back to `0x31415926`, but the
+  generation path does not reseed.
+
+The random generator is used for target values, site placement and the
+air-defence tasking. It does not change the fixed base table or the total
+aircraft pool.
+
+## 4. Deterministic backbone
+
+Across all captured runs these are identical (or fixed up to the value field):
+
+| Item | Value |
+|---|---|
+| Bases | **77**, fixed names, sides and types |
+| Base mix | NATO 5 airfields + 10 ports; Russian 15 + 21; Finnish 3 + 8; Swedish 4 + 4; Baltic 1 + 6 |
+| Aircraft total | **611** airframes |
+| Aircraft mix | Su-35 291, EFA 106, JAS-39 54, F/A-18 54, Su-27 18, Su-33 14, F-22 12, Harrier 12, plus smaller types |
+| Fixed roles | CAP 162, INTC 26, SEA_SUPPLY 13, REFUELLER_PATROL 6, AWACS_PATROL 2 |
+| Target areas in `CAMPAIGN.CG` | **543**, same names and order every run |
+| `CONFLICT.CG` / `NAVIG.NAV` | byte-identical after generation |
+
+The base records are built from an **embedded table** in the executable
+(record stride `0x53`, entries copied nine at a time by `0x10756c`). The
+table carries side, class, name, coordinates and capacity. Each base also
+gets:
+
+* per-class mobile counts (air, ground, ship),
+* a 9-byte timeslot array,
+* timeslots spaced `480 / count` minutes apart and wrapped over 24 hours.
+
+The aircraft pool and its role totals are fixed; the generator distributes
+that pool over flights and bases, so individual `FLIGHT` records and roles
+vary while the totals do not.
+
+## 5. Randomised layer
+
+### 5.1 Target values
+
+Every `SSNAME` in the regenerated `CAMPAIGN.CG` keeps its name, side and
+order, but its **value** is recomputed:
+
+* for a selected set of target classes/statuses the thousands digit is drawn
+  as `(RNG % 5 + 1) * 1000`, i.e. 1000–5000;
+* the selector is a target-record byte (codes `'1'`, `'I'`, 0x0b, `'V'` in the
+  sampled image), not the owning side: every side has a mix, with roughly
+  40–60 % of its targets above 1000 in each run;
+* other targets are set to the base 1000;
+* a later linking pass copies a site/mobile value (below 1000) and applies a
+  `+1000` floor, so the written value combines the class/random thousands
+  with a three-digit site value (e.g. 1982, 2985, 4991).
+
+Observed distribution over 543 targets (one run): about 55–62 % below 1000,
+27–30 % in 1000–1999, and the rest spread over 2000–5000.
+
+The same value is reused by the corresponding `BASE` record
+(`BASE ... "Vaxjo" ... <value>`), so the base and its target area stay in
+sync.
+
+### 5.2 Air-defence tasking
+
+`GBASED` / `AIR_DEFENSE` missions are generated from each target area's site
+list:
+
+* each site record is 21 bytes; the list length is carried by the target
+  area record;
+* sites are filtered by class and by the owning side;
+* up to **four** missions are created per site;
+* adjacent sites are placed a site-dependent step apart (8/9 in the sampled
+  data);
+* the site classes map to the observed group types (SA-11, SA-6, Patriot,
+  Rapier, Vulcan, ZSU-23-4, Shilka, EWR);
+* the mission count therefore varies with the site list and the RNG.
+
+Observed range: **481–502** air-defence missions.
+
+### 5.3 Strike targets and packages
+
+`PLANE`/`SHIP` missions carry the strike, CAP, interception, SEAD and support
+tasking. The air-defence/strike package policy uses the campaign day:
+
+* days 0..3 → a small package (2),
+* later days → a large package (25),
+* day parity selects an additional branch,
+* the influence flag alters the branch taken.
+
+The target areas attached to strike missions are a subset of the 543 campaign
+areas; observed **28–33** per generated mission set, with the same type mix
+(AIRFIELD, PORT, EWR, CHOKE_POINT, POLITICAL_INDUSTRIAL, POL_TYPE).
+
+## 6. Output invariants
+
+`CAMPAIGN.CG`:
+
+* `DIFFICULTY` and `PERFORMANCE` from the runtime globals;
+* `WORLD_STATUS` from the campaign clock;
+* `NUM_TARGET_AREAS` 543, same names/order, values recomputed;
+* `NUM_MOBILES`, `MOB`/`PIL` blocks and `NUM_ALLEGIANCES` rewritten from the
+  current state.
+
+`MISSION.CFG`:
+
+* `NUM_MISSIONS` and `INCLUDE_PILOTS`;
+* `WORLD_STATUS`;
+* `MISSION`, `GROUP`, `3DP`, `WP_ROUTE`, `WAYPOINT`, `TARGET`,
+  `TARGET_AREA`, `ATTACK_PATTERN`, `ATTACK_ROUTE`, `ATTACK_NODE`,
+  `FLIGHT`, `PYLON`, `PIL`, `BASE`, `TIMESLOTS`/`TIMESLOT` in the order the
+  writers emit them.
+
+Observed generated sets:
+
+| Run | Missions | GBASED | PLANE | SHIP | Flights | Bases | Strike areas |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| baseline | 723 | 481 | 229 | 13 | 612 | 77 | 33 |
+| Pro A | 733 | 495 | 225 | 13 | 611 | 77 | 28 |
+| Pro B | 729 | 487 | 229 | 13 | 611 | 77 | 33 |
+| Pro C | 741 | 502 | 226 | 13 | 611 | 77 | 30 |
+
+The variation is concentrated in `GBASED` air-defence tasking, flight
+tasking roles, target values and timeslots; the base table, aircraft totals
+and fixed roles do not vary.
+
+## 7. Evidence and open questions
+
+**Observed:** the phase order, the fixed base table and aircraft pool, the
+custom RNG and its date/time seed, the target-value formula's thousands digit,
+the 77-base timeslot structure, the 481–502 air-defence range, the 543
+target-area order, and the fact that only `CAMPAIGN.CG` and `MISSION.CFG` are
+rewritten.
+
+**Inferred / still open:**
+
+* the exact mapping from the 0..9 difficulty byte and the influence flag to
+  the package-size thresholds;
+* the exact per-side/per-class condition that selects the randomised 1000–5000
+  target values;
+* the `MOB` and `PIL` numeric tail semantics;
+* the attack-pattern/node generation rules (routes, actions, counts);
+* whether the RNG is advanced by other game systems between launch and
+  generation (the seed is at startup; the number of draws before generation
+  depends on startup work).
+
+## 8. Reconstruction plan
+
+1. **Model and loader.** Parse `CONFLICT.CG`, `CAMPAIGN.CG`, `MISSION.CFG`
+   with the existing campaign parser; represent target areas, mobiles,
+   pilots, bases, timeslots.
+2. **Deterministic backbone.** Emit the 77 bases from the embedded table and
+   the fixed aircraft pool; reproduce the timeslot schedule exactly.
+3. **RNG.** Implement the 32-bit additive generator and the date/time seed;
+   expose a fixed-seed mode for tests.
+4. **Randomised layer.** Implement target-value assignment, the
+   air-defence site loop and the package policy; compare against captures.
+5. **Writers.** Emit `CAMPAIGN.CG` and `MISSION.CFG` in the observed order,
+   then byte-compare a fixed-seed run against a captured run.
+6. **UI.** Wire the existing Campaign Level dialog and Accept to the
+   generator; keep the `Generating Campaign...` panel and the campaign screen
+   transition.
+
+Acceptance: a fixed seed and the shipped scenario reproduce a captured
+mission set exactly (modulo the timestamp comment), and the deterministic
+counts match the table in §6.
