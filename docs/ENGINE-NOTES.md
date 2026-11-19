@@ -526,12 +526,19 @@ carries vertical/horizontal scrollbars (the campaign work area is 400x400 in a
   selects a target or appends a waypoint and a drag pans. The bar label follows
   the state.
 - **Fuel** is a planner-only toggle. The shipped files carry no fuel-capacity
-  table, so the state is recorded but no fuel overlay is drawn.
+  table, so the overlay is a cyan dashed ring around the mission's first
+  waypoint with an assumed 45-cell radius, scaled by the same `--coverage-scale`
+  knob as the SAM/EWR rings.
+- **Scrollbars** are real: both map windows declare a 400x400 work area inside
+  a shorter client (400x339 campaign, 400x380 planner). The renderer draws the
+  map at the work size, shows a scrolled sub-rectangle and puts a vertical
+  scrollbar on the right. The wheel scrolls when it is over the bar, the arrows
+  step, and the thumb drags.
 
 The reconstruction also supports wheel zoom around the cursor and drag panning
-in either mode. `--camp-mode N` and `--camp-noflags` render the styles and the
-flag state headlessly. The map cache keys on the style and flag state, so a
-toggle redraws on the next frame.
+in either mode. `--camp-mode N`, `--camp-noflags` and `--camp-fuel` render the
+styles, flag state and fuel overlay headlessly. The map cache keys on the style
+and flag state, so a toggle redraws on the next frame.
 
 The original campaign screen was captured at **640x400** through the DOSBox-X
 control server. It draws every side's flags by default, so the reconstruction

@@ -555,7 +555,11 @@ bool GuiSystem::scroll_window(const std::string& name, int dx, int dy) {
     if (w == nullptr) return false;
 
     const SDL_Rect client = client_rect(*w);
-    int content_w = 0, content_h = 0;
+    // A window may declare a work area larger than its client (the map
+    // windows are 400x400 inside 400x339/400x380), so the scroll extent comes
+    // from that when present.
+    int content_w = w->work_w > 0 ? w->work_w : 0;
+    int content_h = w->work_h > 0 ? w->work_h : 0;
     for (const auto& icon : w->icons) {
         content_w = std::max(content_w, icon.x + icon.w);
         content_h = std::max(content_h, icon.y + icon.h);
@@ -568,6 +572,22 @@ bool GuiSystem::scroll_window(const std::string& name, int dx, int dy) {
     w->scroll_y_pos = std::clamp(w->scroll_y_pos + dy, 0, max_y);
     return old_x != w->scroll_x_pos || old_y != w->scroll_y_pos;
 }
+void GuiSystem::scroll_window_to(const std::string& name, int x, int y) {
+    auto* w = find_window(name);
+    if (w == nullptr) return;
+    const SDL_Rect client = client_rect(*w);
+    int content_w = w->work_w > 0 ? w->work_w : 0;
+    int content_h = w->work_h > 0 ? w->work_h : 0;
+    for (const auto& icon : w->icons) {
+        content_w = std::max(content_w, icon.x + icon.w);
+        content_h = std::max(content_h, icon.y + icon.h);
+    }
+    const int max_x = w->scroll_x ? std::max(0, content_w - client.w) : 0;
+    const int max_y = w->scroll_y ? std::max(0, content_h - client.h) : 0;
+    w->scroll_x_pos = std::clamp(x, 0, max_x);
+    w->scroll_y_pos = std::clamp(y, 0, max_y);
+}
+
 
 bool GuiSystem::key_press(const std::string& raw) {
     std::string key = lower(raw);

@@ -111,6 +111,38 @@ struct MapCache {
 
 MapCache g_map_cache;
 
+//! The map is rendered into the window's declared work area (400x400 for both
+//! map windows), then the client shows a scrolled sub-rectangle.
+int map_work_w(const GuiWindow& win, int client_w) {
+    return win.work_w > 0 ? win.work_w : client_w;
+}
+int map_work_h(const GuiWindow& win, int client_h) {
+    return win.work_h > 0 ? win.work_h : client_h;
+}
+
+struct MapScrollbar {
+    SDL_Rect track{};
+    SDL_Rect thumb{};
+    int max_scroll = 0;
+};
+
+bool map_scrollbar(const GuiWindow& win, const SDL_Rect& client,
+                   MapScrollbar* out) {
+    if (!win.scroll_y) return false;
+    const int work_h = map_work_h(win, client.h);
+    const int max_scroll = work_h - client.h;
+    if (max_scroll <= 0 || client.h < 40) return false;
+    const int bar_w = 12;
+    out->track = SDL_Rect{client.x + client.w - bar_w, client.y, bar_w, client.h};
+    const int usable = client.h - 24;
+    const int thumb_h = std::max(16, usable * client.h / work_h);
+    const int pos = std::clamp(win.scroll_y_pos, 0, max_scroll);
+    const int thumb_y = client.y + 12 + (usable - thumb_h) * pos / max_scroll;
+    out->thumb = SDL_Rect{out->track.x, thumb_y, bar_w, thumb_h};
+    out->max_scroll = max_scroll;
+    return true;
+}
+
 RenderOptions map_options(const GuiSystem& system, const GuiWindow& win, int w, int h) {
     RenderOptions opt;
     opt.bare = true;
@@ -128,6 +160,8 @@ RenderOptions map_options(const GuiSystem& system, const GuiWindow& win, int w, 
     opt.pan_y = system.camp_pan_y();
     opt.map_mode = system.camp_map_mode();
     opt.flags = system.camp_flags();
+    // Fuel is a planner-bar toggle; the campaign bar has no such control.
+    opt.fuel = (win.name == "mp_map") && system.mp_icons();
     // The campaign screen has the Map Options checkboxes; the planner has no
     // side/layer controls, so its map always shows the whole theatre.
     if (win.name == "mp_map") {
@@ -171,6 +205,17 @@ SDL_Surface* map_for(const Dataset& ds, const GuiSystem& system, const GuiWindow
 
 }  // namespace
 
+bool gui_map_scrollbar(const GuiWindow& win, SDL_Rect* track, SDL_Rect* thumb,
+                       int* max_scroll) {
+    const SDL_Rect client = GuiSystem::client_rect(win);
+    MapScrollbar sb;
+    if (!map_scrollbar(win, client, &sb)) return false;
+    if (track) *track = sb.track;
+    if (thumb) *thumb = sb.thumb;
+    if (max_scroll) *max_scroll = sb.max_scroll;
+    return true;
+}
+
 bool gui_is_map_window(const std::string& name) {
     return name == "mp_map" || name == "map";
 }
@@ -183,9 +228,15 @@ bool gui_map_world_at(const GuiSystem& system, const Dataset& ds,
         sy >= client.y + client.h || client.w <= 0 || client.h <= 0) {
         return false;
     }
-    const RenderOptions opt = map_options(system, win, client.w, client.h);
+    const int work_w = map_work_w(win, client.w);
+    const int work_h = map_work_h(win, client.h);
+    const int sx_off = std::clamp(win.scroll_x_pos, 0,
+                                  std::max(0, work_w - client.w));
+    const int sy_off = std::clamp(win.scroll_y_pos, 0,
+                                  std::max(0, work_h - client.h));
+    const RenderOptions opt = map_options(system, win, work_w, work_h);
     const MapProjection p = map_projection(ds, opt);
-    const int mx = sx - client.x, my = sy - client.y;
+    const int mx = sx - client.x + sx_off, my = sy - client.y + sy_off;
     if (!p.contains(mx, my)) return false;
     if (world_x) *world_x = p.world_x(mx);
     if (world_y) *world_y = p.world_y(my);
@@ -201,7 +252,9 @@ bool gui_map_pan(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
                  int dx, int dy) {
     const SDL_Rect client = GuiSystem::client_rect(win);
     if (client.w <= 0 || client.h <= 0) return false;
-    const RenderOptions opt = map_options(system, win, client.w, client.h);
+    const int work_w = map_work_w(win, client.w);
+    const int work_h = map_work_h(win, client.h);
+    const RenderOptions opt = map_options(system, win, work_w, work_h);
     const MapProjection p = map_projection(ds, opt);
     const double per_px_x = static_cast<double>(p.world_max_x - p.world_min_x) /
                             std::max(1, p.right - p.left);
@@ -222,9 +275,15 @@ bool gui_map_zoom_at(GuiSystem& system, const Dataset& ds, const GuiWindow& win,
 
     const SDL_Rect client = GuiSystem::client_rect(win);
     if (client.w <= 0 || client.h <= 0) return false;
-    const RenderOptions cur = map_options(system, win, client.w, client.h);
+    const int work_w = map_work_w(win, client.w);
+    const int work_h = map_work_h(win, client.h);
+    const int sx_off = std::clamp(win.scroll_x_pos, 0,
+                                  std::max(0, work_w - client.w));
+    const int sy_off = std::clamp(win.scroll_y_pos, 0,
+                                  std::max(0, work_h - client.h));
+    const RenderOptions cur = map_options(system, win, work_w, work_h);
     const MapProjection before = map_projection(ds, cur);
-    const int mx = sx - client.x, my = sy - client.y;
+    const int mx = sx - client.x + sx_off, my = sy - client.y + sy_off;
     if (!before.contains(mx, my)) return false;
     const int wx = before.world_x(mx), wy = before.world_y(my);
 
@@ -255,12 +314,22 @@ bool gui_map_zoom_rect(GuiSystem& system, const Dataset& ds, const GuiWindow& wi
     const int ay = std::min(y0, y1), by = std::max(y0, y1);
     if (bx - ax < 8 || by - ay < 8) return false;
 
-    const RenderOptions cur = map_options(system, win, client.w, client.h);
+    const int work_w = map_work_w(win, client.w);
+    const int work_h = map_work_h(win, client.h);
+    const int sx_off = std::clamp(win.scroll_x_pos, 0,
+                                  std::max(0, work_w - client.w));
+    const int sy_off = std::clamp(win.scroll_y_pos, 0,
+                                  std::max(0, work_h - client.h));
+    const RenderOptions cur = map_options(system, win, work_w, work_h);
     const MapProjection before = map_projection(ds, cur);
-    const int mx0 = std::clamp(ax - client.x, before.left + 1, before.right - 1);
-    const int my0 = std::clamp(ay - client.y, before.top + 1, before.bottom - 1);
-    const int mx1 = std::clamp(bx - client.x, before.left + 1, before.right - 1);
-    const int my1 = std::clamp(by - client.y, before.top + 1, before.bottom - 1);
+    const int mx0 = std::clamp(ax - client.x + sx_off, before.left + 1,
+                               before.right - 1);
+    const int my0 = std::clamp(ay - client.y + sy_off, before.top + 1,
+                               before.bottom - 1);
+    const int mx1 = std::clamp(bx - client.x + sx_off, before.left + 1,
+                               before.right - 1);
+    const int my1 = std::clamp(by - client.y + sy_off, before.top + 1,
+                               before.bottom - 1);
     if (mx1 - mx0 < 4 || my1 - my0 < 4) return false;
 
     const int wx0 = before.world_x(mx0), wx1 = before.world_x(mx1);
@@ -375,8 +444,14 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
         if (options.dataset != nullptr && gui_is_map_window(win->name)) {
             const SDL_Rect client = GuiSystem::client_rect(*win);
             if (client.w > 8 && client.h > 8) {
+                const int work_w = map_work_w(*win, client.w);
+                const int work_h = map_work_h(*win, client.h);
+                const int max_sx = std::max(0, work_w - client.w);
+                const int max_sy = std::max(0, work_h - client.h);
+                const int sx_off = std::clamp(win->scroll_x_pos, 0, max_sx);
+                const int sy_off = std::clamp(win->scroll_y_pos, 0, max_sy);
                 SDL_Surface* map =
-                    map_for(*options.dataset, system, *win, client.w, client.h,
+                    map_for(*options.dataset, system, *win, work_w, work_h,
                             surface->format);
                 if (map != nullptr) {
                     // Both surfaces share a format, so copy rows directly.
@@ -384,15 +459,18 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                     // way, and a memcpy is both safe and fast here.
                     if (SDL_LockSurface(surface) == 0) {
                         if (SDL_LockSurface(map) == 0) {
-                            const int bytes = std::min(client.w, map->w) * 4;
-                            for (int y = 0; y < std::min(client.h, map->h); ++y) {
+                            const int copy_w =
+                                std::max(0, std::min(client.w, map->w - sx_off));
+                            const int bytes = copy_w * 4;
+                            for (int y = 0;
+                                 y < std::min(client.h, map->h - sy_off); ++y) {
                                 const int sy = client.y + y;
                                 if (sy < 0 || sy >= surface->h) continue;
                                 Uint8* dst = static_cast<Uint8*>(surface->pixels) +
                                              sy * surface->pitch + client.x * 4;
                                 const Uint8* src =
                                     static_cast<const Uint8*>(map->pixels) +
-                                    y * map->pitch;
+                                    (sy_off + y) * map->pitch + sx_off * 4;
                                 std::memcpy(dst, src, static_cast<std::size_t>(bytes));
                             }
                             SDL_UnlockSurface(map);
@@ -405,12 +483,12 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                     // the map surface itself stays cacheable.
                     if (win->name == "mp_map") {
                         const RenderOptions opt =
-                            map_options(system, *win, client.w, client.h);
+                            map_options(system, *win, work_w, work_h);
                         const MapProjection p =
                             map_projection(*options.dataset, opt);
                         for (const auto& w : system.mp_waypoints()) {
-                            const int x = client.x + p.screen_x(w.first);
-                            const int y = client.y + p.screen_y(w.second);
+                            const int x = client.x + p.screen_x(w.first) - sx_off;
+                            const int y = client.y + p.screen_y(w.second) - sy_off;
                             fill_rect(surface, x - 2, y - 2, 5, 5,
                                       map_rgb(fmt, 0x33FF99));
                         }
@@ -425,8 +503,8 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                                 ai < static_cast<int>(m.targets[ti].areas.size()) &&
                                 m.targets[ti].areas[ai].pos) {
                                 const auto& pos = *m.targets[ti].areas[ai].pos;
-                                const int cx = client.x + p.screen_x(pos.x);
-                                const int cy = client.y + p.screen_y(pos.y);
+                                const int cx = client.x + p.screen_x(pos.x) - sx_off;
+                                const int cy = client.y + p.screen_y(pos.y) - sy_off;
                                 const Uint32 ring = map_rgb(fmt, 0xFFF1A0);
                                 for (int a = 0; a < 360; a += 12) {
                                     const double r = 0.01745329252 * a;
@@ -461,6 +539,30 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                         vline(surface, bx1, by0, by1 - by0 + 1, band);
                     }
                 }
+            }
+        }
+
+        // Map scrollbar: the work area is taller than the client, so the
+        // original shows a vertical bar over the right edge.
+        if (gui_is_map_window(win->name)) {
+            MapScrollbar sb;
+            const SDL_Rect client = GuiSystem::client_rect(*win);
+            if (map_scrollbar(*win, client, &sb)) {
+                fill_rect(surface, sb.track.x, sb.track.y, sb.track.w, sb.track.h,
+                          map_rgb(fmt, palette[9]));
+                frame(surface, sb.track.x, sb.track.y, sb.track.w, sb.track.h,
+                      palette, false);
+                const Uint32 fg = map_rgb(fmt, palette[14]);
+                for (int i = 0; i < 3; ++i) {
+                    hline(surface, sb.track.x + 4 + i, sb.track.y + 7 - i,
+                          5 - 2 * i, fg);
+                    hline(surface, sb.track.x + 4 + i,
+                          sb.track.y + sb.track.h - 8 + i, 5 - 2 * i, fg);
+                }
+                fill_rect(surface, sb.thumb.x + 1, sb.thumb.y, sb.thumb.w - 2,
+                          sb.thumb.h, map_rgb(fmt, palette[12]));
+                frame(surface, sb.thumb.x, sb.thumb.y, sb.thumb.w, sb.thumb.h,
+                      palette, false);
             }
         }
 
@@ -614,6 +716,7 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
         system.set_camp_pan(options.camp_pan_x, options.camp_pan_y);
     if (options.camp_mode >= 0) system.set_camp_map_mode(options.camp_mode);
     if (options.camp_flags >= 0) system.set_camp_flags(options.camp_flags != 0);
+    if (options.camp_fuel >= 0) system.set_mp_icons(options.camp_fuel != 0);
     if (!options.open_window.empty()) {
         system.open_window(options.open_window);
         system.bring_to_front(options.open_window);

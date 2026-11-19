@@ -65,6 +65,7 @@ void usage() {
         "  --camp-pan X,Y      pan the map by world units\n"
         "  --camp-mode N       map style 0..3 (0/3 relief, 1/2 political)\n"
         "  --camp-noflags      hide unit markers (the `f` toggle)\n"
+        "  --camp-fuel         planner fuel ring (assumed radius)\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
@@ -524,6 +525,8 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     // Zoom mode rubber band (the original's EDIT/ZOOM `a` toggle).
     bool band_active = false;
     int band_x0 = 0, band_y0 = 0, band_x1 = 0, band_y1 = 0;
+    std::string scroll_drag_window;
+    int scroll_drag_grab = 0;
     std::size_t printed_logs = 0;
     bool dirty = true, running = true;
     while (running) {
@@ -600,8 +603,22 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                 float lx = 0, ly = 0;
                 SDL_RenderWindowToLogical(renderer, mx, my, &lx, &ly);
                 if (auto* w = system.window_at(static_cast<int>(lx), static_cast<int>(ly))) {
-                    // The wheel over a map zooms around the cursor instead of
-                    // scrolling.
+                    // The wheel over the map's scrollbar scrolls; over the
+                    // map itself it zooms around the cursor.
+                    if (ef::gui_is_map_window(w->name)) {
+                        SDL_Rect track{}, thumb{};
+                        int max_scroll = 0;
+                        if (ef::gui_map_scrollbar(*w, &track, &thumb, &max_scroll) &&
+                            static_cast<int>(lx) >= track.x &&
+                            static_cast<int>(lx) < track.x + track.w &&
+                            static_cast<int>(ly) >= track.y &&
+                            static_cast<int>(ly) < track.y + track.h) {
+                            if (system.scroll_window(w->name, 0, -ev.wheel.y * 16)) {
+                                dirty = true;
+                            }
+                            continue;
+                        }
+                    }
                     if (dataset && ef::gui_is_map_window(w->name)) {
                         if (ef::gui_map_zoom_at(system, *dataset, *w,
                                                 static_cast<int>(lx),
@@ -643,6 +660,21 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     }
                 }
                 const std::string new_window = win ? win->name : std::string();
+                if (ev.type == SDL_MOUSEMOTION && !scroll_drag_window.empty()) {
+                    if (auto* sw = system.find_window(scroll_drag_window)) {
+                        SDL_Rect track{}, thumb{};
+                        int max_scroll = 0;
+                        if (ef::gui_map_scrollbar(*sw, &track, &thumb, &max_scroll)) {
+                            const int usable = track.h - 24;
+                            const int denom = std::max(1, usable - thumb.h);
+                            const int pos = std::clamp(
+                                py - track.y - 12 - scroll_drag_grab, 0, denom);
+                            system.scroll_window_to(scroll_drag_window, 0,
+                                                    pos * max_scroll / denom);
+                            dirty = true;
+                        }
+                    }
+                }
                 if (ev.type == SDL_MOUSEMOTION && !map_press_window.empty() &&
                     (ev.motion.state & SDL_BUTTON_LMASK) != 0 &&
                     dataset.has_value()) {
@@ -677,6 +709,32 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     dataset.has_value() && ef::gui_is_map_window(win->name)) {
                     if (ef::gui_map_zoom_at(system, *dataset, *win, px, py, -1)) {
                         dirty = true;
+                    }
+                }
+                if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT &&
+                    win != nullptr && ef::gui_is_map_window(win->name)) {
+                    SDL_Rect track{}, thumb{};
+                    int max_scroll = 0;
+                    if (ef::gui_map_scrollbar(*win, &track, &thumb, &max_scroll) &&
+                        px >= track.x && px < track.x + track.w &&
+                        py >= track.y && py < track.y + track.h) {
+                        if (py < track.y + 12) {
+                            system.scroll_window(win->name, 0, -16);
+                        } else if (py >= track.y + track.h - 12) {
+                            system.scroll_window(win->name, 0, 16);
+                        } else if (py >= thumb.y && py < thumb.y + thumb.h) {
+                            scroll_drag_window = win->name;
+                            scroll_drag_grab = py - thumb.y;
+                        } else {
+                            const int usable = track.h - 24;
+                            const int denom = std::max(1, usable - thumb.h);
+                            const int pos = std::clamp(
+                                py - track.y - 12 - thumb.h / 2, 0, denom);
+                            system.scroll_window_to(win->name, 0,
+                                                    pos * max_scroll / denom);
+                        }
+                        dirty = true;
+                        continue;
                     }
                 }
                 if (ev.type == SDL_MOUSEBUTTONDOWN && ev.button.button == SDL_BUTTON_LEFT) {
@@ -717,6 +775,11 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     dirty = true;
                 }
                 if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT) {
+                    if (!scroll_drag_window.empty()) {
+                        scroll_drag_window.clear();
+                        dirty = true;
+                        continue;
+                    }
                     if (band_active) {
                         if (auto* mw = system.find_window(map_press_window)) {
                             if (dataset.has_value() && map_moved < 4) {
@@ -1105,6 +1168,7 @@ routine gpwWeaponsAccepted
     check("window without `open` starts hidden",
           system.find_window("extra") != nullptr && !system.find_window("extra")->visible);
 
+
     // Screens declare a `startup` routine; the driver supplies its behaviour.
     system.register_routine("TestStartup", [](ef::GuiSystem& gui,
                                                const std::string&,
@@ -1142,6 +1206,9 @@ routine gpwWeaponsAccepted
     check("scroll clamps at the top",
           system.scroll_window("test", 0, -1000) &&
               system.find_window("test")->scroll_y_pos == 0);
+    system.scroll_window_to("test", 0, 40);
+    check("scroll_window_to sets a clamped position",
+          system.find_window("test")->scroll_y_pos == 40);
 
     system.fire("test", "sub", "click");
     check("submenu opens the named window in the same file",
@@ -1283,6 +1350,14 @@ xsize 10
 ysize 10
 call click
 routine gcChangeMode
+
+icon fuel
+xpos 60
+ypos 0
+xsize 10
+ysize 10
+call click
+routine mpToggleIcons
 )";
         ef::GuiSystem map;
         map.set_screen(ef::GuiLoader::parse("maptest", map_dsl));
@@ -1321,6 +1396,9 @@ routine gcChangeMode
         check("flags toggle", map.camp_flags() != flags_before);
         map.fire("mapbar", "mode", "click");
         check("edit/zoom mode toggles", map.camp_zoom_mode());
+        const bool fuel_before = map.mp_icons();
+        map.fire("mapbar", "fuel", "click");
+        check("fuel toggle", map.mp_icons() != fuel_before);
     }
 
     std::printf("%s (%d failure%s)\n", failures == 0 ? "gui selftest: PASS" : "gui selftest: FAIL",
@@ -1349,7 +1427,7 @@ int main(int argc, char** argv) {
     int camp_zoom = -1;
     int camp_sides = -1, camp_layers = -1;
     int camp_pan_x = 0, camp_pan_y = 0;
-    int camp_mode = -1, camp_flags = -1;
+    int camp_mode = -1, camp_flags = -1, camp_fuel = -1;
     bool camp_sam = false, camp_ewr = false;
     bool gui_selftest = false;
     bool boot = false;
@@ -1426,6 +1504,8 @@ int main(int argc, char** argv) {
             camp_mode = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--camp-noflags") == 0) {
             camp_flags = 0;
+        } else if (std::strcmp(argv[i], "--camp-fuel") == 0) {
+            camp_fuel = 1;
         } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
             gui_selftest = true;
         } else if (std::strcmp(argv[i], "--boot") == 0) {
@@ -1563,6 +1643,9 @@ int main(int argc, char** argv) {
                     std::printf("  title \"%s\"\n",
                                 (t != w.title.end() ? t->second : w.title.begin()->second).c_str());
                 }
+                if (w.work_w > 0 || w.work_h > 0) {
+                    std::printf("  work %dx%d\n", w.work_w, w.work_h);
+                }
                 if (!w.on_open.empty()) std::printf("  onopen %s\n", w.on_open.c_str());
                 if (!w.on_close.empty()) std::printf("  onclose %s\n", w.on_close.c_str());
                 for (const auto& a : w.actions) {
@@ -1613,6 +1696,7 @@ int main(int argc, char** argv) {
             options.camp_pan_y = camp_pan_y;
             options.camp_mode = camp_mode;
             options.camp_flags = camp_flags;
+            options.camp_fuel = camp_fuel;
             if (!ef::render_gui_png(did, gui_screen, gui_render, options)) {
                 return 1;
             }

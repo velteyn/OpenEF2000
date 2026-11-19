@@ -203,6 +203,8 @@ public:
 
     //! Scrolls a window, clamped to its content. Returns true if it moved.
     bool scroll_window(const std::string& name, int dx, int dy);
+    //! Sets the scroll position of a window, clamped to its content.
+    void scroll_window_to(const std::string& name, int x, int y);
 
     //! Dispatches a key to the first visible widget bound to it.
     //! Accepts `esc`, `ret`, `space`, `f1`.., or a single character.
@@ -472,7 +474,7 @@ private:
     int mp_assign_ = 0;
     int mp_speed_ = 500;
     std::string mp_atc_;
-    bool mp_icons_ = true;
+    bool mp_icons_ = false;
     bool mp_windows_ = true;
     bool mp_wp_zoom_ = false;
     bool mp_fly_ = false;

@@ -532,6 +532,32 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
         }
     }
 
+    // Planner Fuel toggle: a dashed range ring around the mission's first
+    // waypoint. The mission files carry no fuel-capacity table, so the radius
+    // is the same kind of documented assumption as the SAM/EWR rings and uses
+    // the same scale knob.
+    if (opt.fuel && !ds.missions.empty()) {
+        const Mission& m = ds.missions[sel];
+        std::optional<Vec3> centre = m.pos;
+        if (!m.routes.empty() && !m.routes.front().waypoints.empty()) {
+            centre = m.routes.front().waypoints.front().p;
+        }
+        if (centre) {
+            const double scale = static_cast<double>(right - left) /
+                                 static_cast<double>(std::max(maxx - minx, 1));
+            const int radius = static_cast<int>(std::lround(
+                45.0 * opt.coverage_scale * scale));
+            const Uint32 col = c.rgb(120, 220, 255);
+            for (int a = 0; a < 360; a += 6) {
+                if ((a / 6) % 3 != 0) continue;
+                const double r = a * kPi / 180.0;
+                c.fill(px(centre->x) + static_cast<int>(std::lround(radius * std::cos(r))),
+                       py(centre->y) + static_cast<int>(std::lround(radius * std::sin(r))),
+                       2, 2, col);
+            }
+        }
+    }
+
     // The mission being planned always draws, even when its side or layer is
     // filtered out of the background: it is the thing the user is editing.
     if (!ds.missions.empty()) {

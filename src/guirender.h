@@ -48,6 +48,7 @@ struct GuiRenderOptions {
     int camp_pan_y = 0;
     int camp_mode = -1;      //!< map style 0..3; -1 keeps the screen default
     int camp_flags = -1;     //!< 0 hides unit markers, 1 shows them
+    int camp_fuel = -1;      //!< 0/1 sets the planner Fuel toggle
     //! Rubber-band rectangle while dragging in zoom mode (screen coords).
     bool band = false;
     int band_x0 = 0, band_y0 = 0, band_x1 = 0, band_y1 = 0;
@@ -59,6 +60,11 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
 
 //! True for the windows that carry the strategic map.
 bool gui_is_map_window(const std::string& name);
+
+//! Vertical scrollbar geometry for a map window with a work area taller than
+//! its client. Returns false when the window does not scroll.
+bool gui_map_scrollbar(const GuiWindow& win, SDL_Rect* track, SDL_Rect* thumb,
+                       int* max_scroll);
 
 //! Maps a screen point inside a map window to world coordinates. `radius` is
 //! the pick radius in world units (ten screen pixels), used when resolving a

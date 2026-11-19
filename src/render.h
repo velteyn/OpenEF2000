@@ -83,6 +83,9 @@ struct RenderOptions {
     //! Flags toggle (`f`): unit, flight and airbase markers. Target areas and
     //! coverage rings are independent overlays.
     bool flags = true;
+    //! Planner Fuel toggle (`u`): a dashed range ring around the mission's
+    //! first waypoint. The radius is assumed (the files carry no fuel table).
+    bool fuel = false;
     //! Pan offset in world units (drag-to-pan and zoom-to-cursor).
     int pan_x = 0, pan_y = 0;
 
