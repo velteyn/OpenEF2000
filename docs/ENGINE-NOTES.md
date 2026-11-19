@@ -290,6 +290,65 @@ panel needs `gfxcred.txt` only on the v2 builds.
 `HISCORES.DAT` differs per installation (developer names differ between DOS and
 3DFX), so hi-score contents are never a reliable test fixture.
 
+### Spice86: launches, but DOS4GW aborts
+
+Spice86 (source checkout at `~/projects/Spice86`, MCP on port 8081) starts the
+DOS build and reaches the extender, then the program terminates with exit code
+1. The evidence, from a run with `--CpuModel INTEL_80386`:
+
+```
+INT21H AH=4Ah: MCB ... Size: 40594  "is too small for requested size 65535"
+Unhandled INT2F DOS VM subfunction: 1687      <- DPMI installation check
+INT21H/4B: programName="EF2000.DAT", loadType=LoadOverlay
+INT21H AH=4Ch: TERMINATE with exit code 01
+Executed 5659 instructions
+```
+
+So the extender asks DOS to grow its block to 1 MB, is refused (only ~634 KB of
+conventional memory exists), probes for a DPMI host through INT 2F/1687 — which
+Spice86 reports as unhandled — then loads its overlay and gives up.
+
+Getting EF2000 to run under Spice86 therefore needs emulator work, not
+configuration: at minimum answer INT 2F/1687 the way a non-DPMI DOS would, and
+check how 4Ah refuses the grow (DOS should still report the largest block in
+BX). Nothing in the run suggests a problem with the game data.
+
+**The dump/C# feature works and is automatic.** Every launch writes a folder
+named after the executable's SHA256, containing:
+
+| File | Contents |
+|---|---|
+| `spice86dumpMemoryDump.bin` | full memory image |
+| `spice86dumpListing.asm` | annotated assembly listing |
+| `spice86dumpCfgBlocks.json` / `CfgPartitions.json` / `CfgReload.json` | control-flow graph |
+| `spice86dumpExecutionFlow.json` | observed execution |
+| `spice86dumpCpuRegisters.json` | register state at exit |
+| `spice86dumpGhidraSymbols.txt` | symbols for Ghidra |
+| `spice86dumpCfgGeneratedOverrides.cs`, `GeneratedProject/` | generated C# skeleton |
+
+Because the run died in the extender, that dump covers only the DOS stub, so it
+is not yet useful for the GUI or terrain work.
+
+### Quick Combat and its mission descriptions
+
+Quick Combat was observed once, and matches the description from play: the
+Difficulty panel, Mission Select 01..12, Summary and Accept, plus the hi-score
+panel.
+
+Its Summary text is mission data, not GUI text. The archive holds a run of
+eleven short text entries (indices 4779–4797 in the v2 archive) that are the
+per-mission descriptions, for example:
+
+```
+Emergency intercept. Destroy incoming hostile bombers and escort aircraft.
+Intercept and destroy enemy MI26 transport helicopters.
+Destroy enemy radar and SAM sites in the mountains.
+```
+
+Their names are not recoverable by hashing plausible stems, so the engine cannot
+address them by name yet; the content is documented here so it can be located
+again.
+
 ### Harness limitation: `call release` is not reachable synthetically
 
 The main-menu panels bind `call release`, and no combination tried here
