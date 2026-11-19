@@ -3,6 +3,8 @@
 
 #include "render.h"
 
+#include "stats.h"
+
 #include <set>
 #include <tuple>
 
@@ -832,6 +834,18 @@ void print_stats(const Dataset& ds) {
     std::printf("BNA waypoints   %d\n", bna_wps);
     std::printf("conflict areas  %zu (declared %d)\n", ds.areas.size(),
                 ds.num_areas_declared);
+
+    const ForceStats forces = compute_force_stats(ds);
+    std::printf("forces          nato %d  neutral %d  enemy %d\n",
+                forces.side_total(ForceSide::nato),
+                forces.side_total(ForceSide::neutral),
+                forces.side_total(ForceSide::enemy));
+    for (int side = 0; side < kForceSideCount; ++side) {
+        const auto& f = forces.sides[static_cast<std::size_t>(side)];
+        std::printf("  %-7s air %4d  ground %4d  ships %3d  structures %3d\n",
+                    force_side_name(static_cast<ForceSide>(side)), f.aircraft,
+                    f.ground, f.ships, f.structures);
+    }
 }
 
 }  // namespace ef

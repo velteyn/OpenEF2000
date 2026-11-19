@@ -25,7 +25,8 @@ add_executable(openef2000
     src/texture.cpp
     src/gui.cpp
     src/guirender.cpp
-    src/ilbm.cpp)
+    src/ilbm.cpp
+    src/stats.cpp)
 
 target_link_libraries(openef2000 PRIVATE
     PkgConfig::SDL2

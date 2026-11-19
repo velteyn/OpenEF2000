@@ -8,6 +8,7 @@
 #include "parser.h"
 #include "render.h"
 #include "shape3d.h"
+#include "stats.h"
 #include "texture.h"
 
 #include <SDL2/SDL.h>
@@ -66,6 +67,7 @@ void usage() {
         "  --camp-mode N       map style 0..3 (0/3 relief, 1/2 political)\n"
         "  --camp-noflags      hide unit markers (the `f` toggle)\n"
         "  --camp-fuel         planner fuel ring (assumed radius)\n"
+        "  --camp-mission N    selected mission for headless GUI inspection\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
@@ -1401,6 +1403,85 @@ routine mpToggleIcons
         check("fuel toggle", map.mp_icons() != fuel_before);
     }
 
+    // Force statistics: counts by side and class, plus the planner's base
+    // EFA readout. Built from a tiny synthetic dataset so the check is
+    // independent of the shipped mission files.
+    {
+        ef::Dataset sd;
+        auto mission = [&](const char* side) {
+            ef::Mission m;
+            m.side = side;
+            return m;
+        };
+
+        ef::Mission nato = mission("NATO");
+        ef::Flight f16;
+        f16.count = 2; f16.aircraft = "F16";
+        nato.flights.push_back(f16);
+        ef::Group patriot;
+        patriot.count = 3; patriot.type = "PATRIOT_1"; patriot.pos = ef::Vec3{1, 1, 0};
+        nato.groups.push_back(patriot);
+        ef::Target t;
+        ef::TargetArea airfield;
+        airfield.type = "AIRFIELD"; airfield.name = "\"Field\"";
+        airfield.pos = ef::Vec3{2, 2, 0};
+        t.areas.push_back(airfield);
+        nato.targets.push_back(t);
+
+        ef::Mission rus = mission("RUSSIAN");
+        ef::Flight su;
+        su.count = 1; su.aircraft = "SU27";
+        rus.flights.push_back(su);
+        ef::Group ship;
+        ship.count = 2; ship.type = "TYPE42_CLASS"; ship.pos = ef::Vec3{3, 3, 0};
+        rus.groups.push_back(ship);
+        ef::Target rt;
+        ef::TargetArea port;
+        port.type = "PORT"; port.name = "\"Port\"";
+        port.pos = ef::Vec3{4, 4, 0};
+        rt.areas.push_back(port);
+        rus.targets.push_back(rt);
+
+        ef::Mission swe = mission("SWEDISH");
+        ef::Flight jas;
+        jas.count = 1; jas.aircraft = "JAS39";
+        swe.flights.push_back(jas);
+
+        ef::Mission plane = mission("NATO");
+        plane.type = "PLANE";
+        plane.values = {0, 42, 1};
+        ef::Flight efa;
+        efa.count = 2; efa.aircraft = "EFA";
+        plane.flights.push_back(efa);
+        ef::Route route;
+        ef::Waypoint standby;
+        standby.action = "STANDBY";
+        route.waypoints.push_back(standby);
+        plane.routes.push_back(route);
+
+        sd.missions = {nato, rus, swe, plane};
+        ef::Base base;
+        base.side = "NATO"; base.name = "\"Home\"";
+        base.pos = ef::Vec3{5, 5, 0};
+        sd.bases.push_back(base);
+
+        const ef::ForceStats st = ef::compute_force_stats(sd);
+        check("statistics count aircraft by side",
+              st.sides[0].aircraft == 4 && st.sides[1].aircraft == 1 &&
+                  st.sides[2].aircraft == 1);
+        check("statistics count ground, ships and structures",
+              st.sides[0].ground == 3 && st.sides[2].ships == 2 &&
+                  st.sides[0].structures == 1 && st.sides[2].structures == 1);
+        check("statistics classify air and ground classes",
+              ef::category_value(st.aircraft, "Fighters", 0) == 4 &&
+                  ef::category_value(st.ground, "AntiAircraft", 0) == 3 &&
+                  ef::category_value(st.ground, "BattleShips", 2) == 2);
+        check("planner base readout counts EFAs",
+              ef::mission_base_index(plane) == 0 &&
+                  ef::base_efa_count(sd, 0, false) == 2 &&
+                  ef::base_efa_count(sd, 0, true) == 2);
+    }
+
     std::printf("%s (%d failure%s)\n", failures == 0 ? "gui selftest: PASS" : "gui selftest: FAIL",
                 failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
@@ -1428,6 +1509,7 @@ int main(int argc, char** argv) {
     int camp_sides = -1, camp_layers = -1;
     int camp_pan_x = 0, camp_pan_y = 0;
     int camp_mode = -1, camp_flags = -1, camp_fuel = -1;
+    int camp_mission = -1;
     bool camp_sam = false, camp_ewr = false;
     bool gui_selftest = false;
     bool boot = false;
@@ -1506,6 +1588,8 @@ int main(int argc, char** argv) {
             camp_flags = 0;
         } else if (std::strcmp(argv[i], "--camp-fuel") == 0) {
             camp_fuel = 1;
+        } else if (std::strcmp(argv[i], "--camp-mission") == 0 && i + 1 < argc) {
+            camp_mission = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
             gui_selftest = true;
         } else if (std::strcmp(argv[i], "--boot") == 0) {
@@ -1697,6 +1781,7 @@ int main(int argc, char** argv) {
             options.camp_mode = camp_mode;
             options.camp_flags = camp_flags;
             options.camp_fuel = camp_fuel;
+            options.camp_mission = camp_mission;
             if (!ef::render_gui_png(did, gui_screen, gui_render, options)) {
                 return 1;
             }

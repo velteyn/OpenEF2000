@@ -4,6 +4,7 @@
 #include "guirender.h"
 
 #include "render.h"
+#include "stats.h"
 
 #include <cmath>
 #include <cstring>
@@ -125,6 +126,65 @@ struct MapScrollbar {
     SDL_Rect thumb{};
     int max_scroll = 0;
 };
+
+int force_category_value(const std::vector<ForceCategory>& rows,
+                         const std::string& name, int side) {
+    for (const auto& row : rows) {
+        if (row.name == name) return row.counts[static_cast<std::size_t>(side)];
+    }
+    return 0;
+}
+
+//! Value for a summary bar row prefix (fit/bom/anti/ewrsite/...).
+int summary_category(const ForceStats& stats, const std::string& window,
+                     const std::string& prefix, int side) {
+    if (window == "genforcebar") {
+        const auto& f = stats.sides[static_cast<std::size_t>(side)];
+        if (prefix == "air") return f.aircraft;
+        if (prefix == "gbased") return f.ground;
+        if (prefix == "ship") return f.ships;
+        if (prefix == "static") return f.structures;
+    } else if (window == "airforcebar") {
+        if (prefix == "fit") return force_category_value(stats.aircraft, "Fighters", side);
+        if (prefix == "bom") return force_category_value(stats.aircraft, "Bombers", side);
+        if (prefix == "tran") return force_category_value(stats.aircraft, "Transports", side);
+        if (prefix == "ref") return force_category_value(stats.aircraft, "Refueller", side);
+        if (prefix == "awac") return force_category_value(stats.aircraft, "AWACs", side);
+    } else if (window == "groundforcebar") {
+        if (prefix == "anti") return force_category_value(stats.ground, "AntiAircraft", side);
+        if (prefix == "batt") return force_category_value(stats.ground, "BattleShips", side);
+        if (prefix == "trashp") return force_category_value(stats.ground, "Transport Ships", side);
+    } else if (window == "statforcebar") {
+        if (prefix == "ewrsite") return force_category_value(stats.structures, "EWR Sites", side);
+        if (prefix == "chokepnt") return force_category_value(stats.structures, "Choke Points", side);
+        if (prefix == "polind") return force_category_value(stats.structures, "Political Ind.", side);
+        if (prefix == "oilrig") return force_category_value(stats.structures, "Oilrigs", side);
+        if (prefix == "airfield") return force_category_value(stats.structures, "Airfields", side);
+        if (prefix == "port") return force_category_value(stats.structures, "Ports", side);
+        if (prefix == "dam") return force_category_value(stats.structures, "Dams", side);
+    }
+    return 0;
+}
+
+//! Value for a summary value icon (`fitnbnato`, `antinbneut`, ...).
+int summary_value(const ForceStats& stats, const std::string& window,
+                  const std::string& icon) {
+    if (window == "balance") {
+        if (icon == "nato") return stats.side_total(ForceSide::nato);
+        if (icon == "neutral") return stats.side_total(ForceSide::neutral);
+        if (icon == "enemy") return stats.side_total(ForceSide::enemy);
+        return -1;
+    }
+    static const std::pair<const char*, int> suffixes[] = {
+        {"nbnato", 0}, {"nbneut", 1}, {"nbenemy", 2}};
+    for (const auto& suffix : suffixes) {
+        const std::string s = suffix.first;
+        if (icon.size() <= s.size() || !icon.ends_with(s)) continue;
+        return summary_category(stats, window, icon.substr(0, icon.size() - s.size()),
+                                suffix.second);
+    }
+    return -1;
+}
 
 bool map_scrollbar(const GuiWindow& win, const SDL_Rect& client,
                    MapScrollbar* out) {
@@ -415,6 +475,11 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
         return w;
     };
 
+    std::optional<ForceStats> force_stats;
+    if (options.dataset != nullptr) {
+        force_stats = compute_force_stats(*options.dataset);
+    }
+
     for (GuiWindow* win : order) {
         const bool hovered = options.hover_window == win->name;
         // Background: `bkd` if given, else the standard panel fill.
@@ -423,7 +488,13 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                   map_rgb(fmt, palette[static_cast<std::size_t>(fill_index) & 0xFF]));
         frame(surface, win->x, win->y, win->w, win->h, palette, false);
 
-        const std::string title = win->title_text(options.language);
+        std::string title = win->title_text(options.language);
+        // The static mission files carry no loss history, so these windows
+        // show current strength rather than "destroyed in the last 8 hours".
+        if (win->name == "genforcebar") title = "Current Strength";
+        else if (win->name == "airforcebar") title = "Current Air Strength";
+        else if (win->name == "groundforcebar") title = "Current Ground Strength";
+        else if (win->name == "statforcebar") title = "Current Structure Strength";
         if (!title.empty()) {
             fill_rect(surface, win->x + 2, win->y + 2, win->w - 4, 13,
                       map_rgb(fmt, palette[hovered ? 12 : 11]));
@@ -611,9 +682,52 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
             } else if (win->name == "mp_strike_info" && icon.name == "targeted") {
                 label = system.mp_target().empty() ? "N/A" : "YES";
             } else if (win->name == "mp_base_set" && icon.name == "base") {
-                label = system.mp_base().empty() ? "------" : system.mp_base();
+                std::string name = system.mp_base();
+                if (name.empty() && options.dataset != nullptr) {
+                    const auto& missions = options.dataset->missions;
+                    const int mi = system.camp_mission();
+                    if (mi >= 0 && mi < static_cast<int>(missions.size())) {
+                        const int base = mission_base_index(missions[mi]);
+                        if (base >= 0 &&
+                            base < static_cast<int>(options.dataset->bases.size())) {
+                            name = options.dataset->bases[base].name;
+                            if (!name.empty() && name.front() == '"') name.erase(name.begin());
+                            if (!name.empty() && name.back() == '"') name.pop_back();
+                        }
+                    }
+                }
+                label = name.empty() ? "------" : name;
+            } else if (win->name == "mp_base_set" &&
+                       (icon.name == "efas" || icon.name == "free_efas") &&
+                       options.dataset != nullptr) {
+                int base = find_base_index(*options.dataset, system.mp_base());
+                if (base < 0) {
+                    const auto& missions = options.dataset->missions;
+                    const int mi = system.camp_mission();
+                    if (mi >= 0 && mi < static_cast<int>(missions.size())) {
+                        base = mission_base_index(missions[mi]);
+                    }
+                }
+                label = std::to_string(base_efa_count(*options.dataset, base,
+                                                      icon.name == "free_efas"));
+            } else if (win->name == "mp_strike_info" && icon.name == "status" &&
+                       options.dataset != nullptr) {
+                const auto& missions = options.dataset->missions;
+                const int mi = system.camp_mission();
+                const int ti = system.mp_target_index();
+                const int ai = system.mp_area_index();
+                if (mi >= 0 && mi < static_cast<int>(missions.size()) &&
+                    ti >= 0 && ti < static_cast<int>(missions[mi].targets.size()) &&
+                    ai >= 0 &&
+                    ai < static_cast<int>(missions[mi].targets[ti].areas.size())) {
+                    label = missions[mi].targets[ti].areas[ai].type;
+                }
             } else if (icon.name == "mode" || icon.name == "mapmode") {
                 label = system.camp_zoom_mode() ? "ZOOM" : "EDIT";
+            }
+            if (force_stats && options.dataset != nullptr) {
+                const int value = summary_value(*force_stats, win->name, icon.name);
+                if (value >= 0) label = std::to_string(value);
             }
             if (!label.empty()) {
                 const int tw = text_width(label);
@@ -637,6 +751,148 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                           palette[15]);
             }
         }
+        // Summary bars: current strength per side, drawn beside the numeric
+        // value icons the data places at x=90.
+        if (force_stats && options.dataset != nullptr) {
+            const SDL_Rect client = GuiSystem::client_rect(*win);
+            const Uint32 side_cols[3] = {map_rgb(fmt, 0x5A9BFF),
+                                         map_rgb(fmt, 0xF5D25F),
+                                         map_rgb(fmt, 0xF05F5F)};
+            auto bar = [&](int x, int y, int w, int h, int value, int maxv,
+                           Uint32 colour) {
+                fill_rect(surface, x, y, w, h, map_rgb(fmt, palette[9]));
+                if (maxv > 0 && value > 0) {
+                    const int fill = std::max(2, w * value / maxv);
+                    fill_rect(surface, x, y, std::min(fill, w), h, colour);
+                }
+                frame(surface, x, y, w, h, palette, true);
+            };
+
+            if (win->name == "balance") {
+                int maxv = 1;
+                for (int side = 0; side < 3; ++side) {
+                    maxv = std::max(maxv,
+                                    force_stats->sides[static_cast<std::size_t>(side)].total());
+                }
+                for (int side = 0; side < 3; ++side) {
+                    const int y = client.y + 5 + side * 15 - win->scroll_y_pos;
+                    bar(client.x + 95, y, std::max(20, client.w - 105), 8,
+                        force_stats->sides[static_cast<std::size_t>(side)].total(),
+                        maxv, side_cols[side]);
+                }
+            } else {
+                static const std::pair<const char*, int> gen_rows[] = {
+                    {"air", 10}, {"gbased", 64}, {"ship", 120}, {"static", 175}};
+                static const std::pair<const char*, int> air_rows[] = {
+                    {"fit", 5}, {"bom", 60}, {"tran", 115},
+                    {"ref", 170}, {"awac", 225}};
+                static const std::pair<const char*, int> ground_rows[] = {
+                    {"anti", 5}, {"batt", 60}, {"trashp", 115}};
+                static const std::pair<const char*, int> stat_rows[] = {
+                    {"ewrsite", 5}, {"chokepnt", 60}, {"polind", 115},
+                    {"oilrig", 170}, {"airfield", 225}, {"port", 280},
+                    {"dam", 335}};
+                const std::pair<const char*, int>* rows = nullptr;
+                int row_count = 0;
+                if (win->name == "genforcebar") {
+                    rows = gen_rows; row_count = 4;
+                } else if (win->name == "airforcebar") {
+                    rows = air_rows; row_count = 5;
+                } else if (win->name == "groundforcebar") {
+                    rows = ground_rows; row_count = 3;
+                } else if (win->name == "statforcebar") {
+                    rows = stat_rows; row_count = 7;
+                }
+                if (rows != nullptr) {
+                    int maxv = 1;
+                    for (int r = 0; r < row_count; ++r) {
+                        for (int side = 0; side < 3; ++side) {
+                            maxv = std::max(maxv, summary_category(
+                                *force_stats, win->name, rows[r].first, side));
+                        }
+                    }
+                    for (int r = 0; r < row_count; ++r) {
+                        for (int side = 0; side < 3; ++side) {
+                            const int value = summary_category(
+                                *force_stats, win->name, rows[r].first, side);
+                            const int y = client.y + rows[r].second + side * 15 -
+                                          win->scroll_y_pos;
+                            if (y < client.y || y + 6 > client.y + client.h) continue;
+                            bar(client.x + 120, y, std::max(20, client.w - 128), 6,
+                                value, maxv, side_cols[side]);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Summary graphs: a grouped current-strength chart. The shipped
+        // windows are time-series plots, but the static files have no history,
+        // so the bars show the same current counts as the bar windows.
+        if (force_stats && options.dataset != nullptr) {
+            static const std::pair<const char*, int> gen_rows[] = {
+                {"air", 0}, {"gbased", 0}, {"ship", 0}, {"static", 0}};
+            static const std::pair<const char*, int> air_rows[] = {
+                {"fit", 0}, {"bom", 0}, {"tran", 0}, {"ref", 0}, {"awac", 0}};
+            static const std::pair<const char*, int> ground_rows[] = {
+                {"anti", 0}, {"batt", 0}, {"trashp", 0}};
+            static const std::pair<const char*, int> stat_rows[] = {
+                {"ewrsite", 0}, {"chokepnt", 0}, {"polind", 0},
+                {"oilrig", 0}, {"airfield", 0}, {"port", 0}, {"dam", 0}};
+            const std::pair<const char*, int>* rows = nullptr;
+            int row_count = 0;
+            if (win->name == "genforcegraph") {
+                rows = gen_rows; row_count = 4;
+            } else if (win->name == "airforcegraph") {
+                rows = air_rows; row_count = 5;
+            } else if (win->name == "groundforcegraph") {
+                rows = ground_rows; row_count = 3;
+            } else if (win->name == "statforcegraph") {
+                rows = stat_rows; row_count = 7;
+            }
+            if (rows != nullptr && row_count > 0) {
+                const SDL_Rect client = GuiSystem::client_rect(*win);
+                const int chart_x = client.x + 12;
+                const int chart_y = client.y + 12;
+                const int chart_w = std::max(40, client.w - 24);
+                const int chart_h = std::max(40, client.h - 30);
+                const int baseline = chart_y + chart_h;
+                int maxv = 1;
+                for (int r = 0; r < row_count; ++r) {
+                    for (int side = 0; side < 3; ++side) {
+                        maxv = std::max(maxv, summary_category(
+                            *force_stats, win->name == "genforcegraph" ? "genforcebar"
+                                          : win->name == "airforcegraph" ? "airforcebar"
+                                          : win->name == "groundforcegraph" ? "groundforcebar"
+                                          : "statforcebar",
+                            rows[r].first, side));
+                    }
+                }
+                const Uint32 cols[3] = {map_rgb(fmt, 0x5A9BFF),
+                                        map_rgb(fmt, 0xF5D25F),
+                                        map_rgb(fmt, 0xF05F5F)};
+                const std::string bar_window =
+                    win->name == "genforcegraph" ? "genforcebar"
+                    : win->name == "airforcegraph" ? "airforcebar"
+                    : win->name == "groundforcegraph" ? "groundforcebar"
+                                                      : "statforcebar";
+                const int group_w = std::max(6, chart_w / row_count);
+                const int bar_w = std::max(2, (group_w - 6) / 3);
+                hline(surface, chart_x, baseline, chart_w,
+                      map_rgb(fmt, palette[9]));
+                for (int r = 0; r < row_count; ++r) {
+                    for (int side = 0; side < 3; ++side) {
+                        const int value = summary_category(*force_stats, bar_window,
+                                                           rows[r].first, side);
+                        const int h = value > 0 ? std::max(2, chart_h * value / maxv) : 0;
+                        const int x = chart_x + r * group_w + 3 + side * bar_w;
+                        if (h > 0) fill_rect(surface, x, baseline - h, bar_w - 1, h,
+                                             cols[side]);
+                    }
+                }
+            }
+        }
+
         // The loaded map-bar variant does not always carry the `mode` icon
         // (the running original shows `mAp mode: EDIT`). Draw the state at
         // the right of the bar so the `a` toggle is always visible.
@@ -730,6 +986,7 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
     if (options.camp_mode >= 0) system.set_camp_map_mode(options.camp_mode);
     if (options.camp_flags >= 0) system.set_camp_flags(options.camp_flags != 0);
     if (options.camp_fuel >= 0) system.set_mp_icons(options.camp_fuel != 0);
+    if (options.camp_mission >= 0) system.set_camp_mission(options.camp_mission);
     if (!options.open_window.empty()) {
         system.open_window(options.open_window);
         system.bring_to_front(options.open_window);

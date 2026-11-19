@@ -552,8 +552,34 @@ extent, or the whole theatre collapses to a dot. They are drawn by the target
 view, not the strategic map.
 
 Summary (`summary`): menu bars, detail requests and the campaign exit. Coverage
-is 13 of 13, but the bar and graph drawing routines are renderer-owned no-ops:
-the statistics are not computed or drawn yet.
+is 13 of 13. The screen now opens on the Balance of Power page (balance plus
+the colour key), and the bar/graph windows are drawn from computed statistics
+rather than being no-ops.
+
+### Force statistics
+
+`stats.cpp` counts the current forces described by the mission files:
+
+- sides are NATO, Neutral (Swedish/Finnish/Baltic/Neutral) and Enemy
+  (Russian);
+- aircraft are summed from `FLIGHT count`, grouped into Fighters, Bombers,
+  Transports, Refuellers and AWACs by type name;
+- ground units are summed from `GROUP count` and split into AntiAircraft,
+  BattleShips and Transport Ships, with the remainder counted as ground;
+- structures are the target areas (EWR Sites, Choke Points, Political
+  Industrial, Oilrigs, Airfields, Ports, Dams).
+
+Mission files repeat the same site across many records, so ground units and
+structures are deduplicated by position, type and side. The shipped data has no
+loss history, so the summary's "Destroyed in the last 8 hours" windows are
+retitled **Current Strength** and the graphs show grouped current counts rather
+than a time series. The Balance of Power bars compare the three side totals.
+
+The planner's Base panel reads the selected mission's takeoff base
+(`PLANE MISSION values[0]`): it shows the base name, the number of EFA flights
+assigned there and how many are still on standby. `--camp-mission N` selects a
+mission for headless inspection, and `--stats` prints the side totals and the
+air/ground/ship/structure breakdown.
 
 Weapons configuration (`weapons`): pylon/missile selection, four aircraft view
 presets, rotation, clear-one/clear-all, defaults and accept — 16 of 16.

@@ -1078,6 +1078,13 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset) {
     system.register_routine("gpwshowsummaryinfo",
                             [](GuiSystem& gui, const std::string& window,
                                const std::string& icon) {
+        // The startup call has no icon; open the General page's balance view
+        // and its key so the screen is not an empty set of tabs.
+        if (icon.empty()) {
+            gui.open_window("balance");
+            gui.open_window("drawkey");
+            return;
+        }
         gui.select(window, icon, true);
         gui.set_summary_selected(icon);
     });

@@ -49,6 +49,7 @@ struct GuiRenderOptions {
     int camp_mode = -1;      //!< map style 0..3; -1 keeps the screen default
     int camp_flags = -1;     //!< 0 hides unit markers, 1 shows them
     int camp_fuel = -1;      //!< 0/1 sets the planner Fuel toggle
+    int camp_mission = -1;   //!< selected mission for headless inspection
     //! Rubber-band rectangle while dragging in zoom mode (screen coords).
     bool band = false;
     int band_x0 = 0, band_y0 = 0, band_x1 = 0, band_y1 = 0;
