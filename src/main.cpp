@@ -486,6 +486,9 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     options.language = lang;
 
     std::string hover_window, hover_icon;
+    // A `release` action belongs to the widget the press started on: dragging
+    // off the widget and releasing elsewhere must not activate it.
+    std::string press_window, press_icon;
     std::size_t printed_logs = 0;
     bool dirty = true, running = true;
     while (running) {
@@ -577,16 +580,24 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                     // Clicking a text field focuses it; clicking elsewhere blurs.
                     if (!hover_icon.empty()) {
                         system.focus_field(hover_window, hover_icon);
+                        press_window = hover_window;
+                        press_icon = hover_icon;
                         system.fire(hover_window, hover_icon, "click");
                     } else {
                         system.focus_field(std::string(), std::string());
                     }
                     dirty = true;
                 }
-                if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT &&
-                    !hover_icon.empty()) {
-                    system.fire(hover_window, hover_icon, "release");
-                    dirty = true;
+                if (ev.type == SDL_MOUSEBUTTONUP && ev.button.button == SDL_BUTTON_LEFT) {
+                    // Full click: the release counts only over the widget the
+                    // press started on.
+                    if (!press_icon.empty() && press_window == hover_window &&
+                        press_icon == hover_icon) {
+                        system.fire(hover_window, hover_icon, "release");
+                        dirty = true;
+                    }
+                    press_window.clear();
+                    press_icon.clear();
                 }
                 // Surface the verbs that ran: routines are C entry points the
                 // reconstruction does not implement yet, so the trace is how
