@@ -637,6 +637,19 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                           palette[15]);
             }
         }
+        // The loaded map-bar variant does not always carry the `mode` icon
+        // (the running original shows `mAp mode: EDIT`). Draw the state at
+        // the right of the bar so the `a` toggle is always visible.
+        if (win->name == "mp_map_options") {
+            bool has_mode = false;
+            for (const auto& icon : win->icons) {
+                if (icon.name == "mode" || icon.name == "mapmode") has_mode = true;
+            }
+            if (!has_mode) {
+                const std::string mode = system.camp_zoom_mode() ? "ZOOM" : "EDIT";
+                text(win->x + win->w - 30, win->y + 2, mode, palette[15]);
+            }
+        }
         if (win->scroll_x || win->scroll_y) SDL_SetClipRect(surface, &previous_clip);
     }
 
