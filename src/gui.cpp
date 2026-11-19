@@ -894,6 +894,202 @@ void register_observed_routines(GuiSystem& system) {
         gui.request_screen("weapons");
     });
 
+    // Campaign shell -------------------------------------------------------
+    // Startup: the shipped screen opens with Nato selected and the first
+    // mission row current. Both exist in the data; set the model to match.
+    system.register_routine("InitCampaign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_side(0);
+        gui.select("mapmodeswin", "nato", true);
+        gui.set_camp_mission(0);
+        gui.select("missionsel", "1", true);
+    });
+
+    // Debrief tabs and NEXT are shared with the simulator debrief screen.
+    system.register_routine("gpwShowDebrief",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        int pilot = 0;
+        if (icon == "1") pilot = 0;
+        else if (icon == "2") pilot = 1;
+        else if (icon == "3") pilot = 2;
+        else if (icon == "4") pilot = 3;
+        else return;
+        gui.select(window, icon, true);
+        gui.set_debrief_pilot(pilot);
+    });
+    system.register_routine("gpwNextFlight",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string&) {
+        const int next = std::min(gui.debrief_pilot() + 1, 3);
+        gui.set_debrief_pilot(next);
+        gui.select(window, std::to_string(next + 1), true);
+    });
+
+    // Map option toggles. They have no `select` verb, so the routine owns the
+    // selection state and the renderer reads it.
+    system.register_routine("mpToggleFlags",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.set_camp_flags(!gui.camp_flags());
+        gui.select(window, icon, gui.camp_flags());
+    });
+    system.register_routine("mpSamCoverage",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.set_camp_sam(!gui.camp_sam());
+        gui.select(window, icon, gui.camp_sam());
+    });
+    system.register_routine("mpEWRCoverage",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.set_camp_ewr(!gui.camp_ewr());
+        gui.select(window, icon, gui.camp_ewr());
+    });
+    system.register_routine("mpCycleMap",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.set_camp_map_mode((gui.camp_map_mode() + 1) % 4);
+        gui.select(window, icon, true);
+    });
+    system.register_routine("mpZoomInMap",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_zoom(std::min(gui.camp_zoom() + 1, 6));
+    });
+    system.register_routine("mpZoomOutMap",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_zoom(std::max(gui.camp_zoom() - 1, 0));
+    });
+
+    // Map modes: side (Nato/Russian/Neutral) and layer (air defence, support,
+    // navy, comms, supply, political) are two independent toggle sets.
+    system.register_routine("gpwMapModeSelected",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        static const std::pair<const char*, int> sides[] = {
+            {"nato", 0}, {"russian", 1}, {"neutral", 2}};
+        static const std::pair<const char*, int> layers[] = {
+            {"airdef", 0}, {"airsup", 1}, {"navy", 2},
+            {"comms", 3}, {"supply", 4}, {"polit", 5}};
+        const bool on = !gui.is_selected(window, icon);
+        for (const auto& e : sides) {
+            if (icon == e.first) {
+                gui.set_camp_side(e.second);
+                gui.select(window, icon, on);
+                return;
+            }
+        }
+        for (const auto& e : layers) {
+            if (icon == e.first) {
+                gui.set_camp_layer(e.second);
+                gui.select(window, icon, on);
+                return;
+            }
+        }
+    });
+
+    // Mission list in the campaign screen; entries are numbered 1..N.
+    system.register_routine("gpwCampMissionSelected",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        const int n = std::atoi(icon.c_str());
+        if (n < 1) return;
+        gui.select(window, icon, true);
+        gui.set_camp_mission(n - 1);
+    });
+
+    // Time advance: each click of "View 8hr." moves the campaign clock 8h.
+    system.register_routine("gpwClickTimeAdjust",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_time_shift(gui.camp_time_shift() + 8);
+    });
+    system.register_routine("mpClickV8Okay",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_time_shift(gui.camp_time_shift() + 8);
+        gui.close_window("mpView8ToMP");
+    });
+
+    // Target view: the panes are opened/closed by the picker's verbs; the
+    // routine records the mode and the visibility.
+    system.register_routine("gpwOnOpenTargetWindow",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_target_view(true);
+        gui.open_window("targetwin");
+        gui.open_window("targetzoom");
+    });
+    system.register_routine("gpwCloseTargetView",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_target_view(false);
+        gui.close_window("targetwin");
+        gui.close_window("targetzoom");
+    });
+    system.register_routine("gpwZoomTargetView",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        int mode = 0;
+        if (icon == "area") mode = 0;
+        else if (icon == "zoom") mode = 1;
+        else if (icon == "targview") mode = 2;
+        else return;
+        gui.select(window, icon, true);
+        gui.set_camp_map_mode(mode);
+    });
+
+    // 8-hour view test switches and its warning dialog.
+    system.register_routine("gpwTestClicked",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.close_window("test");
+    });
+    system.register_routine("cgWarningOkClick",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.close_window("cg_warning");
+    });
+
+    // Accept/ready: the campaign mission is chosen and the flight is launched.
+    system.register_routine("gpwCampAccepted",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_ready(true);
+        gui.close_window("missionbrief");
+        gui.close_window("missionoverview");
+    });
+    system.register_routine("gnReadyToFly",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_camp_ready(true);
+        gui.close_window("generatecamp");
+    });
+
+    system.register_routine("gpwExitCampaign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.request_screen("mainmenu");
+    });
+    system.register_routine("mpMissPlanTask",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.request_screen("missplan");
+    });
+
+    // Per-frame redraw hooks. The map is drawn by the renderer from the state
+    // above, so these only exist to keep the routine set complete.
+    for (const char* name : {"gpwUpdateMap", "gpwRedrawMap",
+                             "gpwUpdateTargetWindow", "gpwRedrawTargetWindow",
+                             "gpwUpdateTime"}) {
+        system.register_routine(name, [](GuiSystem&, const std::string&,
+                                         const std::string&) {});
+    }
+
     // Debrief: the pilot tabs share `esg 1`; selecting one shows that pilot's
     // results. The results themselves are mission data and not modelled.
     system.register_routine("simShowDebrief",

@@ -478,10 +478,20 @@ The runtime records these choices (`sim_mission`, `sim_time`,
 tab). Starting the mission is recorded as `mission_accepted`; the mission
 loader itself is not reconstructed.
 
+Campaign shell (`camp`): map option toggles (flags, SAM and EWR coverage),
+side and layer map modes, zoom, mission list, 8-hour time advance, target view,
+debrief tabs/next, accept/ready and campaign exit. Coverage is 28 of 29.
+
 `--gui-routines` tracks the routine layer: mainmenu 15 of 19, arcade 4 of 4,
-simulator 16 of 20, custom 5 of 6. The only routine missing across the whole
-simulator branch is `GenGUIHelp`, the shared help system; elsewhere the gaps
-are network arcade and the full campaign/planner layers.
+simulator 16 of 20, custom 5 of 6, campaign 28 of 29. The shared help system
+(`GenGUIHelp`, `CampaignHelp`) is the remaining gap there: the game does not
+ship a help file we can read, so its content cannot be reconstructed yet.
+
+The goal is **feature parity, not pixel parity**. Rendering is deliberately a
+separate layer from the GUI model: `.gui` data, runtime state and routines are
+independent of `guirender.cpp` and the map/mesh renderers. That keeps the door
+open for higher-detail terrain and aircraft later without touching the
+simulation or UI logic.
 
 Window hooks (`onopen`/`onclose`) are routine names, and the runtime now runs
 them when a window opens or closes. That is how the credits list scrolls to

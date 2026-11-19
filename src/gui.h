@@ -271,6 +271,32 @@ public:
     int custom_friendlies() const { return custom_friendlies_; }
     int custom_enemies() const { return custom_enemies_; }
 
+    //! Campaign shell state. The map is drawn by the renderer; these are the
+    //! choices it needs: side and layer filters, coverage overlays, zoom,
+    //! selected mission, time shift, target view and the ready flag.
+    void set_camp_side(int v) { camp_side_ = v; }
+    int camp_side() const { return camp_side_; }
+    void set_camp_layer(int v) { camp_layer_ = v; }
+    int camp_layer() const { return camp_layer_; }
+    void set_camp_flags(bool v) { camp_flags_ = v; }
+    bool camp_flags() const { return camp_flags_; }
+    void set_camp_sam(bool v) { camp_sam_ = v; }
+    bool camp_sam() const { return camp_sam_; }
+    void set_camp_ewr(bool v) { camp_ewr_ = v; }
+    bool camp_ewr() const { return camp_ewr_; }
+    void set_camp_map_mode(int v) { camp_map_mode_ = v; }
+    int camp_map_mode() const { return camp_map_mode_; }
+    void set_camp_zoom(int v) { camp_zoom_ = v; }
+    int camp_zoom() const { return camp_zoom_; }
+    void set_camp_mission(int v) { camp_mission_ = v; }
+    int camp_mission() const { return camp_mission_; }
+    void set_camp_time_shift(int v) { camp_time_shift_ = v; }
+    int camp_time_shift() const { return camp_time_shift_; }
+    void set_camp_target_view(bool v) { camp_target_view_ = v; }
+    bool camp_target_view() const { return camp_target_view_; }
+    void set_camp_ready(bool v) { camp_ready_ = v; }
+    bool camp_ready() const { return camp_ready_; }
+
     //! Queues a screen switch, the same way a `screen` verb does.
     void request_screen(const std::string& name) { screen_requests_.push_back(name); }
     //! Routines referenced by the current screen but not registered.
@@ -304,6 +330,17 @@ private:
     bool sim_review_weapons_ = false;
     bool mission_accepted_ = false;
     int debrief_pilot_ = 0;
+    int camp_side_ = 0;
+    int camp_layer_ = 0;
+    bool camp_flags_ = false;
+    bool camp_sam_ = false;
+    bool camp_ewr_ = false;
+    int camp_map_mode_ = 0;
+    int camp_zoom_ = 0;
+    int camp_mission_ = 0;
+    int camp_time_shift_ = 0;
+    bool camp_target_view_ = false;
+    bool camp_ready_ = false;
     int custom_enemy_type_ = 0;
     bool custom_accepted_ = false;
     bool custom_guns_ = false;
