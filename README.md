@@ -265,6 +265,7 @@ committed.
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Clean-room rules, what is accepted, review process |
 | [`docs/ENGINE-NOTES.md`](docs/ENGINE-NOTES.md) | Module map, build targets, viewer controls, limitations |
 | [`AGENTS.md`](AGENTS.md) | Working rules for automated agents: the private/public boundary and pre-commit checks |
+| [`tools/dosbox-x-mcp`](tools/dosbox-x-mcp/README.md) | MCP server for driving a DOSBox-X session |
 
 The specifications are written for interoperability. They describe byte
 layouts, field meanings, compression schemes and state machines — facts about

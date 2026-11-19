@@ -47,6 +47,10 @@ compile_commands.json
 *.png
 *.obj
 
+# Python bytecode.
+__pycache__/
+*.py[cod]
+
 # Editors and OS.
 .vscode/
 .idea/

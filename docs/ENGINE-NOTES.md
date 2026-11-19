@@ -290,6 +290,21 @@ panel needs `gfxcred.txt` only on the v2 builds.
 `HISCORES.DAT` differs per installation (developer names differ between DOS and
 3DFX), so hi-score contents are never a reliable test fixture.
 
+### Harness: dosbox-x-mcp
+
+`tools/dosbox-x-mcp/` is an MCP server that drives a DOSBox-X session: launch,
+screenshot the guest screen, send keys and clicks in guest coordinates, and wait
+until the screen stops changing. It was built after the Spice86 maintainers
+pointed out that protected-mode titles cannot run under their emulator.
+
+It makes observation deterministic — captures are 640x400 with no window chrome
+or host pointer — and each tool is exercised by `--selftest`.
+
+It does not solve input delivery. Widgets bound to a **click** event activate;
+panels bound to **release** do not, for holds up to 900 ms, with or without
+DOSBox-X mouse capture, and with the pointer correctly hovering the panel.
+Keyboard bindings do work. That asymmetry is documented in the tool's README.
+
 ### Spice86: launches, but DOS4GW aborts
 
 Spice86 (source checkout at `~/projects/Spice86`, MCP on port 8081) starts the
