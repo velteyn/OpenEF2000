@@ -461,11 +461,27 @@ Observed shell flow:
   `onopen` hook is `gpwGenerateCampaign`;
 - Quick Combat: `R`/`P`/`T` difficulty, `F1`..`F12` mission, `Return` accept.
 
+Simulator flow, from the later screen set:
+
+- `simpick` offers seven mission types; each switches to `simul` (the seventh
+  goes to the `custom` editor);
+- `simul` lists missions (`esg 1`); selecting one opens `miss_info`, whose
+  Accept opens `params`;
+- `params` groups time, weather, default weapons, weapons review and
+  difficulty, each an `esg` group, and Accept calls `gpwMissionAccepted`;
+- `custom` configures friendlies, enemies, guns-only, location, range, time,
+  weather, difficulty and an enemy type from a 34-entry list;
+- `simul2` is the debrief, with one tab per pilot.
+
+The runtime records these choices (`sim_mission`, `sim_time`,
+`sim_weather`, `sim_difficulty`, weapon options, the custom setup, the debrief
+tab). Starting the mission is recorded as `mission_accepted`; the mission
+loader itself is not reconstructed.
+
 `--gui-routines` tracks the routine layer: mainmenu 15 of 19, arcade 4 of 4,
-simpick 1 of 2. Still missing are the help system (`GenGUIHelp`), the debrief
-tabs (`gpwShowDebrief`, `gpwNextFlight`) and network arcade
-(`gnStartNetArcadeGame`); each needs content or observation that is not
-available yet.
+simulator 16 of 20, custom 5 of 6. The only routine missing across the whole
+simulator branch is `GenGUIHelp`, the shared help system; elsewhere the gaps
+are network arcade and the full campaign/planner layers.
 
 Window hooks (`onopen`/`onclose`) are routine names, and the runtime now runs
 them when a window opens or closes. That is how the credits list scrolls to

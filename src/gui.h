@@ -233,6 +233,46 @@ public:
     //! Simulator mission type 0..5 (Free Flight .. Advanced Training).
     void set_sim_type(int type) { sim_type_ = type; }
     int sim_type() const { return sim_type_; }
+
+    //! Simulator mission browser state. The list is `esg 1`; the parameters
+    //! dialog chooses time, weather, difficulty and weapon options.
+    void set_sim_mission(int index) { sim_mission_ = index; }
+    int sim_mission() const { return sim_mission_; }
+    void set_sim_time(int v) { sim_time_ = v; }
+    int sim_time() const { return sim_time_; }
+    void set_sim_weather(int v) { sim_weather_ = v; }
+    int sim_weather() const { return sim_weather_; }
+    void set_sim_difficulty(int v) { sim_difficulty_ = v; }
+    int sim_difficulty() const { return sim_difficulty_; }
+    void set_sim_default_weapons(bool v) { sim_default_weapons_ = v; }
+    bool sim_default_weapons() const { return sim_default_weapons_; }
+    void set_sim_review_weapons(bool v) { sim_review_weapons_ = v; }
+    bool sim_review_weapons() const { return sim_review_weapons_; }
+    void set_mission_accepted(bool v) { mission_accepted_ = v; }
+    bool mission_accepted() const { return mission_accepted_; }
+
+    //! Debrief pilot tab (0 = LEAD, 1..3 = TWO/THREE/FOUR).
+    void set_debrief_pilot(int v) { debrief_pilot_ = v; }
+    int debrief_pilot() const { return debrief_pilot_; }
+
+    //! Custom mission editor state (the `custom` screen). Counts, gun-only,
+    //! location, range, time, weather and difficulty are `esg` selections;
+    //! `enemy_type` comes from the `enemysel` list.
+    void set_custom_enemy_type(int v) { custom_enemy_type_ = v; }
+    int custom_enemy_type() const { return custom_enemy_type_; }
+    void set_custom_accepted(bool v) { custom_accepted_ = v; }
+    bool custom_accepted() const { return custom_accepted_; }
+    void set_custom_guns(bool v) { custom_guns_ = v; }
+    bool custom_guns() const { return custom_guns_; }
+    void set_custom_counts(int friendlies, int enemies) {
+        custom_friendlies_ = friendlies;
+        custom_enemies_ = enemies;
+    }
+    int custom_friendlies() const { return custom_friendlies_; }
+    int custom_enemies() const { return custom_enemies_; }
+
+    //! Queues a screen switch, the same way a `screen` verb does.
+    void request_screen(const std::string& name) { screen_requests_.push_back(name); }
     //! Routines referenced by the current screen but not registered.
     std::vector<std::string> missing_routines() const;
     //! Every routine name the current screen references, sorted.
@@ -256,6 +296,19 @@ private:
     bool campaign_influence_ = false;
     bool campaign_started_ = false;
     int sim_type_ = 0;
+    int sim_mission_ = 0;
+    int sim_time_ = 1;        // day
+    int sim_weather_ = 1;     // fair
+    int sim_difficulty_ = 1;  // pro
+    bool sim_default_weapons_ = true;
+    bool sim_review_weapons_ = false;
+    bool mission_accepted_ = false;
+    int debrief_pilot_ = 0;
+    int custom_enemy_type_ = 0;
+    bool custom_accepted_ = false;
+    bool custom_guns_ = false;
+    int custom_friendlies_ = 1;
+    int custom_enemies_ = 1;
     std::vector<std::string> hook_stack_;
     std::vector<std::string> screen_requests_;
     std::vector<std::string> log_;

@@ -816,6 +816,164 @@ void register_observed_routines(GuiSystem& system) {
                             [](GuiSystem&, const std::string&,
                                const std::string&) {});
 
+    // Simulator mission browser. `first` is entry 0 and the numbered icons
+    // continue from "2", so "2" is entry 1.
+    system.register_routine("gpwMissionSelected",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        int index = -1;
+        if (icon == "first") index = 0;
+        else if (!icon.empty()) {
+            const int n = std::atoi(icon.c_str());
+            if (n >= 2 && n <= 16) index = n - 1;
+        }
+        if (index < 0) return;
+        gui.select(window, icon, true);
+        gui.set_sim_mission(index);
+    });
+
+    // Parameters dialog: the icons only run `select`, so Accept reads the
+    // selected icon of each group and records the choices.
+    system.register_routine("gpwMissionAccepted",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        const auto on = [&](const char* icon) {
+            return gui.is_selected("params", icon);
+        };
+        if (on("ttwilight")) gui.set_sim_time(0);
+        else if (on("tday")) gui.set_sim_time(1);
+        else if (on("tnight")) gui.set_sim_time(2);
+        if (on("wpoor")) gui.set_sim_weather(0);
+        else if (on("wfair")) gui.set_sim_weather(1);
+        else if (on("wgood")) gui.set_sim_weather(2);
+        if (on("rookie")) gui.set_sim_difficulty(0);
+        else if (on("pro")) gui.set_sim_difficulty(1);
+        else if (on("topgun")) gui.set_sim_difficulty(2);
+        gui.set_sim_default_weapons(on("defweapyes"));
+        gui.set_sim_review_weapons(on("revweapyes"));
+        gui.set_mission_accepted(true);
+        gui.close_window("params");
+    });
+
+    // `onopenParams` restores the current choices when the dialog is shown.
+    system.register_routine("onopenParams",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        const char* time_icon = gui.sim_time() == 0 ? "ttwilight"
+                              : gui.sim_time() == 2 ? "tnight" : "tday";
+        const char* weather_icon = gui.sim_weather() == 0 ? "wpoor"
+                                 : gui.sim_weather() == 2 ? "wgood" : "wfair";
+        const char* diff_icon = gui.sim_difficulty() == 0 ? "rookie"
+                              : gui.sim_difficulty() == 2 ? "topgun" : "pro";
+        gui.select("params", time_icon, true);
+        gui.select("params", weather_icon, true);
+        gui.select("params", diff_icon, true);
+        gui.select("params", gui.sim_default_weapons() ? "defweapyes" : "defweapno", true);
+        gui.select("params", gui.sim_review_weapons() ? "revweapyes" : "revweapno", true);
+    });
+
+    // The mission list and details are filled from the mission data by the
+    // driver; there is nothing to initialise in the GUI model itself.
+    system.register_routine("InitPickMiss",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+    system.register_routine("onopenCurrentMission",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    system.register_routine("gpwExitSimulator",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.request_screen("mainmenu");
+    });
+
+    // "WEAPONS REVIEW" opens the weapons screen.
+    system.register_routine("gpwClickWeaponReview",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.request_screen("weapons");
+    });
+
+    // Debrief: the pilot tabs share `esg 1`; selecting one shows that pilot's
+    // results. The results themselves are mission data and not modelled.
+    system.register_routine("simShowDebrief",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        int pilot = 0;
+        if (icon == "1") pilot = 0;
+        else if (icon == "2") pilot = 1;
+        else if (icon == "3") pilot = 2;
+        else if (icon == "4") pilot = 3;
+        else return;
+        gui.select(window, icon, true);
+        gui.set_debrief_pilot(pilot);
+    });
+    system.register_routine("InitSim2",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    // Custom mission editor: the enemy list is one `esg 4` group of 34
+    // entries, all sharing `ChooseEnemy`.
+    system.register_routine("ChooseEnemy",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        int index = -1;
+        if (icon == "first") index = 0;
+        else if (!icon.empty()) {
+            const int n = std::atoi(icon.c_str());
+            if (n >= 1 && n <= 34) index = n - 1;
+        }
+        if (index < 0) return;
+        gui.select(window, icon, true);
+        gui.set_custom_enemy_type(index);
+    });
+
+    // The enemy preview is a 3D view; nothing to redraw in the GUI model.
+    system.register_routine("RedrawEnemyView",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    // `InitCustom` is the screen startup. The shipped screen opens with the
+    // first entry of each group selected; those come from the data's
+    // `select reset` markers, which the loader already records as actions.
+    system.register_routine("InitCustom",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    // Accept reads the selections and records the custom setup. Starting the
+    // mission belongs to the mission loader, which is not reconstructed.
+    system.register_routine("AcceptCustom",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        const auto on_custom = [&](const char* icon) {
+            return gui.is_selected("custom", icon);
+        };
+        int friendlies = 1, enemies = 1;
+        if (on_custom("first")) friendlies = 1;
+        else if (on_custom("2")) friendlies = 2;
+        else if (on_custom("3")) friendlies = 3;
+        else if (on_custom("4")) friendlies = 4;
+        else if (on_custom("5")) friendlies = 5;
+        else if (on_custom("6")) friendlies = 6;
+        else if (on_custom("7")) friendlies = 7;
+        else if (on_custom("8")) friendlies = 8;
+        if (on_custom("efirst")) enemies = 1;
+        else if (on_custom("e2")) enemies = 2;
+        else if (on_custom("e3")) enemies = 3;
+        else if (on_custom("e4")) enemies = 4;
+        else if (on_custom("e5")) enemies = 5;
+        else if (on_custom("e6")) enemies = 6;
+        else if (on_custom("e7")) enemies = 7;
+        else if (on_custom("e8")) enemies = 8;
+        else if (on_custom("e9")) enemies = 9;
+        else if (on_custom("e10")) enemies = 10;
+        else if (on_custom("e11")) enemies = 11;
+        else if (on_custom("e12")) enemies = 12;
+        gui.set_custom_counts(friendlies, enemies);
+        gui.set_custom_guns(on_custom("gunsyes"));
+        gui.set_custom_accepted(true);
+    });
+
     // Simulator: picking a mission type records which one; the icon's own
     // `screen simul` verb does the navigation.
     system.register_routine("gpwSimTypeSelected",

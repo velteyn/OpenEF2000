@@ -717,6 +717,14 @@ key z
 call click
 routine Capture
 
+icon exit
+xpos 65
+ypos 35
+xsize 10
+ysize 10
+call click
+routine gpwExitSimulator
+
 icon skeyed
 xpos 65
 ypos 20
@@ -731,6 +739,117 @@ xpos 200
 ypos 0
 xsize 50
 ysize 50
+
+window missions
+xpos 0
+ypos 0
+xsize 100
+ysize 50
+open
+
+icon first
+xpos 0
+ypos 0
+xsize 50
+ysize 10
+esg 1
+call click
+routine gpwMissionSelected
+
+icon 2
+xpos 0
+ypos 10
+xsize 50
+ysize 10
+esg 1
+call click
+routine gpwMissionSelected
+
+window params
+xpos 0
+ypos 0
+xsize 100
+ysize 80
+
+icon ttwilight
+xpos 0
+ypos 0
+xsize 10
+ysize 10
+esg 2
+call click
+select click
+
+icon tday
+xpos 20
+ypos 0
+xsize 10
+ysize 10
+esg 2
+call click
+select click
+
+icon wpoor
+xpos 0
+ypos 20
+xsize 10
+ysize 10
+esg 3
+call click
+select click
+
+icon wfair
+xpos 20
+ypos 20
+xsize 10
+ysize 10
+esg 3
+call click
+select click
+
+icon rookie
+xpos 0
+ypos 40
+xsize 10
+ysize 10
+esg 12
+call click
+select click
+
+icon pro
+xpos 20
+ypos 40
+xsize 10
+ysize 10
+esg 12
+call click
+select click
+
+icon defweapyes
+xpos 0
+ypos 60
+xsize 10
+ysize 10
+esg 10
+call click
+select click
+
+icon revweapyes
+xpos 20
+ypos 60
+xsize 10
+ysize 10
+esg 11
+call click
+select click
+
+icon accept
+xpos 60
+ypos 60
+xsize 10
+ysize 10
+call release
+routine gpwMissionAccepted
 )";
 
     int failures = 0;
@@ -741,6 +860,7 @@ ysize 50
 
     ef::GuiSystem system;
     system.set_screen(ef::GuiLoader::parse("selftest", dsl));
+    ef::register_observed_routines(system);
 
     check("window marked `open` is visible", system.find_window("test") != nullptr &&
                                                 system.find_window("test")->visible);
@@ -804,6 +924,27 @@ ysize 50
     system.select("test", "radioB", true);
     check("same-esg icons behave as a radio group",
           !system.is_selected("test", "radioA") && system.is_selected("test", "radioB"));
+
+    system.fire("missions", "2", "click");
+    check("mission list selects an entry and records it",
+          system.is_selected("missions", "2") && system.sim_mission() == 1);
+
+    system.fire("params", "tday", "click");
+    system.fire("params", "wfair", "click");
+    system.fire("params", "pro", "click");
+    system.fire("params", "defweapyes", "click");
+    system.fire("params", "revweapyes", "click");
+    system.fire("params", "accept", "release");
+    check("parameters dialog records time, weather and difficulty",
+          system.mission_accepted() && system.sim_time() == 1 &&
+              system.sim_weather() == 1 && system.sim_difficulty() == 1);
+    check("weapon options are recorded",
+          system.sim_default_weapons() && system.sim_review_weapons());
+
+    system.fire("test", "exit", "click");
+    const auto screens = system.take_screen_requests();
+    check("gpwExitSimulator queues the main menu",
+          std::find(screens.begin(), screens.end(), "mainmenu") != screens.end());
 
     std::printf("%s (%d failure%s)\n", failures == 0 ? "gui selftest: PASS" : "gui selftest: FAIL",
                 failures, failures == 1 ? "" : "s");
