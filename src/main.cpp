@@ -429,6 +429,19 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
     if (palette[15] == 0) {
         if (auto fallback = ef::load_gui_palette(did, "gui")) palette = *fallback;
     }
+    // DID1ST has the later screens but no palettes; they live in DID.DAT.
+    if (palette[15] == 0 && palette[1] == 0) {
+        const std::filesystem::path companion = data_dir / "DID.DAT";
+        if (std::filesystem::exists(companion)) {
+            try {
+                ef::DidArchive other(companion);
+                if (auto gui = ef::load_gui_palette(other, "gui")) palette = *gui;
+                else if (auto plain = ef::load_gui_palette(other, "2000")) palette = *plain;
+            } catch (const std::exception&) {
+                // Keep the black palette; geometry still shows.
+            }
+        }
+    }
 
     ef::GuiSystem system;
     system.set_screen(std::move(*screen));
