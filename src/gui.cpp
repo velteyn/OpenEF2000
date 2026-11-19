@@ -894,6 +894,120 @@ void register_observed_routines(GuiSystem& system) {
         gui.request_screen("weapons");
     });
 
+    // Quick Combat post-mission ---------------------------------------------
+    system.register_routine("InitArcade2",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+    system.register_routine("gpwContinueArcade",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_arcade_continued(true);
+    });
+    system.register_routine("gpwAcceptHiscore",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        // The name lives in the enter-name field; the driver persists it.
+        std::string name;
+        if (auto* w = gui.find_widget("entername", "nametext")) name = w->value;
+        gui.set_arcade_hiscore(name, true);
+    });
+    system.register_routine("arcNextDifficulty",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_arcade_round(gui.arcade_round() + 1);
+    });
+    system.register_routine("arcEndgameAccept",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_arcade_endgame(true);
+        gui.request_screen("mainmenu");
+    });
+
+    // System tools: memory readout and magnifier are renderer-owned.
+    system.register_routine("guiupdateMemoryUse",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+    system.register_routine("updatemagnify",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    // Weapons configuration -------------------------------------------------
+    // Pre-flight loadout: pick a pylon/missile, rotate the aircraft view,
+    // clear one or all stations, restore defaults and accept.
+    system.register_routine("InitPickWeap",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_view(0);
+        gui.set_weap_angle(0, 0);
+        gui.set_weap_cleared_all(false);
+        gui.set_weap_accepted(false);
+    });
+    system.register_routine("gpwMissileSelected",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.set_weap_selected(icon);
+        gui.set_weap_cleared_all(false);
+    });
+    system.register_routine("gpwPlaneAngled",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_view(0);
+        gui.set_weap_angle(0, 0);
+    });
+    system.register_routine("gpwPlaneFrontOn",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_view(1);
+    });
+    system.register_routine("gpwPlaneSideOn",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_view(2);
+    });
+    system.register_routine("gpwPlaneUnderneath",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_view(3);
+    });
+    system.register_routine("gpwTurnXPlane",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_angle((gui.weap_x_angle() + 15) % 360, gui.weap_y_angle());
+    });
+    system.register_routine("gpwTurnYPlane",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_angle(gui.weap_x_angle(), (gui.weap_y_angle() + 15) % 360);
+    });
+    system.register_routine("gpwSetClearMissile",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_selected(std::string());
+    });
+    system.register_routine("gpwSetClearAllMissiles",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_selected(std::string());
+        gui.set_weap_cleared_all(true);
+    });
+    system.register_routine("gpwUseDefaults",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_cleared_all(false);
+        gui.set_weap_selected(std::string());
+    });
+    system.register_routine("gpwWeaponsAccepted",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_weap_accepted(true);
+    });
+    for (const char* name : {"onopenBigCurrentWeapon", "onopenCurrentWeapon",
+                             "gpwRedrawPlaneWindow", "gpwUpdatePlaneWindow"}) {
+        system.register_routine(name, [](GuiSystem&, const std::string&,
+                                         const std::string&) {});
+    }
+
     // Summary screen -------------------------------------------------------
     // The bars and graphs are drawn by the renderer from campaign statistics;
     // the GUI layer only has to track menus and detail requests.

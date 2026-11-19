@@ -892,6 +892,37 @@ xsize 10
 ysize 10
 call click
 routine mpFlyMission
+
+window weapons
+xpos 0
+ypos 0
+xsize 100
+ysize 50
+open
+
+icon front
+xpos 0
+ypos 0
+xsize 10
+ysize 10
+call click
+routine gpwPlaneFrontOn
+
+icon clearall
+xpos 20
+ypos 0
+xsize 10
+ysize 10
+call click
+routine gpwSetClearAllMissiles
+
+icon acceptw
+xpos 40
+ypos 0
+xsize 10
+ysize 10
+call click
+routine gpwWeaponsAccepted
 )";
 
     int failures = 0;
@@ -989,6 +1020,13 @@ routine mpFlyMission
     check("planner speed step applies", system.mp_speed() == 550);
     system.fire("planner", "fly", "click");
     check("planner records the fly decision", system.mp_fly());
+
+    system.fire("weapons", "front", "click");
+    system.fire("weapons", "clearall", "click");
+    system.fire("weapons", "acceptw", "click");
+    check("weapons view preset, clear-all and accept are recorded",
+          system.weap_view() == 1 && system.weap_cleared_all() &&
+              system.weap_accepted());
 
     system.fire("test", "exit", "click");
     const auto screens = system.take_screen_requests();

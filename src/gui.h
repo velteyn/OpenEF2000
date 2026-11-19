@@ -326,6 +326,35 @@ public:
     void set_mp_fly(bool v) { mp_fly_ = v; }
     bool mp_fly() const { return mp_fly_; }
 
+    //! Weapons configuration: selected pylon/missile, view preset
+    //! (0 angled, 1 front, 2 side, 3 underneath), rotation, and whether the
+    //! loadout was cleared or accepted.
+    void set_weap_selected(const std::string& v) { weap_selected_ = v; }
+    const std::string& weap_selected() const { return weap_selected_; }
+    void set_weap_view(int v) { weap_view_ = v; }
+    int weap_view() const { return weap_view_; }
+    void set_weap_angle(int x, int y) { weap_x_angle_ = x; weap_y_angle_ = y; }
+    int weap_x_angle() const { return weap_x_angle_; }
+    int weap_y_angle() const { return weap_y_angle_; }
+    void set_weap_cleared_all(bool v) { weap_cleared_all_ = v; }
+    bool weap_cleared_all() const { return weap_cleared_all_; }
+    void set_weap_accepted(bool v) { weap_accepted_ = v; }
+    bool weap_accepted() const { return weap_accepted_; }
+
+    //! Quick Combat post-mission: continuation, hi-score entry and endgame.
+    void set_arcade_continued(bool v) { arcade_continued_ = v; }
+    bool arcade_continued() const { return arcade_continued_; }
+    void set_arcade_hiscore(const std::string& name, bool accepted) {
+        arcade_hiscore_name_ = name;
+        arcade_hiscore_accepted_ = accepted;
+    }
+    const std::string& arcade_hiscore_name() const { return arcade_hiscore_name_; }
+    bool arcade_hiscore_accepted() const { return arcade_hiscore_accepted_; }
+    void set_arcade_endgame(bool v) { arcade_endgame_ = v; }
+    bool arcade_endgame() const { return arcade_endgame_; }
+    void set_arcade_round(int v) { arcade_round_ = v; }
+    int arcade_round() const { return arcade_round_; }
+
     //! Summary screen: the element whose detail was requested.
     void set_summary_selected(const std::string& v) { summary_selected_ = v; }
     const std::string& summary_selected() const { return summary_selected_; }
@@ -387,6 +416,17 @@ private:
     bool mp_wp_zoom_ = false;
     bool mp_fly_ = false;
     std::string summary_selected_;
+    std::string weap_selected_;
+    int weap_view_ = 0;
+    int weap_x_angle_ = 0;
+    int weap_y_angle_ = 0;
+    bool weap_cleared_all_ = false;
+    bool weap_accepted_ = false;
+    bool arcade_continued_ = false;
+    std::string arcade_hiscore_name_;
+    bool arcade_hiscore_accepted_ = false;
+    bool arcade_endgame_ = false;
+    int arcade_round_ = 0;
     int custom_enemy_type_ = 0;
     bool custom_accepted_ = false;
     bool custom_guns_ = false;

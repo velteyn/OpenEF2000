@@ -491,11 +491,26 @@ Summary (`summary`): menu bars, detail requests and the campaign exit. Coverage
 is 12 of 12, but the bar and graph drawing routines are renderer-owned no-ops:
 the statistics are not computed or drawn yet.
 
-`--gui-routines` tracks the routine layer: mainmenu 15 of 19, arcade 4 of 4,
+Weapons configuration (`weapons`): pylon/missile selection, four aircraft view
+presets, rotation, clear-one/clear-all, defaults and accept — 16 of 16.
+
+Quick Combat post-mission (`arcade2`): continuation, hi-score name acceptance
+(the name is read from the enter-name field; persistence is the driver's job),
+round advance and endgame — 5 of 6. `system` (memory readout, magnifier) is
+2 of 2 as renderer hooks.
+
+There is no in-flight menu in these screens: the aircraft is flown from key
+bindings and the joystick. The communication menu you remember belongs to the
+simulation UI, not the `.gui` shell. `players`, `rxmiss`, `txmiss`, `directp`
+and `gnet` are network screens (linked players, network mission/briefing,
+DirectPlay) and are out of scope.
+
+`--gui-routines` tracks the routine layer: mainmenu 17 of 19, arcade 4 of 5,
 simulator 16 of 20, custom 5 of 6, campaign 28 of 29, planner 40 of 41,
-summary 12 of 12. The shared help system (`GenGUIHelp`, `CampaignHelp`,
-`MissplanHelp`) is the remaining gap there: the game does not ship a help file
-we can read, so its content cannot be reconstructed yet.
+summary 12 of 12, weapons 16 of 16, system 2 of 2. The only non-network
+shortfall is the shared help overlay (`GenGUIHelp`, `CampaignHelp`,
+`MissplanHelp`, `CampaignHelp`): the install ships no readable help content,
+so the overlay cannot be reconstructed from data.
 
 The goal is **feature parity, not pixel parity**. Rendering is deliberately a
 separate layer from the GUI model: `.gui` data, runtime state and routines are
