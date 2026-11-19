@@ -861,6 +861,37 @@ xsize 10
 ysize 10
 call release
 routine gpwMissionAccepted
+
+window planner
+xpos 0
+ypos 0
+xsize 100
+ysize 50
+open
+
+icon m2_0
+xpos 0
+ypos 0
+xsize 10
+ysize 10
+call click
+routine mpMission2Click
+
+icon faster
+xpos 20
+ypos 0
+xsize 10
+ysize 10
+call click
+routine mpIncSpeed
+
+icon fly
+xpos 40
+ypos 0
+xsize 10
+ysize 10
+call click
+routine mpFlyMission
 )";
 
     int failures = 0;
@@ -951,6 +982,13 @@ routine gpwMissionAccepted
               system.sim_weather() == 1 && system.sim_difficulty() == 1);
     check("weapon options are recorded",
           system.sim_default_weapons() && system.sim_review_weapons());
+
+    system.fire("planner", "m2_0", "click");
+    check("planner records the mission slot", system.mp_slot() == 1);
+    system.fire("planner", "faster", "click");
+    check("planner speed step applies", system.mp_speed() == 550);
+    system.fire("planner", "fly", "click");
+    check("planner records the fly decision", system.mp_fly());
 
     system.fire("test", "exit", "click");
     const auto screens = system.take_screen_requests();

@@ -482,10 +482,20 @@ Campaign shell (`camp`): map option toggles (flags, SAM and EWR coverage),
 side and layer map modes, zoom, mission list, 8-hour time advance, target view,
 debrief tabs/next, accept/ready and campaign exit. Coverage is 28 of 29.
 
+Mission planner (`missplan`): map options, strike and target lists, role and
+aircraft type, four mission slots, assignment cursor (prev/next/make/view),
+waypoint speed and clearance, ATC selection, fly/return and the scrap-mission
+confirmation. Coverage is 40 of 41.
+
+Summary (`summary`): menu bars, detail requests and the campaign exit. Coverage
+is 12 of 12, but the bar and graph drawing routines are renderer-owned no-ops:
+the statistics are not computed or drawn yet.
+
 `--gui-routines` tracks the routine layer: mainmenu 15 of 19, arcade 4 of 4,
-simulator 16 of 20, custom 5 of 6, campaign 28 of 29. The shared help system
-(`GenGUIHelp`, `CampaignHelp`) is the remaining gap there: the game does not
-ship a help file we can read, so its content cannot be reconstructed yet.
+simulator 16 of 20, custom 5 of 6, campaign 28 of 29, planner 40 of 41,
+summary 12 of 12. The shared help system (`GenGUIHelp`, `CampaignHelp`,
+`MissplanHelp`) is the remaining gap there: the game does not ship a help file
+we can read, so its content cannot be reconstructed yet.
 
 The goal is **feature parity, not pixel parity**. Rendering is deliberately a
 separate layer from the GUI model: `.gui` data, runtime state and routines are

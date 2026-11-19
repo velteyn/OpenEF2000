@@ -894,6 +894,173 @@ void register_observed_routines(GuiSystem& system) {
         gui.request_screen("weapons");
     });
 
+    // Summary screen -------------------------------------------------------
+    // The bars and graphs are drawn by the renderer from campaign statistics;
+    // the GUI layer only has to track menus and detail requests.
+    system.register_routine("sumgencamp",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        if (gui.find_window("sure") != nullptr) gui.open_window("sure");
+        else gui.request_screen("camp");
+    });
+    system.register_routine("gpwshowsummaryinfo",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.set_summary_selected(icon);
+    });
+    for (const char* name : {"sumairbar", "sumgroundbar", "sumstatbar",
+                             "sumgenbar", "sumaircraftgraph", "sumgroundgraph",
+                             "sumstaticgraph", "sumgengraph", "sumbalance",
+                             "sumdrawkey"}) {
+        system.register_routine(name, [](GuiSystem&, const std::string&,
+                                         const std::string&) {});
+    }
+
+    // Mission planner ------------------------------------------------------
+    // The planner reuses the camp map state (side/layer/coverage/zoom) and
+    // adds its own selection and assignment state.
+    system.register_routine("mpInitMP",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_speed(500);
+        gui.set_mp_slot(0);
+        gui.set_mp_assign(0);
+    });
+    system.register_routine("mpSetWindows",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_windows(!gui.mp_windows());
+    });
+    system.register_routine("mpToggleIcons",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_icons(!gui.mp_icons());
+    });
+    system.register_routine("mpStrikeListSelected",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.set_mp_strike(icon);
+    });
+    system.register_routine("mpTargetListSelected",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.set_mp_target(icon);
+    });
+    system.register_routine("mpSetRole",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.set_mp_role(icon);
+    });
+    system.register_routine("mpSetACType",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.set_mp_actype(icon);
+    });
+    for (const char* name : {"mpType1Click", "mpType2Click",
+                             "mpType3Click", "mpType4Click"}) {
+        system.register_routine(name, [](GuiSystem& gui, const std::string& window,
+                                         const std::string& icon) {
+            gui.select(window, icon, true);
+            gui.set_mp_actype(icon);
+        });
+    }
+    for (const char* name : {"mpMission1Click", "mpMission2Click",
+                             "mpMission3Click", "mpMission4Click"}) {
+        system.register_routine(name, [](GuiSystem& gui, const std::string& window,
+                                         const std::string& icon) {
+            // Icon names are m1_0..m4_0 (and follow-ups), so the first
+            // character after 'm' is the slot.
+            gui.select(window, icon, true);
+            if (icon.size() > 1 && icon[0] == 'm' && icon[1] >= '1' && icon[1] <= '4')
+                gui.set_mp_slot(icon[1] - '1');
+        });
+    }
+    system.register_routine("mpPrevAssign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_assign(std::max(gui.mp_assign() - 1, 0));
+    });
+    system.register_routine("mpNextAssign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_assign(gui.mp_assign() + 1);
+    });
+    system.register_routine("mpMakeAssign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_target(gui.mp_strike());
+    });
+    system.register_routine("mpViewAssign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.open_window("mp_target_view");
+    });
+    system.register_routine("mpClearWPRoute",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_target(std::string());
+    });
+    system.register_routine("mpIncSpeed",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_speed(std::min(gui.mp_speed() + 50, 1200));
+    });
+    system.register_routine("mpDecSpeed",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_speed(std::max(gui.mp_speed() - 50, 100));
+    });
+    system.register_routine("mpWPZoomToggle",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_wp_zoom(!gui.mp_wp_zoom());
+    });
+    system.register_routine("mpClickATC",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        gui.select(window, icon, true);
+        gui.set_mp_atc(icon);
+    });
+    system.register_routine("mpFlyMission",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_mp_fly(true);
+    });
+    system.register_routine("mpClickCampaign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        // The bar's menu is the "Scrap Mission?" confirmation; the data puts
+        // the two answers in the `sure` window.
+        gui.open_window("sure");
+    });
+    system.register_routine("mpReturnToCampaign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.close_window("sure");
+        gui.request_screen("camp");
+    });
+    system.register_routine("mpNoQuit",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.close_window("sure");
+    });
+    system.register_routine("mpWarningOkClick",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.close_window("mp_warning");
+    });
+    // Per-frame redraw hooks; the map and target view are renderer-owned.
+    for (const char* name : {"mpDrawFuelBar", "mpRedrawMap", "mpUpdateMap",
+                             "mpRedrawTargetView", "mpRedrawWPHeights"}) {
+        system.register_routine(name, [](GuiSystem&, const std::string&,
+                                         const std::string&) {});
+    }
+
     // Campaign shell -------------------------------------------------------
     // Startup: the shipped screen opens with Nato selected and the first
     // mission row current. Both exist in the data; set the model to match.

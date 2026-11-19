@@ -297,6 +297,39 @@ public:
     void set_camp_ready(bool v) { camp_ready_ = v; }
     bool camp_ready() const { return camp_ready_; }
 
+    //! Mission planner state: selected strike category and target, role and
+    //! aircraft type, mission slot, assignment cursor, waypoint speed, the
+    //! ATC entry and the "fly" decision. Lists are identified by their icon
+    //! names, which is how the data names the entries.
+    void set_mp_strike(const std::string& v) { mp_strike_ = v; }
+    const std::string& mp_strike() const { return mp_strike_; }
+    void set_mp_target(const std::string& v) { mp_target_ = v; }
+    const std::string& mp_target() const { return mp_target_; }
+    void set_mp_role(const std::string& v) { mp_role_ = v; }
+    const std::string& mp_role() const { return mp_role_; }
+    void set_mp_actype(const std::string& v) { mp_actype_ = v; }
+    const std::string& mp_actype() const { return mp_actype_; }
+    void set_mp_slot(int v) { mp_slot_ = v; }
+    int mp_slot() const { return mp_slot_; }
+    void set_mp_assign(int v) { mp_assign_ = v; }
+    int mp_assign() const { return mp_assign_; }
+    void set_mp_speed(int v) { mp_speed_ = v; }
+    int mp_speed() const { return mp_speed_; }
+    void set_mp_atc(const std::string& v) { mp_atc_ = v; }
+    const std::string& mp_atc() const { return mp_atc_; }
+    void set_mp_icons(bool v) { mp_icons_ = v; }
+    bool mp_icons() const { return mp_icons_; }
+    void set_mp_windows(bool v) { mp_windows_ = v; }
+    bool mp_windows() const { return mp_windows_; }
+    void set_mp_wp_zoom(bool v) { mp_wp_zoom_ = v; }
+    bool mp_wp_zoom() const { return mp_wp_zoom_; }
+    void set_mp_fly(bool v) { mp_fly_ = v; }
+    bool mp_fly() const { return mp_fly_; }
+
+    //! Summary screen: the element whose detail was requested.
+    void set_summary_selected(const std::string& v) { summary_selected_ = v; }
+    const std::string& summary_selected() const { return summary_selected_; }
+
     //! Queues a screen switch, the same way a `screen` verb does.
     void request_screen(const std::string& name) { screen_requests_.push_back(name); }
     //! Routines referenced by the current screen but not registered.
@@ -341,6 +374,19 @@ private:
     int camp_time_shift_ = 0;
     bool camp_target_view_ = false;
     bool camp_ready_ = false;
+    std::string mp_strike_;
+    std::string mp_target_;
+    std::string mp_role_;
+    std::string mp_actype_;
+    int mp_slot_ = 0;
+    int mp_assign_ = 0;
+    int mp_speed_ = 500;
+    std::string mp_atc_;
+    bool mp_icons_ = true;
+    bool mp_windows_ = true;
+    bool mp_wp_zoom_ = false;
+    bool mp_fly_ = false;
+    std::string summary_selected_;
     int custom_enemy_type_ = 0;
     bool custom_accepted_ = false;
     bool custom_guns_ = false;
