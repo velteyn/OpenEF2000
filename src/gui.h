@@ -177,6 +177,8 @@ public:
 
     //! Marks `widget` selected inside its `esg` group.
     void select(const std::string& window, const std::string& icon, bool on);
+    //! Runs a window hook by routine name, guarding against self-recursion.
+    void run_window_hook(const std::string& window, const std::string& name);
 
     bool is_selected(const std::string& window, const std::string& icon) const;
 
@@ -215,6 +217,22 @@ public:
     //! mission loader yet, so this records the decision instead.
     void set_arcade_accepted(bool on) { arcade_accepted_ = on; }
     bool arcade_accepted() const { return arcade_accepted_; }
+
+    //! Campaign Level Setting dialog state. `difficulty` is the row index
+    //! 0..9 (0 = Rookie, 9 = TopGun); the shipped dialog opens with Pro
+    //! selected, which is 6. `influence` is the Yes/No choice.
+    void set_campaign_difficulty(int level) { campaign_difficulty_ = level; }
+    int campaign_difficulty() const { return campaign_difficulty_; }
+    void set_campaign_influence(bool on) { campaign_influence_ = on; }
+    bool campaign_influence() const { return campaign_influence_; }
+    //! Set when Accept starts generation (the generator itself is not
+    //! reconstructed; the runtime shows the `generatecamp` window).
+    void set_campaign_started(bool on) { campaign_started_ = on; }
+    bool campaign_started() const { return campaign_started_; }
+
+    //! Simulator mission type 0..5 (Free Flight .. Advanced Training).
+    void set_sim_type(int type) { sim_type_ = type; }
+    int sim_type() const { return sim_type_; }
     //! Routines referenced by the current screen but not registered.
     std::vector<std::string> missing_routines() const;
     //! Every routine name the current screen references, sorted.
@@ -234,6 +252,11 @@ private:
     int next_z_ = 1;
     std::map<std::pair<std::string, std::string>, bool> selected_;
     bool arcade_accepted_ = false;
+    int campaign_difficulty_ = 6;
+    bool campaign_influence_ = false;
+    bool campaign_started_ = false;
+    int sim_type_ = 0;
+    std::vector<std::string> hook_stack_;
     std::vector<std::string> screen_requests_;
     std::vector<std::string> log_;
 

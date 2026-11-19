@@ -407,10 +407,32 @@ void GuiSystem::open_window(const std::string& name) {
     w->z = next_z_++;
     // `jumptofront` asks for the window to be raised whenever it opens.
     if (w->jump_to_front) bring_to_front(name);
+    run_window_hook(name, w->on_open);
 }
 
 void GuiSystem::close_window(const std::string& name) {
-    if (auto* w = find_window(name)) w->visible = false;
+    auto* w = find_window(name);
+    if (w == nullptr || !w->visible) return;
+    run_window_hook(name, w->on_close);
+    if (auto* still = find_window(name)) still->visible = false;
+}
+
+// Window hooks (`onopen`/`onclose`) are routine names, like icon verbs. A hook
+// that reopens or closes its own window would recurse, so it is skipped.
+void GuiSystem::run_window_hook(const std::string& window, const std::string& name) {
+    if (name.empty()) return;
+    if (std::find(hook_stack_.begin(), hook_stack_.end(), name) != hook_stack_.end())
+        return;
+    auto it = routines_.find(name);
+    if (it == routines_.end()) {
+        if (std::find(unimplemented_.begin(), unimplemented_.end(), name) ==
+            unimplemented_.end())
+            unimplemented_.push_back(name);
+        return;
+    }
+    hook_stack_.push_back(name);
+    it->second(*this, window, std::string());
+    hook_stack_.pop_back();
 }
 
 void GuiSystem::bring_to_front(const std::string& name) {
@@ -709,6 +731,103 @@ void register_observed_routines(GuiSystem& system) {
                             [](GuiSystem& gui, const std::string&,
                                const std::string&) {
         gui.set_arcade_accepted(true);
+    });
+
+    // Campaign Level Setting: rows 0..9 are one `esg 3` group. `select` is
+    // already what the data asks for; the routine records the chosen level.
+    system.register_routine("gcSetCampaignDifficulty",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        if (icon.size() != 1 || icon[0] < '0' || icon[0] > '9') return;
+        gui.select(window, icon, true);
+        gui.set_campaign_difficulty(icon[0] - '0');
+    });
+
+    // Campaign Level Setting: "Influence Campaign?" Yes/No, one `esg 1` group.
+    system.register_routine("gcPerformanceYes",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string&) {
+        gui.select(window, "yes", true);
+        gui.set_campaign_influence(true);
+    });
+    system.register_routine("gcPerformanceNo",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string&) {
+        gui.select(window, "no", true);
+        gui.set_campaign_influence(false);
+    });
+
+    // Observed: Accept closes the dialog and raises "Generating Campaign...".
+    // Generation itself belongs to the campaign module; this records the
+    // decision and shows the same window.
+    system.register_routine("gcStartNewCampaign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_campaign_started(true);
+        gui.close_window("campaign_level");
+        gui.open_window("generatecamp");
+    });
+
+    // Load a previous campaign: the `campfiles` window exists for exactly that
+    // and is raised by the dialog's Load control.
+    system.register_routine("gcLoadOldCampaign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.open_window("campfiles");
+    });
+    system.register_routine("gcLoadfileAccepted",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.close_window("campfiles");
+        gui.set_campaign_started(true);
+    });
+
+    // The main menu's startup routine has no visible effect in the shipped
+    // game: every panel window is already `open`, and no other window is
+    // raised. Registered so the screen does not report a missing routine.
+    system.register_routine("InitMainMenu",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    // `generatecamp` declares `onopen gpwGenerateCampaign`; Accept raises that
+    // window. Campaign generation belongs to the campaign module, which is not
+    // reconstructed, so the decision is recorded and the window stays up.
+    system.register_routine("gpwGenerateCampaign",
+                            [](GuiSystem& gui, const std::string&,
+                               const std::string&) {
+        gui.set_campaign_started(true);
+    });
+
+    // `debrief` declares `onclose gpwCloseDebrief`. The window is already
+    // hidden by the caller; there is no debrief model to clear yet.
+    system.register_routine("gpwCloseDebrief",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    // Credits: the window declares `onopen onopenCredits` / `onclose
+    // oncloseCredits`. Opening shows the top of the list; closing is handled
+    // by the caller, so the hook has nothing left to do.
+    system.register_routine("onopenCredits",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string&) {
+        gui.scroll_window(window, 0, -1000000);
+    });
+    system.register_routine("oncloseCredits",
+                            [](GuiSystem&, const std::string&,
+                               const std::string&) {});
+
+    // Simulator: picking a mission type records which one; the icon's own
+    // `screen simul` verb does the navigation.
+    system.register_routine("gpwSimTypeSelected",
+                            [](GuiSystem& gui, const std::string& window,
+                               const std::string& icon) {
+        int type = 0;
+        if (icon == "first") type = 0;
+        else if (icon.size() == 1 && icon[0] >= '2' && icon[0] <= '6')
+            type = icon[0] - '1';
+        else return;
+        gui.select(window, icon, true);
+        gui.set_sim_type(type);
     });
 }
 

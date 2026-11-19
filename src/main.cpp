@@ -51,9 +51,11 @@ void usage() {
         "  --texture NAME      force one .tm atlas for every polygon\n"
         "  --palette NAME      palette in colours\\<NAME>.col (default 2000)\n"
         "  --gui SCREEN        load a GUI screen, e.g. mainmenu or missplan\n"
+        "  --archive FILE      read GUI/data from this DiD archive (default DID.DAT)\n"
         "  --gui-render FILE   render that screen to PNG (headless)\n"
         "  --gui-list          list the GUI screens in DID.DAT\n"
         "  --gui-routines      with --gui SCREEN, list the routines it needs\n"
+        "  --gui-dump          with --gui SCREEN, print windows, icons, keys and verbs\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
@@ -818,10 +820,12 @@ int main(int argc, char** argv) {
     std::string texture_override;
     std::string palette_name = "2000";
     std::string gui_screen;
+    std::string archive_override;
     std::string gui_render;
     std::string gui_lang = "en";
     bool gui_list = false;
     bool gui_routines = false;
+    bool gui_dump = false;
     bool gui_selftest = false;
     bool boot = false;
     bool sam_coverage = false, ewr_coverage = false;
@@ -863,6 +867,8 @@ int main(int argc, char** argv) {
             texture_override = argv[++i];
         } else if (std::strcmp(argv[i], "--palette") == 0 && i + 1 < argc) {
             palette_name = argv[++i];
+        } else if (std::strcmp(argv[i], "--archive") == 0 && i + 1 < argc) {
+            archive_override = argv[++i];
         } else if (std::strcmp(argv[i], "--gui") == 0 && i + 1 < argc) {
             gui_screen = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-render") == 0 && i + 1 < argc) {
@@ -875,6 +881,8 @@ int main(int argc, char** argv) {
             gui_list = true;
         } else if (std::strcmp(argv[i], "--gui-routines") == 0) {
             gui_routines = true;
+        } else if (std::strcmp(argv[i], "--gui-dump") == 0) {
+            gui_dump = true;
         } else if (std::strcmp(argv[i], "--gui-selftest") == 0) {
             gui_selftest = true;
         } else if (std::strcmp(argv[i], "--boot") == 0) {
@@ -919,9 +927,17 @@ int main(int argc, char** argv) {
 
     if (gui_list || !gui_screen.empty()) {
         namespace fs = std::filesystem;
-        const fs::path archive_path = fs::path(data) / "DID.DAT";
+        // EF2000 ships two archives. DID1ST.DAT holds the later, larger GUI
+        // set (missplan, summary, custom, directp, intro) and the campaign
+        // level dialog; prefer it when it is present.
+        fs::path archive_path = fs::path(data) / "DID.DAT";
+        if (!archive_override.empty()) {
+            archive_path = fs::path(archive_override);
+        } else if (fs::exists(fs::path(data) / "DID1ST.DAT")) {
+            archive_path = fs::path(data) / "DID1ST.DAT";
+        }
         if (!fs::exists(archive_path)) {
-            std::fprintf(stderr, "no DID.DAT in %s\n", data.c_str());
+            std::fprintf(stderr, "no %s\n", archive_path.string().c_str());
             return 1;
         }
         ef::DidArchive did(archive_path);
@@ -967,6 +983,52 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
+        if (gui_dump) {
+            ef::GuiLoader loader(did);
+            std::string error;
+            auto screen = loader.load(gui_screen, &error);
+            if (!screen) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            std::printf("screen %s: %zu windows", gui_screen.c_str(),
+                        screen->windows.size());
+            if (!screen->startup.empty())
+                std::printf(", startup %s", screen->startup.c_str());
+            std::printf("\n");
+            for (const auto& w : screen->windows) {
+                std::printf("\nwindow %s %d,%d %dx%d%s%s%s\n", w.name.c_str(), w.x,
+                            w.y, w.w, w.h, w.open ? " open" : "",
+                            w.scroll_x ? " xscroll" : "", w.scroll_y ? " yscroll" : "");
+                if (!w.title.empty()) {
+                    auto t = w.title.find(gui_lang);
+                    std::printf("  title \"%s\"\n",
+                                (t != w.title.end() ? t->second : w.title.begin()->second).c_str());
+                }
+                if (!w.on_open.empty()) std::printf("  onopen %s\n", w.on_open.c_str());
+                if (!w.on_close.empty()) std::printf("  onclose %s\n", w.on_close.c_str());
+                for (const auto& i : w.icons) {
+                    std::printf("  icon %-14s %3d,%-3d %3dx%-3d", i.name.c_str(), i.x,
+                                i.y, i.w, i.h);
+                    if (!i.key.empty()) std::printf(" key=%s", i.key.c_str());
+                    if (!i.skey.empty()) std::printf(" skey=%s", i.skey.c_str());
+                    if (i.bkd != -1) std::printf(" bkd=%d", i.bkd);
+                    if (i.box != -1) std::printf(" box=%d", i.box);
+                    if (i.esg >= 0) std::printf(" esg=%d", i.esg);
+                    if (i.toggle) std::printf(" toggle");
+                    if (i.editable_len >= 0) std::printf(" editable=%d", i.editable_len);
+                    const std::string label = i.label(gui_lang);
+                    if (!label.empty()) std::printf(" \"%s\"", label.c_str());
+                    std::printf("\n");
+                    for (const auto& a : i.actions) {
+                        std::printf("    %-10s -> %s%s%s\n", a.event.c_str(),
+                                    a.verb.c_str(), a.value.empty() ? "" : " ",
+                                    a.value.c_str());
+                    }
+                }
+            }
+            return 0;
+        }
         if (!gui_render.empty()) {
             ef::GuiRenderOptions options;
             options.language = gui_lang;
@@ -983,9 +1045,17 @@ int main(int argc, char** argv) {
 
     if (models || !mesh_name.empty()) {
         namespace fs = std::filesystem;
-        const fs::path archive_path = fs::path(data) / "DID.DAT";
+        // EF2000 ships two archives. DID1ST.DAT holds the later, larger GUI
+        // set (missplan, summary, custom, directp, intro) and the campaign
+        // level dialog; prefer it when it is present.
+        fs::path archive_path = fs::path(data) / "DID.DAT";
+        if (!archive_override.empty()) {
+            archive_path = fs::path(archive_override);
+        } else if (fs::exists(fs::path(data) / "DID1ST.DAT")) {
+            archive_path = fs::path(data) / "DID1ST.DAT";
+        }
         if (!fs::exists(archive_path)) {
-            std::fprintf(stderr, "no DID.DAT in %s\n", data.c_str());
+            std::fprintf(stderr, "no %s\n", archive_path.string().c_str());
             return 1;
         }
         try {

@@ -436,6 +436,41 @@ blue-grey from `colours\gui.col`. This build's GUI palette is therefore not
 `gui.col`. That is a concrete rendering difference that file inspection alone
 did not reveal.
 
+## Menu system
+
+EF2000 ships its GUI in two DiD archives, both readable with the same
+`plain8` directory:
+
+| Archive | GUI files | Notes |
+|---|---|---|
+| `DID.DAT` | 30 | first release |
+| `DID1ST.DAT` | 27 | later build with larger screens; adds `missplan`, `summary`, `custom`, `directp`, `intro`, and the Campaign Level Setting dialog inside `mainmenu` |
+
+The runtime prefers `DID1ST.DAT` when it is present, because that is the set
+the shipped executable uses; `--archive FILE` overrides. `--gui-dump` prints
+the windows, icons, keys, `esg` groups and verbs of a screen, which is how the
+map below was built.
+
+Observed shell flow:
+
+- main menu: `S` simulator, `C` campaign, `M` multiplay, `Esc` quit,
+  `Return` quick combat;
+- `C` opens Campaign Level Setting: ten difficulty rows in one `esg` group,
+  an Influence Yes/No pair, and Accept;
+- Accept raises "Generating Campaign...", the `generatecamp` window, whose
+  `onopen` hook is `gpwGenerateCampaign`;
+- Quick Combat: `R`/`P`/`T` difficulty, `F1`..`F12` mission, `Return` accept.
+
+`--gui-routines` tracks the routine layer: mainmenu 15 of 19, arcade 4 of 4,
+simpick 1 of 2. Still missing are the help system (`GenGUIHelp`), the debrief
+tabs (`gpwShowDebrief`, `gpwNextFlight`) and network arcade
+(`gnStartNetArcadeGame`); each needs content or observation that is not
+available yet.
+
+Window hooks (`onopen`/`onclose`) are routine names, and the runtime now runs
+them when a window opens or closes. That is how the credits list scrolls to
+the top, and how the generating window enters the campaign flow.
+
 ## Current limitations
 
 * The strategic map is still 2D; meshes are viewed in their own window, not
@@ -449,6 +484,10 @@ did not reveal.
 * Meshes are open shells with mixed winding, so backface culling is off by
   default.
 * ILBM screens load; ANIM playback is not implemented.
+* The renderer predates DID1ST support. Those screens often omit colour
+  directives and rely on the engine's default panel style, and some declare a
+  background `picture`; headless renders draw those panels black until the
+  default style and `picture` are modelled.
 * The GUI parses and renders, but screen navigation depends on routines from
   the original code that are not reconstructed yet. Quick Combat's difficulty,
   mission selection and Accept are implemented; its Summary text (mission
