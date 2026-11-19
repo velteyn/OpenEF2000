@@ -484,10 +484,10 @@ the top, and how the generating window enters the campaign flow.
 * Meshes are open shells with mixed winding, so backface culling is off by
   default.
 * ILBM screens load; ANIM playback is not implemented.
-* The renderer predates DID1ST support. Those screens often omit colour
-  directives and rely on the engine's default panel style, and some declare a
-  background `picture`; headless renders draw those panels black until the
-  default style and `picture` are modelled.
+* DID1ST screens carry no palettes (and no colour directives), so the renderer
+  reads `colours\gui.col` from the companion DID.DAT. Screens are legible, but
+  the original grey-green bevel and the `picture` backdrop are still
+  approximations.
 * The GUI parses and renders, but screen navigation depends on routines from
   the original code that are not reconstructed yet. Quick Combat's difficulty,
   mission selection and Accept are implemented; its Summary text (mission

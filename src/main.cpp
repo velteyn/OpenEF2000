@@ -51,7 +51,8 @@ void usage() {
         "  --texture NAME      force one .tm atlas for every polygon\n"
         "  --palette NAME      palette in colours\\<NAME>.col (default 2000)\n"
         "  --gui SCREEN        load a GUI screen, e.g. mainmenu or missplan\n"
-        "  --archive FILE      read GUI/data from this DiD archive (default DID.DAT)\n"
+        "  --archive FILE      read GUI/data from this DiD archive (default DID1ST when present)\n"
+        "  --dump-palette NAME print colours\\NAME.col as hex RGB\n"
         "  --gui-render FILE   render that screen to PNG (headless)\n"
         "  --gui-list          list the GUI screens in DID.DAT\n"
         "  --gui-routines      with --gui SCREEN, list the routines it needs\n"
@@ -821,6 +822,7 @@ int main(int argc, char** argv) {
     std::string palette_name = "2000";
     std::string gui_screen;
     std::string archive_override;
+    std::string dump_palette;
     std::string gui_render;
     std::string gui_lang = "en";
     bool gui_list = false;
@@ -867,6 +869,8 @@ int main(int argc, char** argv) {
             texture_override = argv[++i];
         } else if (std::strcmp(argv[i], "--palette") == 0 && i + 1 < argc) {
             palette_name = argv[++i];
+        } else if (std::strcmp(argv[i], "--dump-palette") == 0 && i + 1 < argc) {
+            dump_palette = argv[++i];
         } else if (std::strcmp(argv[i], "--archive") == 0 && i + 1 < argc) {
             archive_override = argv[++i];
         } else if (std::strcmp(argv[i], "--gui") == 0 && i + 1 < argc) {
@@ -925,7 +929,7 @@ int main(int argc, char** argv) {
         if (gui_screen.empty()) gui_screen = "mainmenu";
     }
 
-    if (gui_list || !gui_screen.empty()) {
+    if (gui_list || !gui_screen.empty() || !dump_palette.empty()) {
         namespace fs = std::filesystem;
         // EF2000 ships two archives. DID1ST.DAT holds the later, larger GUI
         // set (missplan, summary, custom, directp, intro) and the campaign
@@ -983,6 +987,17 @@ int main(int argc, char** argv) {
             }
             return 0;
         }
+        if (!dump_palette.empty()) {
+            auto pal = ef::load_gui_palette(did, dump_palette);
+            if (!pal) {
+                std::fprintf(stderr, "palette not found: %s\n", dump_palette.c_str());
+                return 1;
+            }
+            for (int i = 0; i < 256; ++i) {
+                std::printf("%3d %06x\n", i, (*pal)[static_cast<std::size_t>(i)]);
+            }
+            return 0;
+        }
         if (gui_dump) {
             ef::GuiLoader loader(did);
             std::string error;
@@ -995,6 +1010,10 @@ int main(int argc, char** argv) {
                         screen->windows.size());
             if (!screen->startup.empty())
                 std::printf(", startup %s", screen->startup.c_str());
+            if (!screen->palette.empty())
+                std::printf(", pal %s", screen->palette.c_str());
+            if (!screen->picture.empty())
+                std::printf(", picture %s", screen->picture.c_str());
             std::printf("\n");
             for (const auto& w : screen->windows) {
                 std::printf("\nwindow %s %d,%d %dx%d%s%s%s\n", w.name.c_str(), w.x,

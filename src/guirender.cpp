@@ -273,6 +273,25 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
     if (palette[15] == 0 && palette[1] == 0) {
         if (auto fallback = load_gui_palette(archive, "gui")) palette = *fallback;
     }
+    // DID1ST.DAT carries the later screens but no palettes at all; those live
+    // in DID.DAT. Read the companion archive rather than render in black.
+    if (palette[15] == 0 && palette[1] == 0 && !options.data_dir.empty()) {
+        const std::filesystem::path companion =
+            std::filesystem::path(options.data_dir) / "DID.DAT";
+        if (std::filesystem::exists(companion)) {
+            try {
+                DidArchive other(companion);
+                if (auto loaded = load_gui_palette(other, screen->palette))
+                    palette = *loaded;
+                else if (auto gui = load_gui_palette(other, "gui"))
+                    palette = *gui;
+                else if (auto plain = load_gui_palette(other, "2000"))
+                    palette = *plain;
+            } catch (const std::exception&) {
+                // Keep the black palette; the screen still renders geometry.
+            }
+        }
+    }
 
     GuiSystem system;
     system.set_screen(std::move(*screen));
