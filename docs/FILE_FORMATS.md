@@ -482,6 +482,10 @@ lines are a banner and may be ignored.
 - Mission records include `WP_ROUTE`, `WAYPOINT <x> <y> <z> <a> <b> <role>`,
   `FLIGHT <count> <type> <role> <status>`, and
   `TARGET_AREA <id> "<description>"`.
+- `TIMESLOTS <n>` is followed by `TIMESLOT <day> <hour> <minute> <action>
+  <role> <mission> <wave>` rows. Every flight of a package has its own
+  take-off and landing slot; the briefing time is the earliest `TAKE_OFF` row
+  carrying the mission's id.
 
 **Units.** Coordinates are grid cells for waypoints. Vertical values and
 timing units differ between releases; see Appendix B.

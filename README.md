@@ -61,12 +61,12 @@ subsystem; it is updated as work lands.
 | Strategic map (2D) | Working prototype, with SAM/EWR coverage overlays |
 | 3D model format and bytecode interpreter | Working |
 | Texture and palette decoding | Working |
-| GUI description language and runtime | Boots from the title card into the main menu; routine layer partly recovered |
+| GUI description language and runtime | Boots from the title card through the menu and campaign screen; mission list, briefing, overview and debrief filled from the loaded sorties; routine layer partly recovered |
 | Terrain and 3D world | Container mapped; elevation source not yet located |
 | Audio | Not started |
 | Flight model and avionics | Not started |
 | Scenario and campaign text | Working: `CONFLICT.CG` / `CAMPAIGN.CG` parsed and written, byte-exact round trip |
-| Campaign and mission generation | Working: full generator, deterministic from a seed; parity work continuing |
+| Campaign and mission generation | Working: full generator, deterministic from a seed; basing, routes and targets measured against captures |
 | Multiplayer | Not started |
 
 There is no playable game yet. The long-term shape of the project — the
@@ -127,15 +127,37 @@ specification.
   exactly. Its seed is the Unix timestamp of the DOS clock, which the generator
   also writes into the file header, so a captured run can be replayed offline.
 - **Verified:** the 77-base table matches the original on side, type, name and
-  position; the area order is identical; and replaying a captured timestamp
-  reproduces the thousands digit of all 543 target values with zero mismatches.
+  position; the area order is identical; replaying a captured timestamp
+  reproduces the thousands digit of all 543 target values with zero mismatches;
+  26/26 CAP airfields and 8/8 support airfields match the captured basing; and
+  the flyable airframe types used are 638 against the capture's 612, with
+  identical `SU35`/`JAS39`/`F18`/`SU27`/`SU33`/`TORNADO` flight counts.
+- **Route geometry:** strike packages now build one corridor per package with
+  0–10 intermediate fixes per leg, a shared escort/weasel route and conditional
+  refuelling; mean length 13.10 against the capture's 13.31.
 - **In the shell:** Campaign Level → Accept runs the generator, rewrites both
-  files and opens the campaign map, matching the original sequence.
+  files and opens the campaign map, matching the original sequence. The
+  mission list, briefing (including the sortie's own take-off time), overview
+  and debrief are filled from the generated sorties.
 
 What remains is exact parity on the randomised details (the low component of
-each target value, the mobile-to-area link, turn-to-turn attrition and patrol
-geometry). The current state is recorded in
-[`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md).
+each target value, the exact target-to-airfield pairing, the element-subset
+shuffle, turn-to-turn attrition and patrol geometry). The current state is
+recorded in [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md).
+
+### Campaign shell
+
+- **Mission Selection:** lists the flying missions of the side selected in the
+  map-mode bar, labelled role + target, and scrolls to the selected row.
+- **Mission Briefing:** mission number, sortie take-off time from the
+  `TIMESLOT` table, type, target, aircraft count and the Refuel / AWACS /
+  JSTARS flags. The flags follow the living roster, so shooting down a side's
+  last tanker or AWACS turns them off.
+- **Mission Overview:** target location and element, weapon, flying base,
+  diversion airfield, role and the strike / wild-weasel / escort flight counts.
+- **Mission Debrief:** current target damage from the live campaign state,
+  status and aircraft type. Combat results stay zero until the flight
+  simulation exists.
 
 ## Architecture
 

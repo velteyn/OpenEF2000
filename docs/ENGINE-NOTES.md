@@ -469,6 +469,16 @@ Observed shell flow:
   a non-strike flight), flying base, nearest other friendly airfield as the
   diversion, role, aircraft count and the strike / wild-weasel / escort flight
   counts.
+- The briefing **time** comes from the sortie's own timetable: the earliest
+  `TAKE_OFF` `TIMESLOT` for its mission id, falling back to the campaign clock
+  when the mission has no slot (intercepts are launched on demand). The
+  `Dataset` now parses the `TIMESLOT` rows.
+- The **Mission Debrief** window is filled from the selected sortie and the
+  live campaign state: current target damage from the campaign file's area
+  value, mission status (`OK` → `ACTIVE`), the aircraft type of the selected
+  pilot row, and zero enemy/additional kills and rating until the flight
+  simulation produces results. `TIMESLOT` parsing also updates the area values
+  from `CAMPAIGN.CG`, so the debrief is not stuck on the scenario values.
 - The campaign screen's `missionbrief` window shows the selected sortie:
   mission number, time, type, flight number, lead call sign, target, aircraft
   count, and the Refuel / AWACS / JSTARS support flags. It is filled from the

@@ -86,6 +86,14 @@ struct Mission {
     int pilot_slots = 0;
 };
 
+//! One entry of the mission timetable. Each flight of a package has its own
+//! take-off and landing slot.
+struct TimeSlot {
+    int day = 0, hour = 0, minute = 0;
+    std::string action, role;
+    int mission = -1, wave = 0;
+};
+
 struct Base {
     int line = 0;
     std::string side, type, name;
@@ -124,6 +132,7 @@ struct Dataset {
     std::vector<Base> bases;
     std::vector<Bna> bnas;
     std::vector<ConflictArea> areas;
+    std::vector<TimeSlot> timeslots;
     std::map<std::string, SupportAvailability> support;
 };
 

@@ -896,6 +896,44 @@ void fill_mission_overview(GuiSystem& gui, const Dataset& ds) {
     set("escort", std::to_string(role_planes(m, "ESCORT")));
 }
 
+//! Fills the Mission Debrief window. The mission file carries no combat
+//! results, so the damage shown is the campaign's current damage for the
+//! target and the combat counts stay at zero until the simulation exists.
+void fill_mission_debrief(GuiSystem& gui, const Dataset& ds) {
+    if (gui.find_window("debrief") == nullptr || ds.missions.empty()) return;
+    const int mi = std::clamp(gui.camp_mission(), 0,
+                              static_cast<int>(ds.missions.size()) - 1);
+    const Mission& m = ds.missions[mi];
+    const auto set = [&](const char* icon, const std::string& value) {
+        if (auto* w = gui.find_widget("debrief", icon); w != nullptr) {
+            w->text["en"] = value;
+            w->value = value;
+        }
+    };
+
+    const std::string target = mission_target_name(m);
+    int damage = 0;
+    for (const auto& area : ds.areas) {
+        if (strip_quotes(area.name) != target) continue;
+        const int site = area.value % 1000;
+        damage = std::clamp(1000 - site, 0, 1000);
+        break;
+    }
+    set("destpercent", std::to_string(damage / 10) + "%");
+    set("status", m.status == "OK" ? "ACTIVE" : m.status);
+    set("nenemy", "0");
+    set("additional", "0");
+    set("overall", "0%");
+
+    const int pilot = std::clamp(gui.debrief_pilot(), 0, 3);
+    const Flight* flight = nullptr;
+    if (pilot < static_cast<int>(m.flights.size()))
+        flight = &m.flights[static_cast<std::size_t>(pilot)];
+    else if (!m.flights.empty())
+        flight = &m.flights.front();
+    set("aircraft", flight != nullptr ? flight->aircraft : "-");
+}
+
 //! Rewrites the campaign mission list. The list shows the flying missions of
 //! the side selected in the map mode bar, in mission-file order.
 void fill_mission_list(GuiSystem& gui, const Dataset& ds) {
@@ -967,11 +1005,20 @@ void fill_mission_brief(GuiSystem& gui, const Dataset& ds) {
     std::snprintf(number, sizeof(number), "%04d", id);
     set("missionnum", number);
 
-    // The campaign clock, formatted as the briefing shows it.
+    // The sortie's own take-off slot, falling back to the campaign clock.
     int hour = 0, minute = 0;
     if (ds.world_status.size() >= 3) {
         hour = ds.world_status[1];
         minute = ds.world_status[2];
+    }
+    int earliest = INT_MAX;
+    for (const auto& slot : ds.timeslots) {
+        if (slot.action != "TAKE_OFF" || slot.mission != id) continue;
+        earliest = std::min(earliest, slot.hour * 60 + slot.minute);
+    }
+    if (earliest != INT_MAX) {
+        hour = earliest / 60;
+        minute = earliest % 60;
     }
     char clock[16];
     std::snprintf(clock, sizeof(clock), "%02d:%02d:00", hour, minute);
@@ -1060,6 +1107,7 @@ void select_campaign_mission(GuiSystem& system, const Dataset& dataset, int inde
     }
     fill_mission_brief(system, dataset);
     fill_mission_overview(system, dataset);
+    fill_mission_debrief(system, dataset);
 }
 
 void register_observed_routines(GuiSystem& system, const Dataset* dataset,
@@ -1806,8 +1854,8 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
 
     // Debrief tabs and NEXT are shared with the simulator debrief screen.
     system.register_routine("gpwShowDebrief",
-                            [](GuiSystem& gui, const std::string& window,
-                               const std::string& icon) {
+                            [dataset](GuiSystem& gui, const std::string& window,
+                                      const std::string& icon) {
         int pilot = 0;
         if (icon == "1") pilot = 0;
         else if (icon == "2") pilot = 1;
@@ -1816,13 +1864,15 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         else return;
         gui.select(window, icon, true);
         gui.set_debrief_pilot(pilot);
+        if (dataset != nullptr) fill_mission_debrief(gui, *dataset);
     });
     system.register_routine("gpwNextFlight",
-                            [](GuiSystem& gui, const std::string& window,
-                               const std::string&) {
+                            [dataset](GuiSystem& gui, const std::string& window,
+                                      const std::string&) {
         const int next = std::min(gui.debrief_pilot() + 1, 3);
         gui.set_debrief_pilot(next);
         gui.select(window, std::to_string(next + 1), true);
+        if (dataset != nullptr) fill_mission_debrief(gui, *dataset);
     });
 
     // Map option toggles. They have no `select` verb, so the routine owns the

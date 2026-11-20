@@ -13,6 +13,12 @@
 namespace ef {
 namespace {
 
+std::string unquote(std::string s) {
+    if (!s.empty() && s.front() == '"') s.erase(s.begin());
+    if (!s.empty() && s.back() == '"') s.pop_back();
+    return s;
+}
+
 std::string read_file(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) return {};
@@ -240,8 +246,16 @@ bool parse_mission(const std::string& path, Dataset& ds) {
             ds.bases.push_back(std::move(b));
             bi = static_cast<int>(ds.bases.size()) - 1;
             last = Last::Base;
-        } else if (kw == "TIMESLOTS" || kw == "TIMESLOT") {
-            // not needed for the strategic prototype
+        } else if (kw == "TIMESLOT" && t.size() >= 7) {
+            TimeSlot slot;
+            slot.day = to_int(t[1]);
+            slot.hour = to_int(t[2]);
+            slot.minute = to_int(t[3]);
+            slot.action = t[4];
+            slot.role = t[5];
+            slot.mission = to_int(t[6]);
+            if (t.size() > 7) slot.wave = to_int(t[7]);
+            ds.timeslots.push_back(std::move(slot));
         }
     }
     return true;
@@ -316,6 +330,30 @@ bool parse_campaign_support(const std::string& path, Dataset& ds) {
     std::string line;
     while (std::getline(file, line)) {
         auto t = tokenize(line);
+        if (t.empty()) continue;
+        if (t[0] == "SSNAME" && t.size() >= 4) {
+            // The campaign file carries the live damage for every area, so it
+            // supersedes the scenario values loaded from CONFLICT.CG.
+            const std::string name = unquote(t[1]);
+            const int value = to_int(t[3]);
+            bool updated = false;
+            for (auto& area : ds.areas) {
+                if (unquote(area.name) != name) continue;
+                area.value = value;
+                if (t.size() > 2) area.side = t[2];
+                updated = true;
+                break;
+            }
+            if (!updated) {
+                ConflictArea area;
+                area.name = t[1];
+                area.side = t[2];
+                area.value = value;
+                if (t.size() > 6) area.flag = t[6];
+                ds.areas.push_back(std::move(area));
+            }
+            continue;
+        }
         if (t.size() < 5 || t[0] != "MOB" || t[1] != "PL") continue;
         const std::string& type = t[2];
         const std::string& status = t[3];

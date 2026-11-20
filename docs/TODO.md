@@ -70,8 +70,12 @@ table unlocks:
       order, labelled role + target; scrolls to and highlights the selection.
 - [x] **Mission overview** — location, target element, weapon, base, diversion,
       role and flight counts filled from the selected sortie.
-- [ ] Populate the debrief window (results per mission).
-- [ ] Briefing time should come from the sortie, not the campaign clock.
+- [x] **Debrief window** — target damage from the live campaign state, status,
+      aircraft type and the selected pilot row. Enemy kills, additional targets
+      and the overall rating stay zero until the flight simulation exists.
+- [x] **Briefing time** — taken from the sortie's earliest `TAKE_OFF`
+      `TIMESLOT`, with the campaign clock as the fallback for on-demand
+      intercepts.
 
 ## 5. Campaign manager
 
