@@ -29,6 +29,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <functional>
 #include <vector>
 
 namespace ef {
@@ -526,7 +527,9 @@ private:
 //! strategic-map handlers need it to resolve a click to a target, base or
 //! waypoint. Screens that do not use the map work without it.
 struct Dataset;
-void register_observed_routines(GuiSystem& system, const Dataset* dataset = nullptr);
+void register_observed_routines(GuiSystem& system, const Dataset* dataset = nullptr,
+                                const std::filesystem::path& data_dir = {},
+                                std::function<void()> refresh_data = {});
 
 //! Fills the `hiscores` window from the loose `HISCORES.DAT` file: a 4-byte
 //! header then ten 25-byte records of name[16], three pad bytes, level u8 and

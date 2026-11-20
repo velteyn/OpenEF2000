@@ -444,7 +444,12 @@ The clean-room generator is in the engine:
 * CLI: `--mission-roundtrip FILE [--mission-write OUT]`, `--conflict FILE
   [--conflict-roundtrip OUT]`, `--campaign-selftest`, `--campaign-generate
   FILE --campaign-state FILE --campaign-out DIR`, `--campaign-seed N`,
-  `--campaign-difficulty N`.
+  `--campaign-difficulty N`, and `--campaign-accept-dir DIR` which drives the
+  GUI Accept path in isolation.
+* **GUI wiring.** The Campaign Level dialog's Accept now runs the generator
+  from `gpwGenerateCampaign`: it rebuilds both files in the data directory,
+  asks the driver to reload the mission data, closes the "Generating
+  Campaign..." panel and opens the campaign screen -- the original sequence.
 
 Verified against captured runs. Two comparisons:
 
@@ -480,9 +485,8 @@ production/attrition mix, patrol geometry, and the exact area tail order.
    air-defence site loop and the package policy; compare against captures.
 5. **Writers.** Emit `CAMPAIGN.CG` and `MISSION.CFG` in the observed order,
    then byte-compare a fixed-seed run against a captured run.
-6. **UI.** Wire the existing Campaign Level dialog and Accept to the
-   generator; keep the `Generating Campaign...` panel and the campaign screen
-   transition.
+6. **UI.** Done: Accept raises the `Generating Campaign...` panel, its
+   `onopen` hook runs the generator, and the campaign screen follows.
 
 Acceptance: a fixed seed and the shipped scenario reproduce a captured
 mission set exactly (modulo the timestamp comment), and the deterministic

@@ -458,7 +458,9 @@ Observed shell flow:
 - `C` opens Campaign Level Setting: ten difficulty rows in one `esg` group,
   an Influence Yes/No pair, and Accept;
 - Accept raises "Generating Campaign...", the `generatecamp` window, whose
-  `onopen` hook is `gpwGenerateCampaign`;
+  `onopen` hook is `gpwGenerateCampaign`. The hook now runs the reconstructed
+  generator against the data directory, rewrites `CAMPAIGN.CG` and
+  `MISSION.CFG`, reloads the mission data and opens the campaign screen;
 - Quick Combat: `R`/`P`/`T` difficulty, `F1`..`F12` mission, `Return` accept.
 
 Simulator flow, from the later screen set:

@@ -472,7 +472,15 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         // The shell still works without mission data; the map stays blank.
     }
 
-    ef::register_observed_routines(system, dataset ? &*dataset : nullptr);
+    ef::register_observed_routines(
+        system, dataset ? &*dataset : nullptr, data_dir,
+        [&dataset, &data_dir] {
+            try {
+                dataset = ef::load_dataset(data_dir.string());
+            } catch (const std::exception&) {
+                // Keep the previous data if the reload fails.
+            }
+        });
     system.run_startup();
 
     std::optional<ef::IlbmImage> backdrop =
@@ -1537,6 +1545,7 @@ int main(int argc, char** argv) {
     std::string palette_name = "2000";
     std::string gui_screen;
     bool campaign_selftest = false;
+    std::string campaign_accept_dir;
     std::string conflict_path;
     std::string conflict_out;
     std::string campaign_src;
@@ -1671,6 +1680,9 @@ int main(int argc, char** argv) {
             mission_in = argv[++i];
         } else if (std::strcmp(argv[i], "--mission-write") == 0 && i + 1 < argc) {
             mission_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-accept-dir") == 0 &&
+                   i + 1 < argc) {
+            campaign_accept_dir = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-selftest") == 0) {
             campaign_selftest = true;
         } else if (std::strcmp(argv[i], "--campaign-state") == 0 && i + 1 < argc) {
@@ -1774,6 +1786,24 @@ int main(int argc, char** argv) {
             std::printf("  round-trip %s\n", same ? "ok" : "MISMATCH");
             if (!same) return 1;
         }
+        return 0;
+    }
+
+    if (!campaign_accept_dir.empty()) {
+        // Drives the Campaign Level Accept path: the dialog raises
+        // "Generating Campaign...", whose onopen hook rebuilds the files.
+        ef::GuiSystem system;
+        ef::register_observed_routines(system, nullptr, campaign_accept_dir);
+        system.run_window_hook("generatecamp", "gpwGenerateCampaign");
+        const auto campaign = std::filesystem::path(campaign_accept_dir) /
+                              "CAMPAIGN.CG";
+        const auto mission = std::filesystem::path(campaign_accept_dir) /
+                             "MISSION.CFG";
+        std::printf("campaign accept: %s\n", system.campaign_started() ? "ran" : "skipped");
+        std::printf("  CAMPAIGN.CG %s\n",
+                    std::filesystem::exists(campaign) ? "present" : "missing");
+        std::printf("  MISSION.CFG %s\n",
+                    std::filesystem::exists(mission) ? "present" : "missing");
         return 0;
     }
 

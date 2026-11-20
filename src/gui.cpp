@@ -3,11 +3,15 @@
 
 #include "gui.h"
 
+#include "campaigngen.h"
+#include "conflict.h"
 #include "model.h"
 
 #include <algorithm>
 #include <cctype>
 #include <climits>
+#include <ctime>
+#include <filesystem>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -722,7 +726,9 @@ std::vector<std::string> GuiSystem::take_screen_requests() {
 // Routines whose effect has been established by running the original software
 // and observing the result. Keep this list small and evidence-backed: each
 // entry is a fact, not a guess, and the rest stay unimplemented on purpose.
-void register_observed_routines(GuiSystem& system, const Dataset* dataset) {
+void register_observed_routines(GuiSystem& system, const Dataset* dataset,
+                                const std::filesystem::path& data_dir,
+                                std::function<void()> refresh_data) {
     // Each entry below was established by running the shipped software and
     // observing the result, with the `.gui` data corroborating it.
 
@@ -848,12 +854,47 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset) {
                                const std::string&) {});
 
     // `generatecamp` declares `onopen gpwGenerateCampaign`; Accept raises that
-    // window. Campaign generation belongs to the campaign module, which is not
-    // reconstructed, so the decision is recorded and the window stays up.
+    // window. This is the Accept path from the Campaign Level dialog: it
+    // rebuilds CAMPAIGN.CG and MISSION.CFG in place, then leaves the
+    // "Generating Campaign..." panel for the campaign map -- exactly the
+    // original's sequence. With no data directory (GUI selftest) it only
+    // records the decision.
     system.register_routine("gpwGenerateCampaign",
-                            [](GuiSystem& gui, const std::string&,
-                               const std::string&) {
+                            [data_dir, refresh_data = std::move(refresh_data)](
+                                GuiSystem& gui, const std::string&,
+                                const std::string&) {
         gui.set_campaign_started(true);
+        if (data_dir.empty()) return;
+        const auto conflict_path = data_dir / "CONFLICT.CG";
+        const auto campaign_path = data_dir / "CAMPAIGN.CG";
+        if (!std::filesystem::exists(conflict_path)) return;
+
+        Scenario scenario;
+        Scenario state;
+        std::vector<TargetSite> table;
+        std::string error;
+        if (!load_conflict(conflict_path.string(), &scenario, &error)) return;
+        const bool have_state = std::filesystem::exists(campaign_path) &&
+                                load_conflict(campaign_path.string(), &state, &error);
+        if (!load_target_table(data_dir.string(), &table, &error)) return;
+
+        GenSettings settings;
+        settings.difficulty = gui.campaign_difficulty();
+        settings.influence = gui.campaign_influence() ? 1 : 0;
+        settings.seed = static_cast<std::uint32_t>(std::time(nullptr));
+
+        GeneratedCampaign generated;
+        if (!generate_campaign(scenario, have_state ? &state : nullptr, table,
+                               settings, &generated, &error))
+            return;
+        if (!write_campaign_file(campaign_path.string(), scenario, generated, &error))
+            return;
+        if (!generated.missions.save((data_dir / "MISSION.CFG").string(), &error))
+            return;
+
+        if (refresh_data) refresh_data();
+        gui.close_window("generatecamp");
+        gui.request_screen("campaign");
     });
 
     // `debrief` declares `onclose gpwCloseDebrief`. The window is already
