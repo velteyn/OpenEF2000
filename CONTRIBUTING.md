@@ -184,6 +184,10 @@ documentation describing the method used.
    not distrust; it protects you as much as the project.
 4. Merges are squashed or rebased to keep history readable.
 
+`main` is protected: force-pushes and branch deletion are blocked for everyone,
+including maintainers. Pull requests are expected to be green (Linux build and
+guard, Windows build, source hygiene) before they are merged.
+
 Reviewers may ask you to rewrite a change purely for provenance reasons, even
 if the code is correct. Please treat that as a normal review outcome.
 
