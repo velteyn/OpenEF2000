@@ -13,6 +13,7 @@
 #include "parser.h"
 #include "render.h"
 #include "shape3d.h"
+#include "ssd.h"
 #include "stats.h"
 #include "texture.h"
 
@@ -1559,6 +1560,7 @@ int main(int argc, char** argv) {
     int campaign_advance = 0;
     bool campaign_status = false;
     bool campaign_brief = false;
+    std::string ssd_name;
     unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
     std::string dump_palette;
@@ -1694,6 +1696,8 @@ int main(int argc, char** argv) {
             campaign_state = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-out") == 0 && i + 1 < argc) {
             campaign_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--ssd-labels") == 0 && i + 1 < argc) {
+            ssd_name = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-brief") == 0) {
             campaign_brief = true;
         } else if (std::strcmp(argv[i], "--campaign-status") == 0) {
@@ -1800,6 +1804,32 @@ int main(int argc, char** argv) {
             if (!same) return 1;
         }
         return 0;
+    }
+
+    if (!ssd_name.empty()) {
+        // Prints the supershape label table for a model, trying the later
+        // archive first and then the primary one.
+        namespace fs = std::filesystem;
+        for (const char* archive : {"DID1ST.DAT", "DID.DAT"}) {
+            const fs::path path = fs::path(data) / archive;
+            if (!fs::exists(path)) continue;
+            ef::DidArchive did(path);
+            auto entry = did.resolve(ssd_name, "ss\\", ".ssd");
+            if (!entry) continue;
+            auto bytes = did.read(*entry);
+            if (!bytes) continue;
+            const auto labels = ef::parse_ssd_labels(*bytes);
+            std::printf("%s: %s entry %u, %zu labels\n", ssd_name.c_str(), archive,
+                        entry->index, labels.size());
+            for (std::size_t i = 0; i < labels.size(); ++i) {
+                std::printf("  %2zu kind %5u  %6d %6d %6d\n", i, labels[i].kind,
+                            labels[i].x, labels[i].y, labels[i].z);
+            }
+            return 0;
+        }
+        std::fprintf(stderr, "%s: no ss\\%s.ssd in %s\n", ssd_name.c_str(),
+                     ssd_name.c_str(), data.c_str());
+        return 1;
     }
 
     if (campaign_brief) {
@@ -2072,6 +2102,7 @@ int main(int argc, char** argv) {
         settings.difficulty = scenario.difficulty;
         settings.seed = campaign_seed;
         settings.world_status = {0, 0, 0, 2};
+        settings.data_dir = data;
         settings.draw_offset = campaign_offset;
         settings.advance_steps = campaign_advance;
 

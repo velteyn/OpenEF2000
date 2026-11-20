@@ -436,7 +436,14 @@ authored rather than generated.
 
 ### 8.3 Defence slots and the mobile link
 
-Every area carries a defence-slot list. The slot count follows the class:
+Every area carries a defence-slot list. Its positions come from the
+installation model: the `.ssd` label table holds 20-byte records, and every
+entry whose kind is `0xFFFF` is one ring position. Slot *s* uses entry *s* of
+that run, rotated by the area's heading. `trond.ssd`, for example, carries
+exactly the eight offsets the captured Vaernes ring uses
+(`-200 -864`, `-703 669`, `190 682`, `233 -734`, …).
+
+The slot count follows the class:
 
 | Class | Slots |
 |---|---:|

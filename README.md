@@ -345,6 +345,7 @@ committed.
 | Document | Contents |
 |---|---|
 | [`docs/FILE_FORMATS.md`](docs/FILE_FORMATS.md) | Clean-room specifications for the archive, mesh, texture, terrain, mission and GUI formats |
+| [`docs/TODO.md`](docs/TODO.md) | Remaining work, ordered by what unlocks the most |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Two products from one engine: the faithful reconstruction first, then a standalone game with invented assets and the same mechanics |
 | [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md) | Campaign generator: phases, inputs, the 543-entry base table, RNG and seed, tasking rules, output invariants and current parity status |
 | [`docs/TOOL-EVALUATION.md`](docs/TOOL-EVALUATION.md) | Tools considered for RE and verification, with decisions and the kvikdos-ng experiment plan |

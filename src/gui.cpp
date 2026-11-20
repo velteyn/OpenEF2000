@@ -997,6 +997,7 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         if (!load_target_table(data_dir.string(), &table, &error)) return;
 
         GenSettings settings;
+        settings.data_dir = data_dir.string();
         settings.difficulty = gui.campaign_difficulty();
         settings.influence = gui.campaign_influence() ? 1 : 0;
         settings.seed = static_cast<std::uint32_t>(std::time(nullptr));

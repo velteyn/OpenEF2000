@@ -30,7 +30,8 @@ add_executable(openef2000
     src/conflict.cpp
     src/campaign.cpp
     src/mission.cpp
-    src/campaigngen.cpp)
+    src/campaigngen.cpp
+    src/ssd.cpp)
 
 target_link_libraries(openef2000 PRIVATE
     PkgConfig::SDL2

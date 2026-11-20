@@ -3,6 +3,8 @@
 
 #include "campaigngen.h"
 
+#include "did.h"
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -346,6 +348,41 @@ const AttackNodeDef kMobile[2] = {
 
 }  // namespace
 
+namespace {
+
+//! Reads the label tables for the given models from the shipped archives.
+std::map<std::string, std::vector<SsLabel>> load_model_labels(
+    const std::string& data_dir, const std::vector<std::string>& models) {
+    std::map<std::string, std::vector<SsLabel>> out;
+    if (data_dir.empty() || models.empty()) return out;
+    namespace fs = std::filesystem;
+    for (const char* archive : {"DID1ST.DAT", "DID.DAT"}) {
+        const fs::path path = fs::path(data_dir) / archive;
+        if (!fs::exists(path)) continue;
+        std::unique_ptr<DidArchive> did;
+        try {
+            did = std::make_unique<DidArchive>(path);
+        } catch (const std::exception&) {
+            continue;
+        }
+        for (const auto& model : models) {
+            if (out.count(model) != 0) continue;
+            const std::string stem = model.size() > 4 &&
+                                             model.compare(model.size() - 4, 4, ".sss") == 0
+                                         ? model.substr(0, model.size() - 4)
+                                         : model;
+            auto entry = did->resolve(stem, "ss\\", ".ssd");
+            if (!entry) continue;
+            auto bytes = did->read(*entry);
+            if (!bytes) continue;
+            out[model] = parse_ssd_labels(*bytes);
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
 bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                        const std::vector<TargetSite>& table,
                        const GenSettings& settings, GeneratedCampaign* out,
@@ -389,8 +426,10 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         GenArea out_area;
         out_area.name = area.name;
         const TargetSite* row = table_by_name[area.name];
+        out_area.model = row->model;
         out_area.x = row->x;
         out_area.y = row->y;
+        out_area.heading = row->altitude;
         out_area.type = row->type;
         out_area.side = area.side;
         out_area.airfield1 = area.airfield1;
@@ -402,8 +441,10 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         if (listed.count(table[i].name) != 0) continue;
         GenArea out_area;
         out_area.name = table[i].name;
+        out_area.model = table[i].model;
         out_area.x = table[i].x;
         out_area.y = table[i].y;
+        out_area.heading = table[i].altitude;
         out_area.type = table[i].type;
         out_area.airfield1 = 30;
         out_area.airfield2 = 30;
@@ -484,12 +525,42 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         campaign.bases.push_back(std::move(base));
     }
 
-    // 4. Defence sites around every base area.
+    // 4. Defence sites around every base area. The offsets come from the
+    //    installation model's label table when it is available: every entry
+    //    with kind 0xFFFF is one ring position, rotated by the area's heading.
+    std::vector<std::string> models;
+    for (const auto& area : campaign.areas) {
+        if (std::find(models.begin(), models.end(), area.model) == models.end())
+            models.push_back(area.model);
+    }
+    const auto model_labels = load_model_labels(settings.data_dir, models);
     for (auto& area : campaign.areas) {
         // The slot count follows the installation class: airfields carry the
         // full four-slot ring (Vulcan, Roland, Patriot, Rapier -- or SA-6,
         // SA-11, SA-11, ZSU), larger installations three, outlying sites one.
         const int count = site_count_for_type(area.type);
+        std::vector<const SsLabel*> ring;
+        if (const auto it = model_labels.find(area.model); it != model_labels.end()) {
+            for (const auto& label : it->second) {
+                if (label.kind == kSsDefencePoint) ring.push_back(&label);
+            }
+        }
+        if (!ring.empty()) {
+            for (int i = 0; i < count; ++i) {
+                const SsLabel& label = *ring[static_cast<std::size_t>(i) % ring.size()];
+                DefenceSite site;
+                int ox = label.x;
+                int oy = label.y;
+                rotate_by_heading(area.heading, &ox, &oy);
+                site.off_x = ox;
+                site.off_y = oy;
+                site.health = 100;
+                site.a = rng.between(0, 2047);
+                site.b = rng.between(0, 2047);
+                area.sites.push_back(site);
+            }
+            continue;
+        }
         const double base_angle = static_cast<double>(rng.between(0, 359));
         for (int i = 0; i < count; ++i) {
             DefenceSite site;

@@ -17,6 +17,7 @@
 #include "campaign.h"
 #include "conflict.h"
 #include "mission.h"
+#include "ssd.h"
 
 #include <array>
 #include <cstdint>
@@ -50,6 +51,7 @@ struct GenSettings {
     //! Draws consumed by the shell before generation starts. It varies with
     //! the session (three in most captured runs, zero in one), so it is a
     //! replay knob rather than a generator rule.
+    std::string data_dir;  //!< game data, used to read `.ssd` label tables
     int draw_offset = 0;
     //! Eight-hour campaign steps to advance before generating (0 or more).
     int advance_steps = 0;
@@ -72,8 +74,10 @@ struct DefenceSite {
 struct GenArea {
     std::string name;
     std::string side;
+    std::string model;   //!< `.sss` model name from the table
     int x = 0;
     int y = 0;
+    int heading = 0;     //!< model heading (0/90/180/270)
     int type = 0;
     int value = 1000;
     int airfield1 = 0;
