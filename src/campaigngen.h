@@ -71,6 +71,12 @@ struct DefenceSite {
     int c = 0;
 };
 
+//! A target sub-element taken from the installation model.
+struct AreaElement {
+    int kind = 0;
+    int x = 0, y = 0, z = 0;
+};
+
 struct GenArea {
     std::string name;
     std::string side;
@@ -84,6 +90,7 @@ struct GenArea {
     int airfield2 = 0;
     int map_cell = 0;
     std::vector<DefenceSite> sites;
+    std::vector<AreaElement> elements;
 };
 
 struct GenBase {

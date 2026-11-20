@@ -297,6 +297,12 @@ The attack geometry is **constant**, not generated: every captured
 | `STAND_OFF_ATTACK` | 6 | 5 | strike against anything else, and SEAD |
 | `MOBILE_ATTACK` | 6 | 2 | wild-weasel flights |
 
+Each strike flight's `TARGET_AREA` lists the installation's own sub-elements:
+the `.ssd` label entries (excluding the defence ring and the dispersal parking
+spots), rotated by the area heading, with the kind naming the element
+(`HANGAR8`, `CONTROL_TOWER`, `RUNWAY`, …). A mission carries two, four or six
+of them, and the strike flight's size follows that count.
+
 The three templates are reproduced exactly. Which pattern appears depends on
 the flight role and the target class: airfield-denial packages strike airfields
 (laydown), interdiction and SEAD go after the ports and other installations

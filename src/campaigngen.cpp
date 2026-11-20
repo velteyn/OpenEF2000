@@ -26,6 +26,39 @@ namespace {
 // ---------------------------------------------------------------------------
 
 //! Ground installation classes, in the order the game's type table uses.
+//! Target-element names, indexed by the kind stored in the `.ssd` label table.
+const char* const kElementNames[] = {
+    "EWR_SITE", "GLOBES", "DISHES", "DIRECTIONAL_RADAR", "CONTROL_BUILDING",
+    "C4_TYPE", "HQ_BUILDING", "COMMAND_VEHICLE", "COMMAND_BUNKER",
+    "COMMS_BUILDING", "GLOBE_ARRAY", "SUPPLY DUMP", "ACCESS_ROAD",
+    "HARDENED_WAREHOUSE", "CAMOUFLAGED_WAREHOUSE", "SMALL_WAREHOUSE",
+    "LARGE_WAREHOUSE", "MUNITIONS_BUILDING", "STACKED_CONTAINERS",
+    "CHOKE_POINT", "ROAD_RAIL_BRIDGE", "ROAD_BRIDGE", "RAIL_BRIDGE",
+    "ROAD_TUNNEL", "RAIL_TUNNEL", "BRIDGING_VEHICLES", "ROAD_JUNCTION",
+    "RAIL_CROSSING", "SHELTERED_TERMINUS", "POLITICAL_INDUSTRIAL",
+    "TILE_ROOF_BUILDING", "MULTI_STOREY_OFFICES", "SMALL_FACTORY",
+    "LARGE_FACTORY", "POWER_STATION_TOWERS", "FACTORY_CHIMNEYS",
+    "TOWN_BUILDING", "CITY_BUILDING", "POL_TYPE", "OIL_REFINERY",
+    "OIL_CONTAINERS", "PUMPING_STATION", "OILRIGS", "POWER_STATION",
+    "CYLINDRICAL_VESSELS", "CONNECTING_PIPE", "NUCLEAR_POWER_BUILDING",
+    "COOLING_TOWER", "MINERAL_BURN_BUILDING", "AIRFIELD", "HAS2", "HANGAR8",
+    "HANGAR4", "CONTROL_TOWER", "APRON", "RUNWAY", "DISPERSED", "AIR_DEFENSE",
+    "SA_6", "SA_11", "PATRIOT", "RAPIER", "MARCONI_S723", "MARCONI_S373",
+    "M_163_VULCAN", "ZSU_23_4_SHILKA", "T80", "BRIDGING _VECICLE",
+    "ARTILLERY_UNIT", "GROUND_FORCE", "TROOPS", "ECM_FORCE", "MOBILE BRIDGE",
+    "PORT", "FORTIFIED_MARINER", "QUAY", "POL_PLATFORM", "DOCKSIDE_CRANE",
+    "DRY_DOCK", "DAM", "DAM_SLUICE_CONTROL", "DAM_GENERATION_PLANT", "TENT",
+    "POLITICAL_BUILDING", "HOSPITAL", "CHURCH", "OIL_AND_SUPPLY_DUMP",
+    "TRIPPLE_A", "SAM_SITE", "SUPPLY_UNIT", "TRUCK", "BMP_1", "CHALENGER",
+    "D_30", "M198", "MLRS", "M110", "M1973", "RM70", "ROLAND", "WARRIOR",
+    "AWACS_TYPE", "JSTARS_TYPE", "REFUELLER_TYPE", "AA_TYPE", "NAVY_GROUP"};
+
+const char* element_name(int kind) {
+    static constexpr int kCount =
+        static_cast<int>(sizeof(kElementNames) / sizeof(kElementNames[0]));
+    return kind >= 0 && kind < kCount ? kElementNames[kind] : "TARGET";
+}
+
 const char* const kGroundTypes[] = {
     "BEDFORD_1", "BEDFORD_2", "BMP_1",   "CHALENGER", "D_30",      "JUG_1",
     "JUG_2",     "JUG_3",     "M_163_VULCAN", "M198",  "MLRS",     "MOBRIDGE",
@@ -534,6 +567,39 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             models.push_back(area.model);
     }
     const auto model_labels = load_model_labels(settings.data_dir, models);
+
+    // Target elements: the non-marker entries of the model, rotated by the
+    // area heading. A mission carries two, four or six of them.
+    for (auto& area : campaign.areas) {
+        const auto it = model_labels.find(area.model);
+        if (it == model_labels.end()) continue;
+        std::vector<const SsLabel*> candidates;
+        for (const auto& label : it->second) {
+            // Only real target elements: valid type-table entries, and not the
+            // dispersal parking spots.
+            if (label.kind < 106 && label.kind != 56) candidates.push_back(&label);
+        }
+        if (candidates.empty()) continue;
+        // The original shuffles the element list before taking the first few,
+        // which is why neighbouring installations expose different subsets.
+        for (std::size_t i = candidates.size(); i > 1; --i) {
+            const std::size_t j =
+                static_cast<std::size_t>(rng.range(static_cast<int>(i)));
+            std::swap(candidates[i - 1], candidates[j]);
+        }
+        const int want = 2 * (1 + rng.range(3));
+        const int n = std::min<int>(want, static_cast<int>(candidates.size()));
+        for (int i = 0; i < n; ++i) {
+            AreaElement element;
+            element.kind = candidates[i]->kind;
+            element.x = candidates[i]->x;
+            element.y = candidates[i]->y;
+            element.z = candidates[i]->z;
+            rotate_by_heading(area.heading, &element.x, &element.y);
+            area.elements.push_back(element);
+        }
+    }
+
     for (auto& area : campaign.areas) {
         // The slot count follows the installation class: airfields carry the
         // full four-slot ring (Vulcan, Roland, Patriot, Rapier -- or SA-6,
@@ -965,14 +1031,29 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 emit.addv("WAYPOINT", {"4", Number(base->x), Number(base->y), "0",
                                        "0", "0", "LANDING", "0", "0", "0"});
                 emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
-                if (r != "WW" && target_area) {
+                if ((r == "STRIKE" || r == "SEAD_STRIKE") && target_area) {
                     emit.addv("TARGET_AREA",
                               {base_type_for(target->type),
                                "\"" + target->name + "\""});
                     emit.addv("3DP", {Number(target->x), Number(target->y), "0",
                                       "0", "0", "0"});
-                    emit.addv("LEAD", {"TARGET", "HANGAR8", "\"\"", "0", "0", "0",
-                                       "0", "0", "0"});
+                    static const char* const kSlots[] = {"LEAD",  "TWO", "THREE",
+                                                         "FOUR", "FIVE", "SIX"};
+                    if (!target->elements.empty()) {
+                        const std::size_t n =
+                            std::min<std::size_t>(target->elements.size(), 6);
+                        for (std::size_t i = 0; i < n; ++i) {
+                            const auto& element = target->elements[i];
+                            emit.addv(kSlots[i],
+                                      {"TARGET", element_name(element.kind),
+                                       "\"\"", Number(element.x),
+                                       Number(element.y), Number(element.z), "0",
+                                       "0", "0"});
+                        }
+                    } else {
+                        emit.addv("LEAD", {"TARGET", "HANGAR8", "\"\"", "0", "0",
+                                           "0", "0", "0", "0"});
+                    }
                 }
                 // The attack geometry is a fixed template per pattern type and
                 // depends only on the flight role and the target class.
@@ -1116,10 +1197,15 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const GenArea* target = nullptr;
                 const bool strike_role = role == "AF_KILL" || role == "INTERD" ||
                                          role == "SEAD";
+                int strike_ships = 4;
                 if (role == "AF_KILL" && !airfield_targets.empty())
                     target = airfield_targets[target_index++ % airfield_targets.size()];
                 else if (strike_role && !other_targets.empty())
                     target = other_targets[target_index++ % other_targets.size()];
+                if (target != nullptr && !target->elements.empty()) {
+                    strike_ships = std::clamp(
+                        static_cast<int>(target->elements.size()), 2, 6);
+                }
 
                 const int wave = serial;
                 if (support) {
@@ -1130,8 +1216,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     emit_flight(base, escort.c_str(), "ESCORT", 4, nullptr, false, wave + 2, true, id);
                     out->aircraft += 1 + 4;
                 } else if (role == "AF_KILL") {
-                    emit_flight(base, type.c_str(), "STRIKE", 4, target, true, wave, true, id);
-                    out->aircraft += 4;
+                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, true, wave, true, id);
+                    out->aircraft += strike_ships;
                     if (af_ww) {
                         emit_flight(base, type.c_str(), "WW", 2, target, true, wave + 2, true, id);
                         out->aircraft += 2;
@@ -1144,14 +1230,14 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                         out->aircraft += 4;
                     }
                 } else if (role == "INTERD") {
-                    emit_flight(base, type.c_str(), "STRIKE", 4, target, true, wave, true, id);
+                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, true, wave, true, id);
                     out->aircraft += 4;
                     if (interd_escort) {
                         emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 2, true, id);
                         out->aircraft += 4;
                     }
                 } else if (role == "SEAD") {
-                    emit_flight(base, type.c_str(), "STRIKE", 6, target, true, wave, true, id);
+                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, true, wave, true, id);
                     emit_flight(base, type.c_str(), "SEAD_STRIKE", 4, target, true, wave + 2,
                                 true, id);
                     emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4,

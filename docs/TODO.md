@@ -24,12 +24,12 @@ table unlocks:
 - [x] **Defence-ring offsets** — the `0xFFFF` entries in order per slot, rotated
       by the area heading. Verified against the captured rings (`trond.ssd`,
       `airfld_1.ssd`); `--ssd-labels NAME` prints a model's table.
-- [ ] **`TARGET_AREA` sub-elements** — every non-`0xFFFF` entry is an element;
-      its kind indexes the target-element table (51 = `HANGAR8`,
-      53 = `CONTROL_TOWER`, 55 = `RUNWAY`, …). The capture uses the first N in
-      file order.
-- [ ] **Strike flight size** — the capture's 2/3/4/5/6-ship strike flights equal
-      the number of elements the target area exposes.
+- [x] **`TARGET_AREA` sub-elements** — model entries with a valid element kind
+      (DISPERSED excluded), rotated by the area heading, two to six per mission.
+      The element *subset* is shuffled before selection, so it is close to the
+      capture rather than identical (the exact shuffle order is still open).
+- [x] **Strike flight size** — the strike flight is sized by the number of
+      elements the target area exposes (2–6), as in the capture.
 - [ ] **Low target-value component (982–1000)** — likely derived from the same
       table; confirm once the reader exists.
 
