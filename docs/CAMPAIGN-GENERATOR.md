@@ -278,7 +278,9 @@ Mission routes are not random walks. The captured files show three shapes:
 * **AWACS and JSTARS** orbit a station about **forty units** from the base on a
   wide loop (span ~34). Altitude 250.
 * **Tankers** fly a wide racetrack (span ~39) centred on their base.
-* **Strike packages** use a short ingress, the target, and a direct egress.
+* **Strike packages** take off, **refuel** at a tanker track behind the base,
+  ingress, strike and recover. `REFUEL` waypoints appear on the strike,
+  interdiction and anti-AWACS/tanker packages, never on CAP or INTC.
 
 The generator reproduces the fighter box and the support orbits; measured
 against the capture the fighter patrol span is 5.3 units against 5.0.
@@ -305,6 +307,9 @@ uses are still open. `--campaign-status` prints the ratios and thresholds.
 `MISSION.CFG`:
 
 * `NUM_MISSIONS` and `INCLUDE_PILOTS`;
+* each `MISSION` line is `MISSION <kind> <side> <role> <status> <base> <id>
+  <groups>`, where `<base>` is the flying base index (`-1` for a ground
+  battery) and `<groups>` is the number of flights or groups in the package;
 * `WORLD_STATUS`;
 * `MISSION`, `GROUP`, `3DP`, `WP_ROUTE`, `WAYPOINT`, `TARGET`,
   `TARGET_AREA`, `ATTACK_PATTERN`, `ATTACK_ROUTE`, `ATTACK_NODE`,

@@ -653,7 +653,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const int id = mission_id++;
                 if (convoy_base >= 0)
                     schedule[convoy_base].emplace_back(id, "SEA_SUPPLY");
-                emit.addv("MISSION", {"SHIP", key.first, "SEA_SUPPLY", "OK", "0",
+                emit.addv("MISSION", {"SHIP", key.first, "SEA_SUPPLY", "OK",
+                                      Number(convoy_base >= 0 ? convoy_base : -1),
                                       Number(id), "3"});
                 emit.addv("GROUP", {"3", hull, "ESCORT", "OK"});
                 emit.addv("GROUP", {"3", "SUPPLY_SHIP", "SUPPLY", "OK"});
@@ -834,15 +835,20 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             emit.addv("3DP", {Number(base->x), Number(base->y), "0", "0", "0", "0"});
             const std::string r(flight_role);
             if (strike_route && target != nullptr) {
-                emit.addv("WP_ROUTE", {"4", "0", "0"});
+                // Strike packages top up at a tanker track behind the base
+                // before ingressing.
+                emit.addv("WP_ROUTE", {"5", "0", "0"});
                 emit.addv("WAYPOINT", {"0", Number(base->x), Number(base->y), "0",
                                        "0", "0", "TAKE_OFF", "0", "0", "0"});
-                emit.addv("WAYPOINT", {"1", Number(target->x), Number(target->y),
-                                       "0", "0", "0", "INGRESS", "0", "0", "0"});
+                emit.addv("WAYPOINT", {"1", Number(base->x - 26),
+                                       Number(base->y - 1), "250", "0", "0",
+                                       "REFUEL", "0", "0", "0"});
                 emit.addv("WAYPOINT", {"2", Number(target->x), Number(target->y),
+                                       "0", "0", "0", "INGRESS", "0", "0", "0"});
+                emit.addv("WAYPOINT", {"3", Number(target->x), Number(target->y),
                                        "0", "0", "0", "STRIKE_TARGET", "0", "0",
                                        "0"});
-                emit.addv("WAYPOINT", {"3", Number(base->x), Number(base->y), "0",
+                emit.addv("WAYPOINT", {"4", Number(base->x), Number(base->y), "0",
                                        "0", "0", "LANDING", "0", "0", "0"});
                 emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
                 if (r != "WW" && target_area) {
@@ -934,8 +940,21 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const std::string role = req.role;
                 const int serial = role_serial[role]++;
                 schedule[base->index].emplace_back(id, role);
-                emit.addv("MISSION", {"PLANE", req.side, role, "OK", "0",
-                                      Number(id), "1"});
+                // The mission line carries the flying base and the number of
+                // flights in the package, as the captured files do.
+                const bool support = role == "AWACS_PATROL" ||
+                                     role == "JSTARS_PATROL" ||
+                                     role == "REFUELLER_PATROL";
+                const bool af_escort = role == "AF_KILL" && serial % 4 == 0;
+                const bool interd_escort = role == "INTERD" && serial % 12 < 5;
+                int flight_count = 1;
+                if (support) flight_count = 2;
+                else if (role == "AF_KILL") flight_count = 2 + (af_escort ? 1 : 0);
+                else if (role == "INTERD") flight_count = 1 + (interd_escort ? 1 : 0);
+                else if (role == "SEAD") flight_count = 3;
+                emit.addv("MISSION", {"PLANE", req.side, role, "OK",
+                                      Number(base->index), Number(id),
+                                      Number(flight_count)});
 
                 const char* preferred = aircraft_for(req.side);
                 if (role == "AWACS_PATROL")
@@ -953,8 +972,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     target = strike_targets[target_index++ % strike_targets.size()];
 
                 const int wave = serial;
-                if (role == "AWACS_PATROL" || role == "JSTARS_PATROL" ||
-                    role == "REFUELLER_PATROL") {
+                if (support) {
                     const char* fr = role == "AWACS_PATROL"   ? "AWACS"
                                      : role == "JSTARS_PATROL" ? "JSTAR"
                                                                : "REFUEL";
@@ -965,14 +983,14 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     emit_flight(base, type.c_str(), "STRIKE", 4, target, true, wave, true, id);
                     emit_flight(base, type.c_str(), "WW", 2, target, true, wave + 2, true, id);
                     out->aircraft += 6;
-                    if (serial % 4 == 0) {
+                    if (af_escort) {
                         emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4, true, id);
                         out->aircraft += 4;
                     }
                 } else if (role == "INTERD") {
                     emit_flight(base, type.c_str(), "STRIKE", 4, target, true, wave, true, id);
                     out->aircraft += 4;
-                    if (serial % 12 < 5) {
+                    if (interd_escort) {
                         emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 2, true, id);
                         out->aircraft += 4;
                     }
