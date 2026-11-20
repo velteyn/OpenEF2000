@@ -28,7 +28,9 @@ add_executable(openef2000
     src/ilbm.cpp
     src/stats.cpp
     src/conflict.cpp
-    src/campaign.cpp)
+    src/campaign.cpp
+    src/mission.cpp
+    src/campaigngen.cpp)
 
 target_link_libraries(openef2000 PRIVATE
     PkgConfig::SDL2

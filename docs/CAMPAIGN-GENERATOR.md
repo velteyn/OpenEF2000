@@ -306,25 +306,127 @@ rewritten.
   generation (the seed is at startup; the number of draws before generation
   depends on startup work).
 
-## 8. Implementation status
+## 8. The fixed target/base table
 
-The clean-room foundation is in the engine now:
+The generator does not take its area list from `CONFLICT.CG`. It walks a
+**543-entry table stored as a plain-text block inside `DID1ST.DAT`**:
 
+```
+x  y  altitude  model.sss  "Name"  ;type
+164  14  0  airfld_1.sss  "Vaxjo"  ;40
+```
+
+`type` is the installation class:
+
+| Type | Meaning | Count |
+|---|---|---:|
+| 40..47 | airfield | 28 |
+| 90..95 | port (supply, oil, power, political, army) | 31 |
+| 204..207 | naval station / dock | 13 |
+| 63 | reserve airfield (`early1.sss`) | 31 |
+| 79 | oil rig | 18 |
+| 96..143, 159 | towns, industry, EWR, bridges, chokepoints | 422 |
+
+The scenario's 542 `SSNAME` records are matched to the table **by name**. The
+one table entry missing from `CONFLICT.CG` (`Visby`) is added anyway, taking the
+side of its nearest listed neighbour. The written `CAMPAIGN.CG` therefore has
+**543** areas.
+
+Area order in the output is grouped by installation class in a fixed priority
+(airfields, ports, naval stations, rigs, EWR, towns, ...), preserving table
+order inside a group. A handful of entries are appended after their group; the
+set and grouping are reproduced, the exact tail order is not yet.
+
+### 8.1 Ownership is inherited, not recomputed
+
+The previous `CAMPAIGN.CG` is the ownership source. In the shipped state 35
+NATO areas are already Russian (`Vaernes`, `Bodo`, `Trondheim`, the
+Steinkjer/Ballangen/Trofors corridor, ...). Those sides survive generation
+unchanged, and the `BASE` blocks take the side of their area. Editing
+`CONFLICT.CG` alone therefore does not reset the front.
+
+The two 1997-era campaign files shipped in `Campaign_SourceData` (all
+difficulties) carry exactly the same 35 flips, which confirms the state is
+authored rather than generated.
+
+### 8.2 Defence slots
+
+Every area carries a defence-site ring. The slot count follows the class:
+
+| Class | Slots |
+|---|---:|
+| airfields 40..47 | 4 |
+| 127, 204 | 4 |
+| 96..143 (except 142/143) | 3 |
+| everything else, including 142/143 and ports | 1 |
+
+The slot loop picks a weapon class by counter, not by side alone:
+
+* **Western** (NATO, Swedish, Danish, US, UK): `Rapier, Vulcan, Roland, Patriot`
+* **Eastern** (Russian, Finnish, Baltic): `ZSU-23-4, SA-6, SA-11, SA-11`
+
+Slot 0 therefore asks for a Vulcan (west) or SA-6 (east), slot 1 for Roland or
+SA-11, and so on. Roland never appears in the shipped order of battle, so that
+slot is always empty.
+
+Each slot consumes the anti-air mobiles assigned to that area in chunks of
+eight: while more than eight remain, one mission carries eight; the tail
+mission carries the remainder. The mission count therefore follows the
+available mobiles and the slot count, which is why it varies between runs.
+
+### 8.3 Tasking totals
+
+The air tasking totals are invariant. One captured run:
+
+| Role | NATO | Russian | Swedish | Finnish | Total |
+|---|---:|---:|---:|---:|---:|
+| CAP | 18 | 96 | 24 | 24 | 162 |
+| INTC | 5 | 15 | 3 | 3 | 26 |
+| AF_KILL | 9 | 6 |  |  | 15 |
+| INTERD | 11 | 1 |  |  | 12 |
+| REFUELLER_PATROL | 3 | 3 |  |  | 6 |
+| SEAD |  | 2 |  |  | 2 |
+| AWACS_KILL |  | 1 |  |  | 1 |
+| REFUELLER_KILL | 1 | 1 |  |  | 2 |
+| AWACS_PATROL | 1 | 1 |  |  | 2 |
+| JSTARS_PATROL | 1 |  |  |  | 1 |
+
+Sea supply: 13 convoys, scaled from the six ship groups (one per 30 hulls).
+The file order is always all `GBASED`, then all `SHIP`, then all `PLANE`, then
+the `BASE` blocks and the `FLAK` box list.
+
+## 9. Implementation status
+
+The clean-room generator is in the engine:
+
+* `src/mission.h/.cpp` — lossless `MISSION.CFG` reader/writer. **Byte-exact
+  round trip** on a full 16,971-line generated file, including the LF-only
+  first line and the numeric `FLAK` rows.
 * `src/conflict.h/.cpp` — full `CONFLICT.CG`/`CAMPAIGN.CG` parser and writer.
-  Round-trip verified on the shipped file: 542 areas, 6458 mobiles, 6458
-  pilots, 46 allegiance rows.
-* `src/campaign.h/.cpp` — the custom 32-bit additive RNG and an experimental
-  target-value pass. The RNG is exact; the target pass uses a placeholder
-  class selector until the target-class byte is decoded, so it is not yet a
-  byte-parity claim.
-* CLI: `--conflict FILE`, `--conflict-roundtrip OUT`, `--campaign-generate
-  FILE`, `--campaign-seed N`, `--campaign-difficulty N`, `--campaign-out DIR`.
-* The GUI selftest covers RNG determinism and seed-reproducible target values.
+* `src/campaigngen.h/.cpp` — target-table loader, area/base construction,
+  defence rings, mobile linking, air-defence tasking, sea and air tasking,
+  timeslot schedule, and both writers.
+* `src/campaign.h/.cpp` — the exact custom 32-bit additive RNG.
+* CLI: `--mission-roundtrip FILE [--mission-write OUT]`, `--conflict FILE
+  [--conflict-roundtrip OUT]`, `--campaign-selftest`, `--campaign-generate
+  FILE --campaign-state FILE --campaign-out DIR`, `--campaign-seed N`,
+  `--campaign-difficulty N`.
 
-Not yet implemented: base ownership, the mission tasking writer, flight
-timetable assignment and attack patterns. Those are the next steps in §9.
+Verified against a captured run:
 
-## 9. Reconstruction plan
+* **77/77 bases** match on side, type, name and position.
+* 543 areas in the same class grouping and order for the first 106 entries.
+* 448 air-defence missions versus 481 captured; group totals within 8 %
+  (Patriot 177/193, Rapier 44/43, SA-6 210/232, ZSU 70/65, SA-11 297/374).
+* 229 air missions and 13 convoys exactly; role totals exactly.
+* `FLAK` 87 versus 82.
+
+Not yet byte-exact: the value draw (the three-digit component is
+`-(RNG % 14)` in the capture, which reproduces the observed 987..5000 range but
+not the per-area sequence), the mobile-to-area link table, flight composition
+per mission, patrol geometry, and the exact area tail order.
+
+## 10. Reconstruction plan
 
 1. **Model and loader.** Parse `CONFLICT.CG`, `CAMPAIGN.CG`, `MISSION.CFG`
    with the existing campaign parser; represent target areas, mobiles,

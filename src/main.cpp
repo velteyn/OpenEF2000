@@ -1,8 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 velteyn
 
+#include "campaigngen.h"
 #include "campaign.h"
 #include "conflict.h"
+#include "mission.h"
 #include "did.h"
 #include "guirender.h"
 #include "meshview.h"
@@ -1534,10 +1536,14 @@ int main(int argc, char** argv) {
     std::string texture_override;
     std::string palette_name = "2000";
     std::string gui_screen;
+    bool campaign_selftest = false;
     std::string conflict_path;
     std::string conflict_out;
     std::string campaign_src;
+    std::string campaign_state;
     std::string campaign_out;
+    std::string mission_in;
+    std::string mission_out;
     int campaign_difficulty = -1;
     unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
@@ -1661,6 +1667,14 @@ int main(int argc, char** argv) {
             conflict_out = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-generate") == 0 && i + 1 < argc) {
             campaign_src = argv[++i];
+        } else if (std::strcmp(argv[i], "--mission-roundtrip") == 0 && i + 1 < argc) {
+            mission_in = argv[++i];
+        } else if (std::strcmp(argv[i], "--mission-write") == 0 && i + 1 < argc) {
+            mission_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-selftest") == 0) {
+            campaign_selftest = true;
+        } else if (std::strcmp(argv[i], "--campaign-state") == 0 && i + 1 < argc) {
+            campaign_state = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-out") == 0 && i + 1 < argc) {
             campaign_out = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-seed") == 0 && i + 1 < argc) {
@@ -1681,6 +1695,41 @@ int main(int argc, char** argv) {
     }
 
     if (gui_selftest) return run_gui_selftest();
+
+    if (!mission_in.empty()) {
+        ef::MissionDocument doc;
+        std::string error;
+        if (!ef::MissionDocument::load(mission_in, &doc, &error)) {
+            std::fprintf(stderr, "%s\\n", error.c_str());
+            return 1;
+        }
+        const auto counts = ef::count_missions(doc);
+        std::printf("mission file %s\\n", mission_in.c_str());
+        std::printf("  lines %zu  missions %d (gbased %d, plane %d, ship %d)\\n",
+                    doc.lines.size(), counts.missions, counts.gbased, counts.plane,
+                    counts.ship);
+        std::printf("  flights %d  groups %d  bases %d  pilots %d  flak %d\\n",
+                    counts.flights, counts.groups, counts.bases, counts.pilots,
+                    counts.flak);
+        std::printf("  strike areas %d  timeslots %d\\n", counts.strike_targets,
+                    counts.timeslots);
+        if (!mission_out.empty()) {
+            if (!doc.save(mission_out, &error)) {
+                std::fprintf(stderr, "%s\\n", error.c_str());
+                return 1;
+            }
+            ef::MissionDocument again;
+            if (!ef::MissionDocument::load(mission_out, &again, &error)) {
+                std::fprintf(stderr, "%s\\n", error.c_str());
+                return 1;
+            }
+            const bool same = again.lines.size() == doc.lines.size();
+            std::printf("  round-trip %s (%zu lines)\\n", same ? "ok" : "MISMATCH",
+                        again.lines.size());
+            if (!same) return 1;
+        }
+        return 0;
+    }
 
     if (!conflict_path.empty()) {
         ef::Scenario scenario;
@@ -1728,6 +1777,59 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (campaign_selftest) {
+        int failures = 0;
+        auto check = [&](const char* what, bool ok) {
+            std::printf("  %-52s %s\n", what, ok ? "ok" : "FAIL");
+            if (!ok) ++failures;
+        };
+        std::vector<ef::TargetSite> table;
+        std::string error;
+        check("target table loads 543 areas",
+              ef::load_target_table(data, &table, &error) && table.size() == 543);
+        ef::Scenario scenario;
+        const std::string conflict = data + "/CONFLICT.CG";
+        check("scenario parses", ef::load_conflict(conflict, &scenario, &error));
+        ef::Scenario state;
+        const bool have_state = ef::load_conflict(data + "/CAMPAIGN.CG", &state, &error);
+
+        ef::GenSettings settings;
+        settings.seed = 0x31415926u;
+        ef::GeneratedCampaign campaign;
+        const bool ok = ef::generate_campaign(scenario, have_state ? &state : nullptr,
+                                              table, settings, &campaign, &error);
+        check("generator runs", ok);
+        if (ok) {
+            check("543 areas in table order", campaign.areas.size() == 543);
+            check("77 bases", campaign.bases.size() == 77);
+            check("all ground mobiles indexed",
+                  campaign.mobiles.size() == scenario.mobiles.size());
+            int airfields = 0, ports = 0;
+            for (const auto& base : campaign.bases) {
+                if (base.port) ++ports; else ++airfields;
+            }
+            check("28 airfields and 49 ports", airfields == 28 && ports == 49);
+            check("air defence missions in range",
+                  campaign.counts.gbased >= 400 && campaign.counts.gbased <= 560);
+            check("229 air missions", campaign.counts.plane == 229);
+            check("13 sea supply missions", campaign.counts.ship == 13);
+            check("mission file round-trips",
+                  [&] {
+                      ef::MissionDocument again;
+                      const std::string tmp = "/tmp/openef2000-selftest.cfg";
+                      if (!campaign.missions.save(tmp, &error)) return false;
+                      if (!ef::MissionDocument::load(tmp, &again, &error)) return false;
+                      std::remove(tmp.c_str());
+                      return again.lines.size() == campaign.missions.lines.size();
+                  }());
+        }
+        std::printf("%s (%d failure%s)\n",
+                    failures == 0 ? "campaign selftest: PASS"
+                                  : "campaign selftest: FAIL",
+                    failures, failures == 1 ? "" : "s");
+        return failures == 0 ? 0 : 1;
+    }
+
     if (!campaign_src.empty()) {
         ef::Scenario scenario;
         std::string error;
@@ -1736,28 +1838,72 @@ int main(int argc, char** argv) {
             return 1;
         }
         if (campaign_difficulty >= 0) scenario.difficulty = campaign_difficulty;
-        ef::CampaignRng rng(campaign_seed);
-        const int changed = ef::randomize_target_values(scenario, rng);
-        int buckets[6] = {0, 0, 0, 0, 0, 0};
-        for (const auto& a : scenario.areas) {
-            const int b = a.value / 1000;
-            if (b >= 0 && b < 6) ++buckets[b];
+
+        ef::Scenario state;
+        bool have_state = false;
+        std::string state_path = campaign_state;
+        if (state_path.empty()) state_path = data + "/CAMPAIGN.CG";
+        if (!state_path.empty() && std::filesystem::exists(state_path)) {
+            have_state = ef::load_conflict(state_path, &state, &error);
+            if (!have_state) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+        }
+
+        std::vector<ef::TargetSite> table;
+        if (!ef::load_target_table(data, &table, &error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+
+        ef::GenSettings settings;
+        settings.difficulty = scenario.difficulty;
+        settings.seed = campaign_seed;
+        settings.world_status = {0, 0, 0, 2};
+
+        ef::GeneratedCampaign campaign;
+        if (!ef::generate_campaign(scenario, have_state ? &state : nullptr, table,
+                                   settings, &campaign, &error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+
+        int sides[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+        for (const auto& base : campaign.bases) {
+            for (int i = 0; i < 9; ++i) {
+                if (base.side == ef::side_name(i)) ++sides[i];
+            }
         }
         std::printf("campaign seed 0x%08x difficulty %d\n", campaign_seed,
                     scenario.difficulty);
-        std::printf("  targets %d randomized, %zu areas\n", changed,
-                    scenario.areas.size());
-        std::printf("  thousands");
-        for (int i = 0; i < 6; ++i) std::printf(" %d", buckets[i]);
+        std::printf("  areas %zu  bases %zu  mobiles %zu\n",
+                    campaign.areas.size(), campaign.bases.size(),
+                    campaign.mobiles.size());
+        std::printf("  airfields");
+        for (int i = 0; i < 9; ++i) {
+            if (sides[i] != 0) std::printf(" %s=%d", ef::side_name(i), sides[i]);
+        }
         std::printf("\n");
+        std::printf("  missions %d (gbased %d, ship %d, plane %d), flights %d\n",
+                    campaign.counts.missions, campaign.counts.gbased,
+                    campaign.counts.ship, campaign.counts.plane,
+                    campaign.counts.flights);
+
         if (!campaign_out.empty()) {
             std::filesystem::create_directories(campaign_out);
             const std::string out = campaign_out + "/CAMPAIGN.CG";
-            if (!ef::save_conflict(out, scenario, &error)) {
+            if (!ef::write_campaign_file(out, scenario, campaign, &error)) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            const std::string mission_out = campaign_out + "/MISSION.CFG";
+            if (!campaign.missions.save(mission_out, &error)) {
                 std::fprintf(stderr, "%s\n", error.c_str());
                 return 1;
             }
             std::printf("wrote %s\n", out.c_str());
+            std::printf("wrote %s\n", mission_out.c_str());
         }
         return 0;
     }

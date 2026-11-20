@@ -203,7 +203,7 @@ bool save_conflict(const std::string& path, const Scenario& c, std::string* erro
     for (int v : c.world_status) out << ' ' << v;
     out << "\r\n";
     out << ';' << static_cast<long long>(std::time(nullptr))
-        << " Target list.  " << now_stamp() << "\r\n\r\n\r\n";
+        << " Target list.  " << now_stamp() << "\n\r\n\r\n";
     out << "NUM_TARGET_AREAS " << c.areas.size() << "\r\n\r\n";
     for (const auto& a : c.areas) {
         out << "SSNAME \"" << a.name << "\" " << a.side << ' ' << a.value << ' '
