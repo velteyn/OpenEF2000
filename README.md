@@ -263,6 +263,7 @@ committed.
 |---|---|
 | [`docs/FILE_FORMATS.md`](docs/FILE_FORMATS.md) | Clean-room specifications for the archive, mesh, texture, terrain, mission and GUI formats |
 | [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md) | Reverse-engineered specification of the campaign generator: phases, inputs, fixed backbone, RNG and output invariants |
+| [`docs/TOOL-EVALUATION.md`](docs/TOOL-EVALUATION.md) | Tools considered for RE and verification, with decisions and the kvikdos-ng experiment plan |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Clean-room rules, what is accepted, review process |
 | [`docs/ENGINE-NOTES.md`](docs/ENGINE-NOTES.md) | Module map, build targets, viewer controls, limitations |
 | [`AGENTS.md`](AGENTS.md) | Working rules for automated agents: the private/public boundary and pre-commit checks |
