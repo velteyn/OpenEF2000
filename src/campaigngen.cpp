@@ -759,14 +759,20 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
         std::map<std::string, std::size_t> next_base;
 
-        std::vector<const GenArea*> strike_targets;
+        // Airfield-denial packages strike airfields; interdiction and SEAD go
+        // after the ports and other installations.
+        std::vector<const GenArea*> airfield_targets;
+        std::vector<const GenArea*> other_targets;
         for (const auto& area : campaign.areas) {
-            if (!is_airfield_type(area.type) && !is_port_type(area.type)) continue;
             if (area.side == "NATO" || area.side == "SWEDISH") continue;
-            strike_targets.push_back(&area);
+            if (is_airfield_type(area.type)) airfield_targets.push_back(&area);
+            else if (is_port_type(area.type)) other_targets.push_back(&area);
         }
-        std::sort(strike_targets.begin(), strike_targets.end(),
-                  [](const GenArea* a, const GenArea* b) { return a->name < b->name; });
+        const auto by_name = [](const GenArea* a, const GenArea* b) {
+            return a->name < b->name;
+        };
+        std::sort(airfield_targets.begin(), airfield_targets.end(), by_name);
+        std::sort(other_targets.begin(), other_targets.end(), by_name);
         std::size_t target_index = 0;
 
         auto loadout_for = [](const char* type, const char* flight_role) {
@@ -1013,11 +1019,14 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const bool support = role == "AWACS_PATROL" ||
                                      role == "JSTARS_PATROL" ||
                                      role == "REFUELLER_PATROL";
-                const bool af_escort = role == "AF_KILL" && serial % 4 == 0;
+                // Airfield-denial packages carry either a wild-weasel element
+                // or an escort; some add an escort on top of the weasels.
+                const bool af_ww = role == "AF_KILL" && serial % 5 < 3;
+                const bool af_extra = af_ww && serial % 4 == 0;
                 const bool interd_escort = role == "INTERD" && serial % 12 < 5;
                 int flight_count = 1;
                 if (support) flight_count = 2;
-                else if (role == "AF_KILL") flight_count = 2 + (af_escort ? 1 : 0);
+                else if (role == "AF_KILL") flight_count = 2 + (af_extra ? 1 : 0);
                 else if (role == "INTERD") flight_count = 1 + (interd_escort ? 1 : 0);
                 else if (role == "SEAD") flight_count = 3;
                 emit.addv("MISSION", {"PLANE", req.side, role, "OK",
@@ -1036,8 +1045,10 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const GenArea* target = nullptr;
                 const bool strike_role = role == "AF_KILL" || role == "INTERD" ||
                                          role == "SEAD";
-                if (strike_role && !strike_targets.empty())
-                    target = strike_targets[target_index++ % strike_targets.size()];
+                if (role == "AF_KILL" && !airfield_targets.empty())
+                    target = airfield_targets[target_index++ % airfield_targets.size()];
+                else if (strike_role && !other_targets.empty())
+                    target = other_targets[target_index++ % other_targets.size()];
 
                 const int wave = serial;
                 if (support) {
@@ -1049,9 +1060,15 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     out->aircraft += 1 + 4;
                 } else if (role == "AF_KILL") {
                     emit_flight(base, type.c_str(), "STRIKE", 4, target, true, wave, true, id);
-                    emit_flight(base, type.c_str(), "WW", 2, target, true, wave + 2, true, id);
-                    out->aircraft += 6;
-                    if (af_escort) {
+                    out->aircraft += 4;
+                    if (af_ww) {
+                        emit_flight(base, type.c_str(), "WW", 2, target, true, wave + 2, true, id);
+                        out->aircraft += 2;
+                    } else {
+                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 2, true, id);
+                        out->aircraft += 4;
+                    }
+                    if (af_extra) {
                         emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4, true, id);
                         out->aircraft += 4;
                     }

@@ -297,10 +297,15 @@ The attack geometry is **constant**, not generated: every captured
 | `STAND_OFF_ATTACK` | 6 | 5 | strike against anything else, and SEAD |
 | `MOBILE_ATTACK` | 6 | 2 | wild-weasel flights |
 
-The three templates are reproduced exactly. What still differs is how many of
-each a mission set contains, because that follows the package mix (whether an
-`AF_KILL` carries a wild-weasel flight or an escort) and the target classes the
-tasking picks.
+The three templates are reproduced exactly. Which pattern appears depends on
+the flight role and the target class: airfield-denial packages strike airfields
+(laydown), interdiction and SEAD go after the ports and other installations
+(stand-off), and wild-weasel elements always use the mobile pattern.
+
+Airfield-denial packages carry either a wild-weasel element or an escort, and
+some add an escort on top of the weasels. Measured against the capture the
+pattern counts are now 15 / 9 / 23 against 13 / 9 / 20; the remaining spread is
+the package policy, which the original also varies from turn to turn.
 
 ### 5.4 Victory and defeat
 
