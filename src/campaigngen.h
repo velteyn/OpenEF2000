@@ -47,6 +47,10 @@ struct GenSettings {
     int difficulty = 6;
     int influence = 1;
     std::uint32_t seed = 0x31415926u;
+    //! Draws consumed by the shell before generation starts. It varies with
+    //! the session (three in most captured runs, zero in one), so it is a
+    //! replay knob rather than a generator rule.
+    int draw_offset = 0;
     std::array<int, 4> world_status{0, 0, 0, 0};
     std::array<int, 2> clock{0, 0};  //!< campaign day, 8-hour slot
 };

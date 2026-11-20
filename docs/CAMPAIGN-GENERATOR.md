@@ -196,10 +196,15 @@ Rules:
   previous thousand (982 gives 4982, not 5982).
 * Rigs (type 79) and supply towns (159) are never valued; they stay at 1000.
 
+The shell consumes a few draws of its own before generation starts. That count
+varies with the session (three in most captured runs, zero in one), so it is a
+replay parameter (`--campaign-offset`), not a generator rule.
+
 Verification: replaying a captured run's timestamp as the seed reproduces the
-**thousands digit of all 543 areas with zero mismatches**, and the area order
-is identical. The remaining difference is the low `site` component (982..1000),
-which varies per turn and comes from the installation's sub-target list.
+**thousands digit of all 543 areas with zero mismatches**, for all four
+captures, and the area order is identical. The remaining difference is the low
+`site` component (982..1000), which drifts by 0..3 per turn and comes from the
+installation's sub-target list.
 
 The same value feeds the corresponding `BASE` record, so the base and its
 target area stay in sync.
@@ -486,6 +491,7 @@ Verified against captured runs. Two comparisons:
 | Bases (side, type, name, position) | 77/77 | 77/77 |
 | Areas | 543, identical order | 543, identical order |
 | Target values (thousands digit) | **543/543 exact** | **543/543 exact** |
+| Replay parameter | `--campaign-seed <header>` `--campaign-offset 0` | `--campaign-seed <header>` `--campaign-offset 3` |
 | Air-defence missions | 483 vs 481 | 500 vs 502 |
 | Air missions | 229 vs 229 | 229 vs 226 |
 | Sea supply | 13 vs 13 | 13 vs 13 |

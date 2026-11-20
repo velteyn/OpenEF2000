@@ -1554,6 +1554,7 @@ int main(int argc, char** argv) {
     std::string mission_in;
     std::string mission_out;
     int campaign_difficulty = -1;
+    int campaign_offset = 0;
     unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
     std::string dump_palette;
@@ -1689,6 +1690,8 @@ int main(int argc, char** argv) {
             campaign_state = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-out") == 0 && i + 1 < argc) {
             campaign_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-offset") == 0 && i + 1 < argc) {
+            campaign_offset = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--campaign-seed") == 0 && i + 1 < argc) {
             campaign_seed = static_cast<unsigned>(std::strtoul(argv[++i], nullptr, 0));
         } else if (std::strcmp(argv[i], "--campaign-difficulty") == 0 && i + 1 < argc) {
@@ -1862,6 +1865,17 @@ int main(int argc, char** argv) {
                   got[0] == 4 && got[1] == 4 && got[2] == 0 && got[3] == 4 &&
                       got[4] == 3);
         }
+        {
+            // A second capture, whose session consumed three draws before
+            // generation started.
+            ef::CampaignRng probe(1795137493u);
+            for (int i = 0; i < 3; ++i) probe.next();
+            int got[5] = {};
+            for (int& v : got) v = static_cast<int>((probe.next() >> 16) % 5);
+            check("value draws replay a second capture",
+                  got[0] == 1 && got[1] == 0 && got[2] == 3 && got[3] == 1 &&
+                      got[4] == 3);
+        }
         check("mission file round-trips",
                   [&] {
                       ef::MissionDocument again;
@@ -1910,6 +1924,7 @@ int main(int argc, char** argv) {
         settings.difficulty = scenario.difficulty;
         settings.seed = campaign_seed;
         settings.world_status = {0, 0, 0, 2};
+        settings.draw_offset = campaign_offset;
 
         ef::GeneratedCampaign campaign;
         if (!ef::generate_campaign(scenario, have_state ? &state : nullptr, table,

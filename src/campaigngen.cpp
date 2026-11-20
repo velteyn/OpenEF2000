@@ -271,6 +271,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     }
     GeneratedCampaign campaign;
     CampaignRng rng(settings.seed);
+    for (int i = 0; i < settings.draw_offset; ++i) rng.next();
     campaign.world_status = {settings.world_status[0], settings.world_status[1],
                              settings.world_status[2], settings.world_status[3],
                              settings.clock[0], settings.clock[1]};
