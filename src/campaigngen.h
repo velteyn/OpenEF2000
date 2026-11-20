@@ -108,6 +108,19 @@ struct GenMobile {
     int slot = 0;
 };
 
+//! War-state evaluation. The loss ratio is the fraction of a side's mobiles
+//! marked dead or crippled; the binary compares it against 0.75 (collapse) and
+//! 0.95 (destruction). The strategic-target counts that gate the other branch
+//! are not modelled yet.
+struct CampaignOutcome {
+    double loss_ratio[9]{};  //!< indexed by side code
+    int units[9]{};
+    int losses[9]{};
+    bool collapse = false;   //!< any side past the 0.75 threshold
+    bool destroyed = false;  //!< any side past the 0.95 threshold
+    int worst_side = -1;
+};
+
 struct GeneratedCampaign {
     //! Mobile records carried into the new campaign. They come from the
     //! previous campaign state when there is one, otherwise from the scenario.
@@ -119,7 +132,13 @@ struct GeneratedCampaign {
     MissionCounts counts;
     int aircraft = 0;
     std::array<int, 6> world_status{};  //!< written to CAMPAIGN.CG
+    CampaignOutcome outcome;
 };
+
+CampaignOutcome evaluate_campaign(const GeneratedCampaign& campaign);
+
+
+
 
 //! Runs the generator. `previous` is the state read from `CAMPAIGN.CG`; it may
 //! be null for a first campaign, in which case ownership comes from `scenario`.

@@ -268,6 +268,15 @@ The target areas attached to strike missions are a subset of the 543 campaign
 areas; observed **28–33** per generated mission set, with the same type mix
 (AIRFIELD, PORT, EWR, CHOKE_POINT, POLITICAL_INDUSTRIAL, POL_TYPE).
 
+### 5.4 Victory and defeat
+
+The generator evaluates the war state before tasking and stops if the campaign
+is over. The loss branch is clear from the binary: the fraction of a side's
+mobiles marked dead or crippled is compared against **0.75** (collapse) and
+**0.95** (destruction). A second branch counts held strategic targets and is
+gated on a zero or greater-than-eleven count; the exact target-class sets it
+uses are still open. `--campaign-status` prints the ratios and thresholds.
+
 ## 6. Output invariants
 
 `CAMPAIGN.CG`:

@@ -1556,6 +1556,7 @@ int main(int argc, char** argv) {
     int campaign_difficulty = -1;
     int campaign_offset = 0;
     int campaign_advance = 0;
+    bool campaign_status = false;
     unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
     std::string dump_palette;
@@ -1691,6 +1692,8 @@ int main(int argc, char** argv) {
             campaign_state = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-out") == 0 && i + 1 < argc) {
             campaign_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-status") == 0) {
+            campaign_status = true;
         } else if (std::strcmp(argv[i], "--campaign-advance") == 0 && i + 1 < argc) {
             campaign_advance = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--campaign-offset") == 0 && i + 1 < argc) {
@@ -1889,6 +1892,21 @@ int main(int argc, char** argv) {
             const bool step3 = clock[1] == 0 && clock[0] == 1;
             check("campaign clock advances in 8-hour steps", step1 && step2 && step3);
         }
+        {
+            ef::GeneratedCampaign sample;
+            ef::GenMobile alive;
+            alive.side_code = 0;
+            alive.state = 0;
+            ef::GenMobile lost;
+            lost.side_code = 0;
+            lost.state = 1;
+            sample.mobiles = {alive, lost};
+            const auto outcome = ef::evaluate_campaign(sample);
+            check("war state counts dead units",
+                  outcome.units[0] == 2 && outcome.losses[0] == 1 &&
+                      outcome.loss_ratio[0] > 0.49 &&
+                      outcome.loss_ratio[0] < 0.51 && !outcome.collapse);
+        }
         check("mission file round-trips",
                   [&] {
                       ef::MissionDocument again;
@@ -1967,6 +1985,19 @@ int main(int argc, char** argv) {
                     campaign.counts.missions, campaign.counts.gbased,
                     campaign.counts.ship, campaign.counts.plane,
                     campaign.counts.flights);
+        if (campaign_status) {
+            std::printf("  war state:\n");
+            for (int i = 0; i < 9; ++i) {
+                if (campaign.outcome.units[i] == 0) continue;
+                std::printf("    %-9s %5d units  %4d lost  %5.1f %%\n",
+                            ef::side_name(i), campaign.outcome.units[i],
+                            campaign.outcome.losses[i],
+                            campaign.outcome.loss_ratio[i] * 100.0);
+            }
+            std::printf("    collapse (>75 %%) %s, destroyed (>95 %%) %s\n",
+                        campaign.outcome.collapse ? "yes" : "no",
+                        campaign.outcome.destroyed ? "yes" : "no");
+        }
 
         if (!campaign_out.empty()) {
             std::filesystem::create_directories(campaign_out);

@@ -273,6 +273,28 @@ std::string base_type_for(int type) {
 
 }  // namespace
 
+CampaignOutcome evaluate_campaign(const GeneratedCampaign& campaign) {
+    CampaignOutcome out;
+    for (const auto& gm : campaign.mobiles) {
+        if (gm.side_code < 0 || gm.side_code > 8) continue;
+        ++out.units[gm.side_code];
+        if (gm.state == 1 || gm.state == 2) ++out.losses[gm.side_code];
+    }
+    double worst = 0.0;
+    for (int i = 0; i < 9; ++i) {
+        out.loss_ratio[i] =
+            out.units[i] > 0 ? static_cast<double>(out.losses[i]) / out.units[i]
+                             : 0.0;
+        if (out.units[i] > 0 && out.loss_ratio[i] > worst) {
+            worst = out.loss_ratio[i];
+            out.worst_side = i;
+        }
+        if (out.loss_ratio[i] > 0.75) out.collapse = true;
+        if (out.loss_ratio[i] > 0.95) out.destroyed = true;
+    }
+    return out;
+}
+
 void advance_campaign_clock(std::array<int, 6>* clock) {
     if (clock == nullptr) return;
     int& day = (*clock)[0];
@@ -1031,6 +1053,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     // The trailing WORLD_STATUS words carry the generator's RNG state.
     campaign.world_status[4] = static_cast<int>(rng.state() >> 16);
     campaign.world_status[5] = static_cast<int>(rng.state() & 0xFFFFu);
+    campaign.outcome = evaluate_campaign(campaign);
     campaign.counts = count_missions(campaign.missions);
     campaign.counts.missions = mission_id;
     campaign.counts.gbased = gbased_count;
