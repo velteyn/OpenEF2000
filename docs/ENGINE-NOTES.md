@@ -459,6 +459,16 @@ Observed shell flow:
   an Influence Yes/No pair, and Accept;
 - Accept raises "Generating Campaign...", the `generatecamp` window, whose
   `onopen` hook is `gpwGenerateCampaign`.
+- The **Mission Selection** list is filled from the loaded sorties: it lists
+  the flying (`PLANE`) missions of the side selected in the map-mode bar, in
+  mission-file order, labelled `<role> <target>` (`Airfield Denial Bodo`). The
+  list scrolls to the selected row, and the selected row uses the GUI's white
+  highlight with dark text.
+- The **Mission Overview** window is filled from the same sortie: target
+  location, first target element, air-to-ground weapon (or the first weapon for
+  a non-strike flight), flying base, nearest other friendly airfield as the
+  diversion, role, aircraft count and the strike / wild-weasel / escort flight
+  counts.
 - The campaign screen's `missionbrief` window shows the selected sortie:
   mission number, time, type, flight number, lead call sign, target, aircraft
   count, and the Refuel / AWACS / JSTARS support flags. It is filled from the

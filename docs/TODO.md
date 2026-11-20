@@ -66,7 +66,10 @@ table unlocks:
 
 ## 4. GUI
 
-- [ ] Populate the campaign mission list (`missionsel`) from the loaded sorties.
+- [x] **Campaign mission list** — flying missions of the selected side, in file
+      order, labelled role + target; scrolls to and highlights the selection.
+- [x] **Mission overview** — location, target element, weapon, base, diversion,
+      role and flight counts filled from the selected sortie.
 - [ ] Populate the debrief window (results per mission).
 - [ ] Briefing time should come from the sortie, not the campaign clock.
 

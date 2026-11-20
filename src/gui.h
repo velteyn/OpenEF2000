@@ -302,6 +302,9 @@ public:
     int camp_zoom() const { return camp_zoom_; }
     void set_camp_mission(int v) { camp_mission_ = v; }
     int camp_mission() const { return camp_mission_; }
+    //! Mission indices shown in the campaign mission list, in row order.
+    void set_camp_rows(std::vector<int> rows) { camp_rows_ = std::move(rows); }
+    const std::vector<int>& camp_rows() const { return camp_rows_; }
     void set_camp_time_shift(int v) { camp_time_shift_ = v; }
     int camp_time_shift() const { return camp_time_shift_; }
     void set_camp_target_view(bool v) { camp_target_view_ = v; }
@@ -464,6 +467,7 @@ private:
     int camp_map_mode_ = 0;
     int camp_zoom_ = 0;
     int camp_mission_ = 0;
+    std::vector<int> camp_rows_;
     int camp_time_shift_ = 0;
     bool camp_target_view_ = false;
     bool camp_ready_ = false;

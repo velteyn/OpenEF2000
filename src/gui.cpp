@@ -6,6 +6,7 @@
 #include "campaigngen.h"
 #include "conflict.h"
 #include "model.h"
+#include "stats.h"
 
 #include <algorithm>
 #include <cctype>
@@ -747,6 +748,205 @@ const char* role_label(const std::string& role) {
     return role.c_str();
 }
 
+std::string strip_quotes(std::string s) {
+    if (!s.empty() && s.front() == '"') s.erase(s.begin());
+    if (!s.empty() && s.back() == '"') s.pop_back();
+    return s;
+}
+
+//! First named target area of a mission, without its quotes.
+std::string mission_target_name(const Mission& m) {
+    for (const auto& t : m.targets) {
+        for (const auto& a : t.areas) {
+            if (!a.name.empty()) return strip_quotes(a.name);
+        }
+    }
+    return "-";
+}
+
+//! Display form of the first target element (`RUNWAY` -> `Runway`).
+std::string mission_target_kind(const Mission& m) {
+    for (const auto& t : m.targets) {
+        for (const auto& a : t.areas) {
+            for (const auto& e : a.elements) {
+                if (e.type.empty()) continue;
+                std::string out;
+                bool upper = true;
+                for (char c : e.type) {
+                    if (c == '_') {
+                        out.push_back(' ');
+                        upper = true;
+                        continue;
+                    }
+                    out.push_back(upper
+                                      ? static_cast<char>(std::toupper(
+                                            static_cast<unsigned char>(c)))
+                                      : static_cast<char>(std::tolower(
+                                            static_cast<unsigned char>(c))));
+                    upper = false;
+                }
+                return out;
+            }
+        }
+    }
+    return "-";
+}
+
+std::string pretty_weapon(std::string w) {
+    for (char& c : w) {
+        if (c == '_') c = ' ';
+    }
+    return w;
+}
+
+//! The air-to-ground weapon the strike flight carries, as the overview shows.
+std::string mission_weapon(const Mission& m) {
+    static const char* const kAirToAir[] = {
+        "NO_WEAPON", "ASRAAM",     "AMRAAM", "SIDEWINDER", "SS225",
+        "CENTRE_FUEL", "APHID",    "ALAMO",  "ARCHER",     "ADDER",
+        "AIM_9",     "AIM_120",    "R550",   "R73",        "R27",
+        "R77"};
+    const Flight* strike = nullptr;
+    for (const auto& f : m.flights) {
+        if (f.role == "STRIKE" || f.role == "SEAD_STRIKE") {
+            strike = &f;
+            break;
+        }
+    }
+    if (strike == nullptr) {
+        if (m.flights.empty() || m.flights.front().pylons.empty()) return "-";
+        return pretty_weapon(m.flights.front().pylons.front().second);
+    }
+    for (const auto& [slot, weapon] : strike->pylons) {
+        (void)slot;
+        bool air_to_air = false;
+        for (const char* skip : kAirToAir) {
+            if (weapon == skip) {
+                air_to_air = true;
+                break;
+            }
+        }
+        if (!air_to_air) return pretty_weapon(weapon);
+    }
+    return "-";
+}
+
+//! Nearest other airfield on the mission's side, shown as the diversion.
+std::string mission_diversion(const Dataset& ds, const Mission& m) {
+    const int from = mission_base_index(m);
+    if (from < 0 || from >= static_cast<int>(ds.bases.size())) return "-";
+    const Base& home = ds.bases[static_cast<std::size_t>(from)];
+    if (!home.pos) return "-";
+    int best = -1;
+    long best_d = -1;
+    for (int i = 0; i < static_cast<int>(ds.bases.size()); ++i) {
+        if (i == from) continue;
+        const Base& b = ds.bases[static_cast<std::size_t>(i)];
+        if (!b.pos || b.type == "PORT" || b.side != m.side) continue;
+        const long dx = b.pos->x - home.pos->x;
+        const long dy = b.pos->y - home.pos->y;
+        const long d = dx * dx + dy * dy;
+        if (best_d < 0 || d < best_d) {
+            best_d = d;
+            best = i;
+        }
+    }
+    if (best < 0) return "-";
+    return strip_quotes(ds.bases[static_cast<std::size_t>(best)].name);
+}
+
+int role_planes(const Mission& m, const char* role) {
+    int n = 0;
+    for (const auto& f : m.flights) {
+        if (f.role == role) n += f.count;
+    }
+    return n;
+}
+
+//! Fills the Mission Overview window from the selected campaign mission.
+void fill_mission_overview(GuiSystem& gui, const Dataset& ds) {
+    if (gui.find_window("missionoverview") == nullptr || ds.missions.empty()) return;
+    const int mi = std::clamp(gui.camp_mission(), 0,
+                              static_cast<int>(ds.missions.size()) - 1);
+    const Mission& m = ds.missions[mi];
+    const auto set = [&](const char* icon, const std::string& value) {
+        if (auto* w = gui.find_widget("missionoverview", icon); w != nullptr) {
+            w->text["en"] = value;
+            w->value = value;
+        }
+    };
+
+    const int base_index = mission_base_index(m);
+    std::string base = "-";
+    if (base_index >= 0 && base_index < static_cast<int>(ds.bases.size()))
+        base = strip_quotes(ds.bases[static_cast<std::size_t>(base_index)].name);
+
+    int planes = 0;
+    for (const auto& f : m.flights) planes += f.count;
+
+    set("location", mission_target_name(m));
+    set("target1", mission_target_kind(m));
+    set("weapon", mission_weapon(m));
+    set("base", base);
+    set("diversion", mission_diversion(ds, m));
+    set("role", role_label(m.role));
+    set("planes", std::to_string(planes));
+    set("strike", std::to_string(role_planes(m, "STRIKE")));
+    set("wildweasel", std::to_string(role_planes(m, "WW")));
+    set("escort", std::to_string(role_planes(m, "ESCORT")));
+}
+
+//! Rewrites the campaign mission list. The list shows the flying missions of
+//! the side selected in the map mode bar, in mission-file order.
+void fill_mission_list(GuiSystem& gui, const Dataset& ds) {
+    GuiWindow* win = gui.find_window("missionsel");
+    if (win == nullptr) return;
+
+    const auto side_visible = [&](const std::string& side) {
+        if (gui.camp_side() == 1) return side == "RUSSIAN";
+        if (gui.camp_side() == 2)
+            return side == "SWEDISH" || side == "FINNISH" || side == "BALTIC";
+        return side == "NATO";
+    };
+
+    std::vector<int> rows;
+    for (int i = 0; i < static_cast<int>(ds.missions.size()); ++i) {
+        const Mission& m = ds.missions[static_cast<std::size_t>(i)];
+        if (m.type != "PLANE") continue;
+        if (side_visible(m.side)) rows.push_back(i);
+    }
+    if (rows.empty()) {
+        for (int i = 0; i < static_cast<int>(ds.missions.size()); ++i) {
+            const Mission& m = ds.missions[static_cast<std::size_t>(i)];
+            if (m.type == "PLANE") rows.push_back(i);
+        }
+    }
+    gui.set_camp_rows(rows);
+
+    for (auto& icon : win->icons) {
+        int n = std::atoi(icon.name.c_str());
+        if (n < 1) continue;
+        if (n <= static_cast<int>(rows.size())) {
+            const Mission& m = ds.missions[static_cast<std::size_t>(rows[n - 1])];
+            std::string label = role_label(m.role);
+            const std::string target = mission_target_name(m);
+            if (target != "-") label += " " + target;
+            if (label.size() > 28) label.resize(28);
+            icon.text["en"] = label;
+            icon.value = label;
+            icon.txtclr = 15;   // white on the dark panel
+            icon.txtclrs = 0;   // dark text on the white selected row
+            icon.bkds = 15;
+            icon.disable = false;
+            icon.hidden = false;
+        } else {
+            icon.text["en"].clear();
+            icon.value.clear();
+            icon.disable = true;
+        }
+    }
+}
+
 //! Fills the Mission Briefing window from the selected campaign mission.
 void fill_mission_brief(GuiSystem& gui, const Dataset& ds) {
     if (gui.find_window("missionbrief") == nullptr || ds.missions.empty()) return;
@@ -839,9 +1039,27 @@ void select_campaign_mission(GuiSystem& system, const Dataset& dataset, int inde
     system.set_camp_mission(index);
     if (!dataset.missions.empty()) {
         const int n = std::clamp(index, 0, static_cast<int>(dataset.missions.size()) - 1);
-        system.select("missionsel", std::to_string(n + 1), true);
+        const auto& rows = system.camp_rows();
+        bool selected = false;
+        for (std::size_t r = 0; r < rows.size(); ++r) {
+            if (rows[r] == n) {
+                const std::string row = std::to_string(r + 1);
+                system.select("missionsel", row, true);
+                if (GuiWindow* win = system.find_window("missionsel")) {
+                    for (const auto& icon : win->icons) {
+                        if (icon.name != row) continue;
+                        win->scroll_y_pos = std::max(0, icon.y - 42);
+                        break;
+                    }
+                }
+                selected = true;
+                break;
+            }
+        }
+        if (!selected) system.select("missionsel", std::to_string(n + 1), true);
     }
     fill_mission_brief(system, dataset);
+    fill_mission_overview(system, dataset);
 }
 
 void register_observed_routines(GuiSystem& system, const Dataset* dataset,
@@ -1573,16 +1791,16 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         gui.set_camp_layer(0);
         gui.set_camp_layer_mask(0x3Fu);  // all layers
         gui.set_camp_mission(0);
-        gui.select("missionsel", "1", true);
         if (dataset != nullptr && !dataset->missions.empty()) {
-            int first = 0;
-            for (int i = 0; i < static_cast<int>(dataset->missions.size()); ++i) {
-                if (dataset->missions[i].type == "PLANE") {
-                    first = i;
-                    break;
-                }
+            fill_mission_list(gui, *dataset);
+            const auto& rows = gui.camp_rows();
+            if (!rows.empty()) {
+                select_campaign_mission(gui, *dataset, rows.front());
+            } else {
+                gui.select("missionsel", "1", true);
             }
-            select_campaign_mission(gui, *dataset, first);
+        } else {
+            gui.select("missionsel", "1", true);
         }
     });
 
@@ -1656,8 +1874,8 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
     // Map modes: side (Nato/Russian/Neutral) and layer (air defence, support,
     // navy, comms, supply, political) are two independent toggle sets.
     system.register_routine("gpwMapModeSelected",
-                            [](GuiSystem& gui, const std::string& window,
-                               const std::string& icon) {
+                            [dataset](GuiSystem& gui, const std::string& window,
+                                      const std::string& icon) {
         static const std::pair<const char*, int> sides[] = {
             {"nato", 0}, {"russian", 1}, {"neutral", 2}};
         static const std::pair<const char*, int> layers[] = {
@@ -1671,6 +1889,12 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
                 gui.set_camp_side_mask(on ? (gui.camp_side_mask() | bit)
                                           : (gui.camp_side_mask() & ~bit));
                 gui.select(window, icon, on);
+                if (dataset != nullptr) {
+                    fill_mission_list(gui, *dataset);
+                    const auto& rows = gui.camp_rows();
+                    if (!rows.empty())
+                        select_campaign_mission(gui, *dataset, rows.front());
+                }
                 return;
             }
         }
@@ -1693,11 +1917,15 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         const int n = std::atoi(icon.c_str());
         if (n < 1) return;
         gui.select(window, icon, true);
-        if (dataset != nullptr) {
-            select_campaign_mission(gui, *dataset, n - 1);
-        } else {
+        if (dataset == nullptr) {
             gui.set_camp_mission(n - 1);
+            return;
         }
+        const auto& rows = gui.camp_rows();
+        if (n <= static_cast<int>(rows.size()))
+            select_campaign_mission(gui, *dataset, rows[n - 1]);
+        else
+            select_campaign_mission(gui, *dataset, n - 1);
     });
 
     // Time advance: each click of "View 8hr." moves the campaign clock 8h.

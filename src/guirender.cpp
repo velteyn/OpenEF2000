@@ -739,9 +739,9 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                 }
                 int ty = top + 1;
                 if (h > 14) ty = top + (h - 13) / 2;
-                const int colour_index = selected && icon.txtclrs > 0
+                const int colour_index = selected && icon.txtclrs >= 0
                                              ? icon.txtclrs
-                                             : (icon.txtclr > 0 ? icon.txtclr : 15);
+                                             : (icon.txtclr >= 0 ? icon.txtclr : 15);
                 text(tx, ty, label,
                      palette[static_cast<std::size_t>(colour_index) & 0xFF]);
             }
@@ -986,7 +986,14 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
     if (options.camp_mode >= 0) system.set_camp_map_mode(options.camp_mode);
     if (options.camp_flags >= 0) system.set_camp_flags(options.camp_flags != 0);
     if (options.camp_fuel >= 0) system.set_mp_icons(options.camp_fuel != 0);
-    if (options.camp_mission >= 0) system.set_camp_mission(options.camp_mission);
+    if (options.camp_mission >= 0) {
+        if (options.dataset != nullptr) {
+            ef::select_campaign_mission(system, *options.dataset,
+                                        options.camp_mission);
+        } else {
+            system.set_camp_mission(options.camp_mission);
+        }
+    }
     if (!options.open_window.empty()) {
         system.open_window(options.open_window);
         system.bring_to_front(options.open_window);
