@@ -540,6 +540,11 @@ int fill_hiscores(GuiSystem& system, const std::filesystem::path& data_dir);
 //! `supergui\gfxcred.txt` resource. Fills `lines` once, when visible.
 void fill_credits(GuiSystem& system, const DidArchive& archive);
 
+//! Selects campaign mission `index` and refreshes the Mission Briefing window
+//! from it (number, time, type, target, aircraft count and the refuel, AWACS
+//! and JSTARS support flags).
+void select_campaign_mission(GuiSystem& system, const Dataset& dataset, int index);
+
 //! Maps a key event to the name the `.gui` files use ("esc", "ret", "f1", "c").
 std::string gui_key_name(const SDL_Keysym& key);
 

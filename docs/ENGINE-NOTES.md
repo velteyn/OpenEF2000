@@ -458,7 +458,12 @@ Observed shell flow:
 - `C` opens Campaign Level Setting: ten difficulty rows in one `esg` group,
   an Influence Yes/No pair, and Accept;
 - Accept raises "Generating Campaign...", the `generatecamp` window, whose
-  `onopen` hook is `gpwGenerateCampaign`. The hook now runs the reconstructed
+  `onopen` hook is `gpwGenerateCampaign`.
+- The campaign screen's `missionbrief` window shows the selected sortie:
+  mission number, time, type, flight number, lead call sign, target, aircraft
+  count, and the Refuel / AWACS / JSTARS support flags. It is filled from the
+  loaded mission data by `select_campaign_mission`, which the mission list, the
+  map click and the screen's `InitCampaign` startup all call. The hook now runs the reconstructed
   generator against the data directory, rewrites `CAMPAIGN.CG` and
   `MISSION.CFG`, reloads the mission data and opens the campaign screen;
 - Quick Combat: `R`/`P`/`T` difficulty, `F1`..`F12` mission, `Return` accept.

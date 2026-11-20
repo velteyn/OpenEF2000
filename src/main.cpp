@@ -6,6 +6,7 @@
 #include "conflict.h"
 #include "mission.h"
 #include "did.h"
+#include "gui.h"
 #include "guirender.h"
 #include "meshview.h"
 #include "modelview.h"
@@ -1906,6 +1907,61 @@ int main(int argc, char** argv) {
                   outcome.units[0] == 2 && outcome.losses[0] == 1 &&
                       outcome.loss_ratio[0] > 0.49 &&
                       outcome.loss_ratio[0] < 0.51 && !outcome.collapse);
+        }
+        {
+            // The Mission Briefing window fills from the selected mission.
+            ef::GuiScreen screen;
+            ef::GuiWindow window;
+            window.name = "missionbrief";
+            for (const char* name : {"missionnum", "time", "type", "flightnum",
+                                     "callsign", "target", "planes", "refuel",
+                                     "awacs", "jstars"}) {
+                ef::GuiWidget widget;
+                widget.name = name;
+                window.icons.push_back(widget);
+            }
+            screen.windows.push_back(std::move(window));
+            ef::GuiSystem shell;
+            shell.set_screen(std::move(screen));
+
+            ef::Dataset brief;
+            ef::Mission strike;
+            strike.type = "PLANE";
+            strike.side = "NATO";
+            strike.role = "AF_KILL";
+            strike.status = "OK";
+            strike.values = {1, 42, 3};
+            ef::Route route;
+            ef::Waypoint fix;
+            fix.action = "REFUEL";
+            route.waypoints.push_back(fix);
+            strike.routes.push_back(route);
+            ef::Flight flight;
+            flight.count = 4;
+            strike.flights.push_back(flight);
+            ef::Target target;
+            ef::TargetArea area;
+            area.name = "\"Vaernes\"";
+            target.areas.push_back(area);
+            strike.targets.push_back(target);
+            brief.missions.push_back(strike);
+            ef::Mission support;
+            support.type = "PLANE";
+            support.side = "NATO";
+            support.role = "AWACS_PATROL";
+            brief.missions.push_back(support);
+
+            ef::select_campaign_mission(shell, brief, 0);
+            const auto text = [&](const char* name) {
+                auto* w = shell.find_widget("missionbrief", name);
+                return w != nullptr ? w->text["en"] : std::string();
+            };
+            check("mission briefing fills from the selected mission",
+                  text("missionnum") == "0042" &&
+                      text("type") == "Airfield Denial" &&
+                      text("planes") == "4" && text("refuel") == "Yes" &&
+                      text("awacs") == "Yes" && text("jstars") == "No" &&
+                      text("target") == "Vaernes");
         }
         check("mission file round-trips",
                   [&] {

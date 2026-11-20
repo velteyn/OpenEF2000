@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <cctype>
 #include <climits>
+#include <cstdio>
 #include <ctime>
 #include <filesystem>
 #include <cstdlib>
@@ -726,6 +727,111 @@ std::vector<std::string> GuiSystem::take_screen_requests() {
 // Routines whose effect has been established by running the original software
 // and observing the result. Keep this list small and evidence-backed: each
 // entry is a fact, not a guess, and the rest stay unimplemented on purpose.
+
+namespace {
+
+//! Human label for a mission role, as the briefing window shows it.
+const char* role_label(const std::string& role) {
+    if (role == "AF_KILL") return "Airfield Denial";
+    if (role == "INTERD") return "Interdiction";
+    if (role == "CAP") return "Combat Air Patrol";
+    if (role == "INTC") return "Intercept";
+    if (role == "SEAD") return "SEAD";
+    if (role == "AWACS_PATROL") return "AWACS Patrol";
+    if (role == "JSTARS_PATROL") return "JSTARS Patrol";
+    if (role == "REFUELLER_PATROL") return "Tanker Patrol";
+    if (role == "AWACS_KILL") return "Anti-AWACS";
+    if (role == "REFUELLER_KILL") return "Anti-Tanker";
+    if (role == "SEA_SUPPLY") return "Sea Supply";
+    if (role == "AIR_DEFENSE") return "Air Defence";
+    return role.c_str();
+}
+
+//! Fills the Mission Briefing window from the selected campaign mission.
+void fill_mission_brief(GuiSystem& gui, const Dataset& ds) {
+    if (gui.find_window("missionbrief") == nullptr || ds.missions.empty()) return;
+    const int mi = std::clamp(gui.camp_mission(), 0,
+                              static_cast<int>(ds.missions.size()) - 1);
+    const Mission& m = ds.missions[mi];
+
+    const auto set = [&](const char* icon, const std::string& value) {
+        if (auto* w = gui.find_widget("missionbrief", icon); w != nullptr) {
+            w->text["en"] = value;
+            w->value = value;
+        }
+    };
+
+    // Mission record: base, id, groups.
+    const int id = m.values.size() > 1 ? m.values[1] : mi;
+    char number[16];
+    std::snprintf(number, sizeof(number), "%04d", id);
+    set("missionnum", number);
+
+    // The campaign clock, formatted as the briefing shows it.
+    int hour = 0, minute = 0;
+    if (ds.world_status.size() >= 3) {
+        hour = ds.world_status[1];
+        minute = ds.world_status[2];
+    }
+    char clock[16];
+    std::snprintf(clock, sizeof(clock), "%02d:%02d:00", hour, minute);
+    set("time", clock);
+
+    set("type", role_label(m.role));
+
+    char flight[8];
+    std::snprintf(flight, sizeof(flight), "%03d", 1);
+    set("flightnum", flight);
+    set("callsign", "Lead");
+
+    std::string target = "-";
+    for (const auto& t : m.targets) {
+        for (const auto& a : t.areas) {
+            if (!a.name.empty()) {
+                target = a.name;
+                if (!target.empty() && target.front() == '"') target.erase(0, 1);
+                if (!target.empty() && target.back() == '"') target.pop_back();
+                break;
+            }
+        }
+        if (target != "-") break;
+    }
+    set("target", target);
+
+    int planes = 0;
+    for (const auto& f : m.flights) planes += f.count;
+    set("planes", std::to_string(planes));
+
+    bool refuel = false;
+    for (const auto& r : m.routes) {
+        for (const auto& w : r.waypoints) {
+            if (w.action == "REFUEL") refuel = true;
+        }
+    }
+    set("refuel", refuel ? "Yes" : "No");
+
+    bool awacs = m.role == "AWACS_PATROL";
+    bool jstars = m.role == "JSTARS_PATROL";
+    for (const auto& other : ds.missions) {
+        if (other.side != m.side) continue;
+        if (other.role == "AWACS_PATROL") awacs = true;
+        if (other.role == "JSTARS_PATROL") jstars = true;
+    }
+    set("awacs", awacs ? "Yes" : "No");
+    set("jstars", jstars ? "Yes" : "No");
+}
+
+}  // namespace
+
+void select_campaign_mission(GuiSystem& system, const Dataset& dataset, int index) {
+    system.set_camp_mission(index);
+    if (!dataset.missions.empty()) {
+        const int n = std::clamp(index, 0, static_cast<int>(dataset.missions.size()) - 1);
+        system.select("missionsel", std::to_string(n + 1), true);
+    }
+    fill_mission_brief(system, dataset);
+}
+
 void register_observed_routines(GuiSystem& system, const Dataset* dataset,
                                 const std::filesystem::path& data_dir,
                                 std::function<void()> refresh_data) {
@@ -1401,8 +1507,7 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
             }
         }
         if (best >= 0 && best_d <= reach) {
-            gui.set_camp_mission(best);
-            gui.select("missionsel", std::to_string(best + 1), true);
+            select_campaign_mission(gui, ds, best);
         }
     };
 
@@ -1442,8 +1547,8 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
     // Startup: the shipped screen opens with Nato selected and the first
     // mission row current. Both exist in the data; set the model to match.
     system.register_routine("InitCampaign",
-                            [](GuiSystem& gui, const std::string&,
-                               const std::string&) {
+                            [dataset](GuiSystem& gui, const std::string&,
+                                      const std::string&) {
         gui.set_camp_side(0);
         // The map opens showing the whole theatre. The original campaign
         // screen (captured at 640x400) draws every side's flags, so the
@@ -1456,6 +1561,8 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         gui.set_camp_layer_mask(0x3Fu);  // all layers
         gui.set_camp_mission(0);
         gui.select("missionsel", "1", true);
+        if (dataset != nullptr && !dataset->missions.empty())
+            select_campaign_mission(gui, *dataset, 0);
     });
 
     // Debrief tabs and NEXT are shared with the simulator debrief screen.
@@ -1560,12 +1667,16 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
 
     // Mission list in the campaign screen; entries are numbered 1..N.
     system.register_routine("gpwCampMissionSelected",
-                            [](GuiSystem& gui, const std::string& window,
-                               const std::string& icon) {
+                            [dataset](GuiSystem& gui, const std::string& window,
+                                      const std::string& icon) {
         const int n = std::atoi(icon.c_str());
         if (n < 1) return;
         gui.select(window, icon, true);
-        gui.set_camp_mission(n - 1);
+        if (dataset != nullptr) {
+            select_campaign_mission(gui, *dataset, n - 1);
+        } else {
+            gui.set_camp_mission(n - 1);
+        }
     });
 
     // Time advance: each click of "View 8hr." moves the campaign clock 8h.
