@@ -89,6 +89,19 @@ const VirtualPort kVirtualPorts[] = {
 
 bool is_airfield_type(int type) { return type >= 40 && type <= 47; }
 
+//! Upper bound of the small value reduction for a non-base installation. The
+//! exact number of sub-targets lives in the `.sss` model; these bounds come
+//! from the observed per-class ranges.
+int damage_max(int type) {
+    if (type == 79 || type == 159) return 0;
+    if (type >= 96 && type <= 100) return 3;
+    if ((type >= 101 && type <= 111) || type == 63) return 4;
+    if (type == 127) return 6;
+    if (type == 142 || type == 143) return 2;
+    if (type == 192 || type == 193 || type == 194 || type == 195) return 2;
+    return 1;
+}
+
 //! Target-list ordering. The generator writes the areas grouped by
 //! installation class in this order, preserving table order inside a group.
 int area_priority(int type) {
@@ -338,11 +351,20 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
     }
 
-    // 2. Target values: thousands from the class draw plus the site offset.
+    // 2. Target values. Only airfields and ports carry the randomised
+    //    thousands digit (1000..5000); every other installation sits just
+    //    below 1000, reduced by its own damage count.
     for (auto& area : campaign.areas) {
-        const int thousands = (rng.range(5) + 1) * 1000;
-        const int site = rng.range(14);
-        area.value = std::max(1, thousands - site);
+        if (is_airfield_type(area.type)) {
+            const int thousands = (rng.range(5) + 1) * 1000;
+            area.value = thousands - rng.between(8, 18);
+        } else if (is_port_type(area.type) || area.type == 204) {
+            const int thousands = (rng.range(5) + 1) * 1000;
+            area.value = thousands - rng.between(0, 3);
+        } else {
+            area.value = 1000 - rng.between(0, damage_max(area.type));
+        }
+        area.value = std::max(1, area.value);
         area.map_cell = area.x / 40 + (area.y / 40) * 10;
     }
 

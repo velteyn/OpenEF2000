@@ -178,25 +178,27 @@ vary while the totals do not.
 
 ### 5.1 Target values
 
-Every `SSNAME` in the regenerated `CAMPAIGN.CG` keeps its name, side and
-order, but its **value** is recomputed:
+Only **airfields and ports** carry the randomised thousands digit; every other
+installation sits just below 1000. The class of the area decides the rule:
 
-* for a selected set of target classes/statuses the thousands digit is drawn
-  as `(RNG % 5 + 1) * 1000`, i.e. 1000–5000;
-* the selector is a target-record byte (codes `'1'`, `'I'`, 0x0b, `'V'` in the
-  sampled image), not the owning side: every side has a mix, with roughly
-  40–60 % of its targets above 1000 in each run;
-* other targets are set to the base 1000;
-* a later linking pass copies a site/mobile value (below 1000) and applies a
-  `+1000` floor, so the written value combines the class/random thousands
-  with a three-digit site value (e.g. 1982, 2985, 4991).
+| Class | Value |
+|---|---|
+| airfields 40..47 | `(RNG % 5 + 1) * 1000 - RNG[8..18]` |
+| ports 90..95, 204..207 | `(RNG % 5 + 1) * 1000 - RNG[0..3]` |
+| all other targets | `1000 - RNG[0..m]` |
 
-Observed distribution over 543 targets (one run): about 55–62 % below 1000,
-27–30 % in 1000–1999, and the rest spread over 2000–5000.
+`m` is the number of sub-targets the installation can lose: 0 for rigs and
+supply towns (type 79/159), 3 for the 96..100 town classes, 4 for 101..111 and
+the reserve airfields, 6 for the 127 class, 2 for 142/143 and 192..195.
 
-The same value is reused by the corresponding `BASE` record
-(`BASE ... "Vaxjo" ... <value>`), so the base and its target area stay in
-sync.
+This reproduces the observed per-class ranges exactly, for example type 127 is
+993..1000, type 142 is 998..1000, type 159 is always 1000, and airfields run
+from 988 to 4991. Across all 543 areas the bucket counts are 344/154/15/15/13/2
+against 298/194/13/10/20/8 captured.
+
+The same value is reused by the corresponding `BASE` record, so the base and
+its target area stay in sync. The exact per-area draw order (which area gets
+which draw) is still open; the distribution and the per-class bounds are not.
 
 ### 5.1a Campaign update passes (before tasking)
 
@@ -467,10 +469,9 @@ Verified against captured runs. Two comparisons:
 Group totals are within 8 % (Patriot 177/193, Rapier 44/43, SA-6 210/232,
 ZSU 70/65, SA-11 297/374 on the scenario-seeded comparison).
 
-Not yet byte-exact: the value draw (the three-digit component is
-`-(RNG % 14)` in the capture, which reproduces the observed 987..5000 range but
-not the per-area sequence), the mobile-to-area link table, the turn-to-turn
-production/attrition mix, patrol geometry, and the exact area tail order.
+Not yet byte-exact: the per-area order in which the value draws are taken, the
+mobile-to-area link table, the turn-to-turn production/attrition mix, patrol
+geometry, and the exact area tail order.
 
 ## 10. Reconstruction plan
 
