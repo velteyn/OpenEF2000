@@ -287,6 +287,27 @@ CI runs the repository guard, the build, the GUI selftest and the smoke test on
 **Linux** and **Windows** (MSYS2/MinGW-w64). Standard GitHub-hosted runners are
 free for public repositories, so the Windows job adds no cost.
 
+### Prebuilt binaries
+
+Every push to `main` publishes two build artifacts:
+
+| Artifact | Contents |
+|---|---|
+| `openef2000-linux-x86_64` | the executable; uses the system SDL2 libraries |
+| `openef2000-windows-x86_64` | the `.exe` together with the MinGW-w64 and SDL2 DLLs it needs |
+
+Download them from the **Actions** tab (open a run, then *Artifacts*), or with
+the GitHub CLI:
+
+```bash
+gh run download --repo velteyn/OpenEF2000 --name openef2000-windows-x86_64
+gh run download --repo velteyn/OpenEF2000 --name openef2000-linux-x86_64
+```
+
+Artifacts are retained for 90 days. They contain only this project's GPL build:
+no game data is included, and the engine cannot load anything until you point it
+at your own copy of the game (`--data /path/to/game-data`).
+
 ## Repository layout
 
 ```

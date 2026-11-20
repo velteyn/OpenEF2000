@@ -51,6 +51,17 @@ jobs:
           # The engine must fail cleanly, not crash, when no game data is present.
           ./build/openef2000 --data ./does-not-exist --stats || true
 
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/openef2000 dist/
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: openef2000-linux-x86_64
+          path: dist/
+
   windows:
     name: Build (Windows)
     runs-on: windows-latest
@@ -91,6 +102,34 @@ jobs:
           ./build/openef2000.exe --help
           # The engine must fail cleanly, not crash, when no game data is present.
           ./build/openef2000.exe --data ./does-not-exist --stats || true
+
+      # Windows needs the MinGW and SDL2 DLLs next to the executable. Pull the
+      # resolved imports from ldd, then top up the codecs SDL2_image loads at
+      # run time.
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp build/openef2000.exe dist/
+          for dll in $(ldd build/openef2000.exe | awk '/mingw64\/bin/ {print $3}'); do
+            cp "$dll" dist/ 2>/dev/null || true
+          done
+          for dll in SDL2.dll SDL2_ttf.dll SDL2_image.dll \
+                     libpng16-16.dll libjpeg-8.dll libtiff-5.dll libwebp-7.dll \
+                     libwebpdemux-2.dll libwebpmux-3.dll zlib1.dll \
+                     libfreetype-6.dll libharfbuzz-0.dll libgraphite2.dll \
+                     libbz2-1.dll liblzma-5.dll libzstd-1.dll libbrotlidec.dll \
+                     libbrotlicommon.dll libdeflate.dll libjbig-0.dll libLerc.dll \
+                     libsharpyuv-0.dll libgcc_s_seh-1.dll libstdc++-6.dll \
+                     libwinpthread-1.dll; do
+            cp "/mingw64/bin/$dll" dist/ 2>/dev/null || true
+          done
+          ls -l dist
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: openef2000-windows-x86_64
+          path: dist/
 
   style:
     name: Source hygiene
