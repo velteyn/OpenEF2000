@@ -395,11 +395,17 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
     }
 
-    // 5. Mobile index. Ground mobiles feed the air-defence pool; air mobiles
-    //    the flight tasking; ships the convoys.
-    campaign.mobiles.reserve(scenario.mobiles.size());
-    for (std::size_t i = 0; i < scenario.mobiles.size(); ++i) {
-        const auto& m = scenario.mobiles[i];
+    // 5. Mobile index. The live order of battle is carried forward from the
+    //    previous campaign state; CONFLICT.CG only seeds the first campaign.
+    //    Ground mobiles feed the air-defence pool, air mobiles the flight
+    //    tasking and ships the convoys.
+    const std::vector<ScenarioMobile>& state_mobiles =
+        (previous != nullptr && !previous->mobiles.empty()) ? previous->mobiles
+                                                            : scenario.mobiles;
+    campaign.state_mobiles = state_mobiles;
+    campaign.mobiles.reserve(state_mobiles.size());
+    for (std::size_t i = 0; i < state_mobiles.size(); ++i) {
+        const auto& m = state_mobiles[i];
         GenMobile gm;
         gm.source = i;
         gm.side_code = side_code(m.side);
@@ -533,7 +539,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     // 7. Sea tasking: one convoy per ship group, scaled by group size.
     {
         std::map<std::pair<std::string, std::pair<int, int>>, int> groups;
-        for (const auto& m : scenario.mobiles) {
+        for (const auto& m : campaign.state_mobiles) {
             if (m.kind != "SH" || !m.pos) continue;
             ++groups[{m.side, {m.pos->x, m.pos->y}}];
         }
@@ -624,6 +630,118 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                   [](const GenArea* a, const GenArea* b) { return a->name < b->name; });
         std::size_t target_index = 0;
 
+        auto loadout_for = [](const char* type, const char* flight_role) {
+            std::vector<std::string> out(20, "NO_WEAPON");
+            const std::string t(type), r(flight_role);
+            if (t == "EFA") {
+                if (r == "STRIKE") {
+                    const char* w[] = {"ASRAAM", "ASRAAM", "MK_82", "MK_83",
+                                       "MK_83",  "AMRAAM", "AMRAAM", "SS225",
+                                       "AMRAAM", "SS225",  "AMRAAM", "CENTRE_FUEL"};
+                    for (int i = 0; i < 12; ++i) out[i] = w[i];
+                } else if (r == "WW") {
+                    const char* w[] = {"ASRAAM", "ASRAAM", "ALARM",  "ALARM",
+                                       "ALARM",  "ALARM",  "BL_755", "BL_755",
+                                       "SS225",  "AMRAAM", "SS225",  "AMRAAM",
+                                       "CENTRE_FUEL"};
+                    for (int i = 0; i < 13; ++i) out[i] = w[i];
+                } else {
+                    const char* w[] = {"ASRAAM", "ASRAAM", "ASRAAM", "ASRAAM",
+                                       "AMRAAM", "AMRAAM", "AMRAAM", "AMRAAM",
+                                       "SS225",  "AMRAAM", "SS225",  "AMRAAM",
+                                       "CENTRE_FUEL"};
+                    for (int i = 0; i < 13; ++i) out[i] = w[i];
+                }
+            } else if (t == "JAS39") {
+                const char* w[] = {"ASRAAM", "ASRAAM", "AMRAAM", "AMRAAM",
+                                   "SS225",  "SS225"};
+                for (int i = 0; i < 6; ++i) out[i] = w[i];
+            } else if (t == "SU35") {
+                if (r == "STRIKE") {
+                    const char* w[] = {"APHID", "APHID", "KAB_500", "KAB_500",
+                                       "ARCHER", "ARCHER", "ARCHER", "ARCHER"};
+                    for (int i = 0; i < 8; ++i) out[i] = w[i];
+                } else {
+                    const char* w[] = {"APHID", "APHID", "ALAMO", "ALAMO",
+                                       "ARCHER", "ARCHER", "ARCHER", "ARCHER"};
+                    for (int i = 0; i < 8; ++i) out[i] = w[i];
+                }
+            }
+            return out;
+        };
+
+        auto emit_flight = [&](const GenBase* base, const char* type,
+                               const char* flight_role, int ships,
+                               const GenArea* target, bool strike_route, int wave) {
+            emit.addv("FLIGHT", {Number(ships), type, flight_role, "OK"});
+            const auto pylons = loadout_for(type, flight_role);
+            for (int p = 0; p < 20; ++p) emit.addv("PYLON", {Number(p), pylons[p]});
+            emit.addv("3DP", {Number(base->x), Number(base->y), "0", "0", "0", "0"});
+            const std::string r(flight_role);
+            if (strike_route && target != nullptr) {
+                emit.addv("WP_ROUTE", {"4", "0", "0"});
+                emit.addv("WAYPOINT", {"0", Number(base->x), Number(base->y), "0",
+                                       "0", "0", "TAKE_OFF", "0", "0", "0"});
+                emit.addv("WAYPOINT", {"1", Number(target->x), Number(target->y),
+                                       "0", "0", "0", "INGRESS", "0", "0", "0"});
+                emit.addv("WAYPOINT", {"2", Number(target->x), Number(target->y),
+                                       "0", "0", "0", "STRIKE_TARGET", "0", "0",
+                                       "0"});
+                emit.addv("WAYPOINT", {"3", Number(base->x), Number(base->y), "0",
+                                       "0", "0", "LANDING", "0", "0", "0"});
+                emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
+                if (r != "WW") {
+                    emit.addv("TARGET_AREA",
+                              {base_type_for(target->type),
+                               "\"" + target->name + "\""});
+                    emit.addv("3DP", {Number(target->x), Number(target->y), "0",
+                                      "0", "0", "0"});
+                    emit.addv("LEAD", {"TARGET", "HANGAR8", "\"\"", "0", "0", "0",
+                                       "0", "0", "0"});
+                    emit.addv("ATTACK_PATTERN", {"LAYDOWN_ATTACK", "1"});
+                    emit.addv("ATTACK_ROUTE", {"2"});
+                    emit.addv("ATTACK_NODE",
+                              {"0", "-9216", "700", "0", "0", "0", "PASS"});
+                    emit.addv("ATTACK_NODE",
+                              {"2048", "2048", "700", "0", "0", "0", "STRIKE"});
+                }
+            } else {
+                emit.addv("WP_ROUTE", {"8", "0", "0"});
+                emit.addv("WAYPOINT", {"0", Number(base->x), Number(base->y), "0",
+                                       "0", "0", "TAKE_OFF", "0", Number(wave),
+                                       "0"});
+                const int alt = (r == "AWACS" || r == "JSTAR" || r == "REFUEL")
+                                    ? 250
+                                    : 90;
+                for (int w = 1; w <= 5; ++w) {
+                    const int dx = rng.between(-16, 16);
+                    const int dy = rng.between(-16, 16);
+                    emit.addv("WAYPOINT",
+                              {Number(w), Number(base->x + dx),
+                               Number(base->y + dy), Number(alt),
+                               Number(rng.between(0, 2047)),
+                               Number(rng.between(0, 2047)), "PATROL", "0", "0",
+                               "0"});
+                }
+                emit.addv("WAYPOINT", {"6", Number(base->x), Number(base->y),
+                                       Number(alt), "0", "0", "PATROL_LOOP", "7",
+                                       Number(wave), "0"});
+                emit.addv("WAYPOINT", {"7", Number(base->x), Number(base->y), "0",
+                                       "0", "0", "LANDING", "7",
+                                       Number(wave + 2), "0"});
+                emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
+            }
+            for (int p = 0; p < ships && !pilots.empty(); ++p) {
+                const auto* pilot = pilots[next_pilot++ % pilots.size()];
+                std::vector<std::string> fields{"\"" + pilot->name + "\""};
+                for (int f = 0; f < 11; ++f) fields.push_back(Number(pilot->fields[f]));
+                emit.addv("PIL", fields);
+                emit.blank();
+            }
+            emit.blank();
+        };
+
+        std::map<std::string, int> role_serial;
         for (const auto& req : kRoles) {
             auto it = bases_by_side.find(req.side);
             if (it == bases_by_side.end() || it->second.empty()) continue;
@@ -633,19 +751,11 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const GenBase* base = list[cursor % list.size()];
                 ++cursor;
                 const int id = mission_id++;
-                ++out->aircraft;
                 const std::string role = req.role;
+                const int serial = role_serial[role]++;
                 schedule[base->index].emplace_back(id, role);
-                const bool strike_role = role == "AF_KILL" || role == "INTERD" ||
-                                         role == "SEAD";
                 emit.addv("MISSION", {"PLANE", req.side, role, "OK", "0",
                                       Number(id), "1"});
-
-                const char* flight_role = "INTERCEPT";
-                if (strike_role) flight_role = role == "SEAD" ? "SEAD_STRIKE" : "STRIKE";
-                else if (role == "AWACS_PATROL") flight_role = "AWACS";
-                else if (role == "JSTARS_PATROL") flight_role = "JSTAR";
-                else if (role == "REFUELLER_PATROL") flight_role = "REFUEL";
 
                 const char* type = aircraft_for(req.side);
                 if (role == "AWACS_PATROL")
@@ -653,109 +763,48 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 else if (role == "JSTARS_PATROL") type = "J767";
                 else if (role == "REFUELLER_PATROL")
                     type = std::string(req.side) == "RUSSIAN" ? "IL78M" : "R767";
+                const char* escort = aircraft_for(req.side);
 
-                emit.addv("FLIGHT", {Number(req.ships), type, flight_role, "OK"});
+                const GenArea* target = nullptr;
+                const bool strike_role = role == "AF_KILL" || role == "INTERD" ||
+                                         role == "SEAD";
+                if (strike_role && !strike_targets.empty())
+                    target = strike_targets[target_index++ % strike_targets.size()];
 
-                static const char* const kEfa[] = {
-                    "ASRAAM", "ASRAAM", "ASRAAM", "ASRAAM", "AMRAAM", "AMRAAM",
-                    "AMRAAM", "AMRAAM", "SS225",  "AMRAAM", "SS225",  "AMRAAM",
-                    "CENTRE_FUEL"};
-                static const char* const kJas[] = {"ASRAAM", "ASRAAM", "AMRAAM",
-                                                   "AMRAAM", "SS225",  "SS225"};
-                static const char* const kSu[] = {"APHID", "APHID", "ALAMO", "ALAMO",
-                                                  "ARCHER", "ARCHER", "ARCHER",
-                                                  "ARCHER"};
-                static const char* const kSeaBomb[] = {"MK_82", "MK_82", "MK_83",
-                                                       "MK_83"};
-                const char* const* loadout = nullptr;
-                int loadout_len = 0;
-                if (std::string(type) == "EFA") {
-                    loadout = kEfa;
-                    loadout_len = 13;
-                } else if (std::string(type) == "JAS39") {
-                    loadout = kJas;
-                    loadout_len = 6;
-                } else if (std::string(type) == "SU35") {
-                    loadout = kSu;
-                    loadout_len = 8;
-                }
-                for (int p = 0; p < 20; ++p) {
-                    std::string name = "NO_WEAPON";
-                    if (strike_role && p >= 2 && p < 6)
-                        name = kSeaBomb[p - 2];
-                    else if (!strike_role && loadout != nullptr && p < loadout_len)
-                        name = loadout[p];
-                    emit.addv("PYLON", {Number(p), name});
-                }
-                emit.addv("3DP", {Number(base->x), Number(base->y), "0", "0", "0",
-                                  "0"});
-                if (strike_role) {
-                    const GenArea* target = nullptr;
-                    if (!strike_targets.empty())
-                        target = strike_targets[target_index++ % strike_targets.size()];
-                    emit.addv("WP_ROUTE", {"4", "0", "0"});
-                    emit.addv("WAYPOINT",
-                              {"0", Number(base->x), Number(base->y), "0", "0", "0",
-                               "TAKE_OFF", "0", "0", "0"});
-                    if (target != nullptr) {
-                        emit.addv("WAYPOINT",
-                                  {"1", Number(target->x), Number(target->y), "0",
-                                   "0", "0", "INGRESS", "0", "0", "0"});
-                        emit.addv("WAYPOINT",
-                                  {"2", Number(target->x), Number(target->y), "0",
-                                   "0", "0", "STRIKE_TARGET", "0", "0", "0"});
+                const int wave = serial;
+                if (role == "AWACS_PATROL" || role == "JSTARS_PATROL" ||
+                    role == "REFUELLER_PATROL") {
+                    const char* fr = role == "AWACS_PATROL"   ? "AWACS"
+                                     : role == "JSTARS_PATROL" ? "JSTAR"
+                                                               : "REFUEL";
+                    emit_flight(base, type, fr, 1, nullptr, false, wave);
+                    emit_flight(base, escort, "ESCORT", 4, nullptr, false, wave + 2);
+                    out->aircraft += 1 + 4;
+                } else if (role == "AF_KILL") {
+                    emit_flight(base, type, "STRIKE", 4, target, true, wave);
+                    emit_flight(base, type, "WW", 2, target, true, wave + 2);
+                    out->aircraft += 6;
+                    if (serial % 4 == 0) {
+                        emit_flight(base, escort, "ESCORT", 4, target, true, wave + 4);
+                        out->aircraft += 4;
                     }
-                    emit.addv("WAYPOINT",
-                              {"3", Number(base->x), Number(base->y), "0", "0", "0",
-                               "LANDING", "0", "0", "0"});
-                    emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
-                    if (target != nullptr) {
-                        emit.addv("TARGET_AREA",
-                                  {base_type_for(target->type),
-                                   "\"" + target->name + "\""});
-                        emit.addv("3DP", {Number(target->x), Number(target->y), "0",
-                                          "0", "0", "0"});
-                        emit.addv("LEAD", {"TARGET", "HANGAR8", "\"\"", "0", "0",
-                                           "0", "0", "0", "0"});
-                        emit.addv("ATTACK_PATTERN", {"LAYDOWN_ATTACK", "1"});
-                        emit.addv("ATTACK_ROUTE", {"2"});
-                        emit.addv("ATTACK_NODE",
-                                  {"0", "-9216", "700", "0", "0", "0", "PASS"});
-                        emit.addv("ATTACK_NODE",
-                                  {"2048", "2048", "700", "0", "0", "0", "STRIKE"});
+                } else if (role == "INTERD") {
+                    emit_flight(base, type, "STRIKE", 4, target, true, wave);
+                    out->aircraft += 4;
+                    if (serial % 12 < 5) {
+                        emit_flight(base, escort, "ESCORT", 4, target, true, wave + 2);
+                        out->aircraft += 4;
                     }
+                } else if (role == "SEAD") {
+                    emit_flight(base, type, "STRIKE", 6, target, true, wave);
+                    emit_flight(base, type, "SEAD_STRIKE", 4, target, true, wave + 2);
+                    emit_flight(base, escort, "ESCORT", 4, target, true, wave + 4);
+                    out->aircraft += 14;
                 } else {
-                    emit.addv("WP_ROUTE", {"8", "0", "0"});
-                    emit.addv("WAYPOINT",
-                              {"0", Number(base->x), Number(base->y), "0", "0", "0",
-                               "TAKE_OFF", "0", "0", "0"});
-                    for (int w = 1; w <= 5; ++w) {
-                        const int dx = rng.between(-16, 16);
-                        const int dy = rng.between(-16, 16);
-                        const int alt = role == "CAP" || role == "INTC" ? 90 : 250;
-                        emit.addv("WAYPOINT",
-                                  {Number(w), Number(base->x + dx),
-                                   Number(base->y + dy), Number(alt),
-                                   Number(rng.between(0, 2047)),
-                                   Number(rng.between(0, 2047)), "PATROL", "0", "0",
-                                   "0"});
-                    }
-                    emit.addv("WAYPOINT",
-                              {"6", Number(base->x), Number(base->y), "90", "0", "0",
-                               "PATROL_LOOP", "7", "0", "0"});
-                    emit.addv("WAYPOINT",
-                              {"7", Number(base->x), Number(base->y), "0", "0", "0",
-                               "LANDING", "7", "0", "0"});
-                    emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
+                    emit_flight(base, type, "INTERCEPT", req.ships, nullptr, false,
+                                wave);
+                    out->aircraft += req.ships;
                 }
-                for (int p = 0; p < req.ships && !pilots.empty(); ++p) {
-                    const auto* pilot = pilots[next_pilot++ % pilots.size()];
-                    std::vector<std::string> fields{"\"" + pilot->name + "\""};
-                    for (int f = 0; f < 11; ++f) fields.push_back(Number(pilot->fields[f]));
-                    emit.addv("PIL", fields);
-                    emit.blank();
-                }
-                emit.blank();
             }
         }
     }
@@ -864,11 +913,14 @@ bool write_campaign_file(const std::string& path, const Scenario& scenario,
             << ' ' << a1 << ' ' << a2 << " ALL\r\n";
     }
     out << ';' << stamp << " Mobile list.  " << when << "\n\r\n";
-    out << "NUM_MOBILES " << scenario.mobiles.size() << "\r\n\r\n";
+    const auto& mobiles =
+        campaign.state_mobiles.empty() ? scenario.mobiles : campaign.state_mobiles;
+    out << "NUM_MOBILES " << mobiles.size() << "\r\n\r\n";
 
-    for (std::size_t i = 0; i < scenario.mobiles.size(); ++i) {
-        const auto& m = scenario.mobiles[i];
+    for (std::size_t i = 0; i < mobiles.size(); ++i) {
+        const auto& m = mobiles[i];
         auto fields = m.fields;
+        std::string status = m.status;
         if (i < campaign.mobiles.size()) {
             const auto& gm = campaign.mobiles[i];
             if (m.kind == "GB") {
@@ -877,12 +929,14 @@ bool write_campaign_file(const std::string& path, const Scenario& scenario,
                 fields[3] = gm.used ? 2 : 0;
                 fields[8] = gm.mission >= 0 ? gm.mission : -1;
                 fields[16] = gm.base >= 0 ? gm.base : -1;
+                // Airframes that were not tasked are kept as reserves.
+                status = gm.used ? "OK" : "RESERVED";
             } else if (m.kind == "SH") {
                 fields[16] = gm.base >= 0 ? gm.base : -1;
                 fields[8] = gm.mission >= 0 ? gm.mission : -1;
             }
         }
-        out << "MOB " << m.kind << ' ' << m.type << ' ' << m.status << ' ' << m.side
+        out << "MOB " << m.kind << ' ' << m.type << ' ' << status << ' ' << m.side
             << " \"" << m.name << "\"";
         for (int v : fields) out << ' ' << v;
         out << "\r\n";

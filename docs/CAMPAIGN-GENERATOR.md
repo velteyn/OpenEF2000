@@ -337,7 +337,19 @@ Area order in the output is grouped by installation class in a fixed priority
 order inside a group. A handful of entries are appended after their group; the
 set and grouping are reproduced, the exact tail order is not yet.
 
-### 8.1 Ownership is inherited, not recomputed
+### 8.1 The live order of battle is carried forward
+
+Mobiles come from the **previous `CAMPAIGN.CG`**, not from `CONFLICT.CG`;
+`CONFLICT.CG` only seeds the first campaign. Between turns the mix changes by
+offsetting conversions and losses, e.g. one captured step moved a side from
+269 to 255 SA-11 while its ZSU count rose from 92 to 126, and dropped 30
+Swedish BEDFORDs. The totals drift by a few dozen units per turn.
+
+Airframes that are not tasked are written back with status **RESERVED**; the
+tasked ones stay `OK`. In the captured state exactly 2,331 airframes are
+reserved and the count is stable across turns.
+
+### 8.2 Ownership is inherited, not recomputed
 
 The previous `CAMPAIGN.CG` is the ownership source. In the shipped state 35
 NATO areas are already Russian (`Vaernes`, `Bodo`, `Trondheim`, the
@@ -349,7 +361,7 @@ The two 1997-era campaign files shipped in `Campaign_SourceData` (all
 difficulties) carry exactly the same 35 flips, which confirms the state is
 authored rather than generated.
 
-### 8.2 Defence slots
+### 8.3 Defence slots
 
 Every area carries a defence-site ring. The slot count follows the class:
 
@@ -374,7 +386,7 @@ eight: while more than eight remain, one mission carries eight; the tail
 mission carries the remainder. The mission count therefore follows the
 available mobiles and the slot count, which is why it varies between runs.
 
-### 8.3 Tasking totals
+### 8.4 Tasking totals
 
 The air tasking totals are invariant. One captured run:
 
@@ -395,6 +407,20 @@ Sea supply: 13 convoys, scaled from the six ship groups (one per 30 hulls).
 The file order is always all `GBASED`, then all `SHIP`, then all `PLANE`, then
 the `BASE` blocks and the `FLAK` box list.
 
+Flight composition per mission:
+
+| Role | Flights | Notes |
+|---|---:|---|
+| CAP, INTC | 1 | 2-ship intercept |
+| AWACS / JSTARS / REFUELLER patrol | 2 | platform plus a 4-ship escort |
+| AF_KILL | 2–3 | 4-ship strike, 2-ship wild weasel, optional 4-ship escort |
+| INTERD | 1–2 | 4-ship strike, optional escort |
+| SEAD | 3 | 6-ship strike, 4-ship SEAD, 4-ship escort |
+| AWACS/REFUELLER kill | 1 | 2-ship intercept |
+
+That yields 264–266 `FLIGHT` records for the 226–229 air missions, matching
+the captured range.
+
 ## 9. Implementation status
 
 The clean-room generator is in the engine:
@@ -412,19 +438,26 @@ The clean-room generator is in the engine:
   FILE --campaign-state FILE --campaign-out DIR`, `--campaign-seed N`,
   `--campaign-difficulty N`.
 
-Verified against a captured run:
+Verified against captured runs. Two comparisons:
 
-* **77/77 bases** match on side, type, name and position.
-* 543 areas in the same class grouping and order for the first 106 entries.
-* 448 air-defence missions versus 481 captured; group totals within 8 %
-  (Patriot 177/193, Rapier 44/43, SA-6 210/232, ZSU 70/65, SA-11 297/374).
-* 229 air missions and 13 convoys exactly; role totals exactly.
-* `FLAK` 87 versus 82.
+| Check | From `CONFLICT.CG` | From a captured previous state |
+|---|---|---|
+| Bases (side, type, name, position) | 77/77 | 77/77 |
+| Areas | 543, grouped | 543, grouped |
+| Air-defence missions | 448 vs 481 | 489 vs 502 |
+| Air missions | 229 vs 229 | 229 vs 226 |
+| Sea supply | 13 vs 13 | 13 vs 13 |
+| Flights | 266 vs 265 | 266 vs 264 |
+| Role matrix | exact | exact apart from a 2-mission strike split |
+| FLAK boxes | 87 vs 82 | 90 vs 82 |
+
+Group totals are within 8 % (Patriot 177/193, Rapier 44/43, SA-6 210/232,
+ZSU 70/65, SA-11 297/374 on the scenario-seeded comparison).
 
 Not yet byte-exact: the value draw (the three-digit component is
 `-(RNG % 14)` in the capture, which reproduces the observed 987..5000 range but
-not the per-area sequence), the mobile-to-area link table, flight composition
-per mission, patrol geometry, and the exact area tail order.
+not the per-area sequence), the mobile-to-area link table, the turn-to-turn
+production/attrition mix, patrol geometry, and the exact area tail order.
 
 ## 10. Reconstruction plan
 

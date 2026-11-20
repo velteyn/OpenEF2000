@@ -1802,8 +1802,12 @@ int main(int argc, char** argv) {
         if (ok) {
             check("543 areas in table order", campaign.areas.size() == 543);
             check("77 bases", campaign.bases.size() == 77);
-            check("all ground mobiles indexed",
-                  campaign.mobiles.size() == scenario.mobiles.size());
+            const auto& expected =
+                have_state && !state.mobiles.empty() ? state.mobiles
+                                                     : scenario.mobiles;
+            check("mobiles carried forward from the previous state",
+                  campaign.mobiles.size() == expected.size() &&
+                      campaign.state_mobiles.size() == expected.size());
             int airfields = 0, ports = 0;
             for (const auto& base : campaign.bases) {
                 if (base.port) ++ports; else ++airfields;
@@ -1813,6 +1817,10 @@ int main(int argc, char** argv) {
                   campaign.counts.gbased >= 400 && campaign.counts.gbased <= 560);
             check("229 air missions", campaign.counts.plane == 229);
             check("13 sea supply missions", campaign.counts.ship == 13);
+            check("flight records in range",
+                  campaign.counts.flights >= 250 && campaign.counts.flights <= 280);
+            check("strike targets in range", campaign.counts.strike_targets >= 20 &&
+                                                 campaign.counts.strike_targets <= 50);
             check("mission file round-trips",
                   [&] {
                       ef::MissionDocument again;

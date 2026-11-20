@@ -103,6 +103,9 @@ struct GenMobile {
 };
 
 struct GeneratedCampaign {
+    //! Mobile records carried into the new campaign. They come from the
+    //! previous campaign state when there is one, otherwise from the scenario.
+    std::vector<ScenarioMobile> state_mobiles;
     std::vector<GenArea> areas;
     std::vector<GenBase> bases;
     std::vector<GenMobile> mobiles;
