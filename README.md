@@ -58,7 +58,6 @@ subsystem; it is updated as work lands.
 | Area | Status |
 |---|---|
 | Archive container and resource extraction | Working |
-| Campaign, mission and scenario text | Working |
 | Strategic map (2D) | Working prototype, with SAM/EWR coverage overlays |
 | 3D model format and bytecode interpreter | Working |
 | Texture and palette decoding | Working |
@@ -66,12 +65,14 @@ subsystem; it is updated as work lands.
 | Terrain and 3D world | Container mapped; elevation source not yet located |
 | Audio | Not started |
 | Flight model and avionics | Not started |
-| Campaign and mission generation | Specification only |
+| Scenario and campaign text | Working: `CONFLICT.CG` / `CAMPAIGN.CG` parsed and written, byte-exact round trip |
+| Campaign and mission generation | Working: full generator, deterministic from a seed; parity work continuing |
 | Multiplayer | Not started |
 
 There is no playable game yet. The current build is a research and
 verification tool: it loads the original data, renders meshes, screens and the
-strategic map, and exports PNGs so results can be compared.
+strategic map, regenerates campaigns from the shipped scenario, and exports
+PNGs and data files so results can be compared.
 
 ## Key features
 
@@ -108,6 +109,31 @@ The feature set below is the target shape of the engine. Items marked
   scenario definitions.
 - **Determinism:** the simulation must be reproducible from a seed and an
   initial state, so scenario generation can be validated.
+
+### Campaign generation
+
+The campaign generator is reconstructed as a working subsystem, not just a
+specification.
+
+- **Inputs:** the shipped scenario (`CONFLICT.CG`), the previous campaign state
+  (`CAMPAIGN.CG`, which carries ownership, damage and the live order of battle)
+  and the fixed 543-entry target/base table stored inside `DID1ST.DAT`.
+- **Outputs:** a regenerated `CAMPAIGN.CG` and a complete `MISSION.CFG` —
+  air-defence missions, strike packages, patrols, convoys, flights, weapons,
+  pilots, base timetables and the flak list.
+- **Deterministic:** the game's custom 32-bit additive RNG is implemented
+  exactly. Its seed is the Unix timestamp of the DOS clock, which the generator
+  also writes into the file header, so a captured run can be replayed offline.
+- **Verified:** the 77-base table matches the original on side, type, name and
+  position; the area order is identical; and replaying a captured timestamp
+  reproduces the thousands digit of all 543 target values with zero mismatches.
+- **In the shell:** Campaign Level → Accept runs the generator, rewrites both
+  files and opens the campaign map, matching the original sequence.
+
+What remains is exact parity on the randomised details (the low component of
+each target value, the mobile-to-area link, turn-to-turn attrition and patrol
+geometry). The current state is recorded in
+[`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md).
 
 ## Architecture
 
@@ -149,7 +175,8 @@ your copy.
 ### Expected layout
 
 Point the engine at a directory containing the original data. The engine reads
-the archives in place and never writes to them.
+the archives in place and never modifies them. Campaign generation rewrites
+only the two campaign files, exactly as the original does.
 
 ```
 <game-data>/
@@ -157,8 +184,15 @@ the archives in place and never writes to them.
   DID1ST.DAT         secondary archive (some releases)
   CLUMP_3.TXT        model name list
   CLUMP_SS.TXT       shape-scene name list
+  CONFLICT.CG        static scenario
+  CAMPAIGN.CG        live campaign state (rewritten by generation)
+  MISSION.CFG        generated mission set (rewritten by generation)
+  NAVIG.NAV          base navigation
   ...                any other files shipped with your copy
 ```
+
+If the campaign files are absent, the generator seeds the first campaign from
+`CONFLICT.CG` alone.
 
 The default lookup is a `game-data` directory next to the binary, so the
 simplest setup is to create it and copy your files in. Otherwise pass the
@@ -226,6 +260,21 @@ Examples:
 
 # Render a 3D model headlessly
 ./build/openef2000 --data "/path/to/game-data" --mesh efa1 --render efa.png
+
+# Inspect a scenario, then regenerate a campaign into another directory
+./build/openef2000 --conflict "/path/to/game-data/CONFLICT.CG"
+./build/openef2000 --data "/path/to/game-data" \
+  --campaign-generate "/path/to/game-data/CONFLICT.CG" \
+  --campaign-out /tmp/campaign
+
+# Replay a captured run: the file header timestamp is the generator seed
+./build/openef2000 --data "/path/to/game-data" \
+  --campaign-generate "/path/to/game-data/CONFLICT.CG" \
+  --campaign-seed 1795127529 --campaign-out /tmp/campaign
+
+# Read and rewrite a mission file, and run the generator checks
+./build/openef2000 --mission-roundtrip "/path/to/game-data/MISSION.CFG"
+./build/openef2000 --data "/path/to/game-data" --campaign-selftest
 ```
 
 ### Tests
@@ -245,6 +294,10 @@ src/                  engine and format layer (C++20)
   gui, guirender     `.gui` parser, runtime and software renderer
   ilbm               IFF/ILBM image decoder
   parser, model      mission and campaign text, world model
+  conflict           `CONFLICT.CG` / `CAMPAIGN.CG` reader and writer
+  mission            `MISSION.CFG` line model, byte-exact reader/writer
+  campaign           custom 32-bit additive RNG
+  campaigngen        target table, bases, tasking and both writers
   render, meshview   strategic map and mesh export
   modelview          orbit-camera 3D viewer
 docs/                 published specifications and engine notes
@@ -262,7 +315,7 @@ committed.
 | Document | Contents |
 |---|---|
 | [`docs/FILE_FORMATS.md`](docs/FILE_FORMATS.md) | Clean-room specifications for the archive, mesh, texture, terrain, mission and GUI formats |
-| [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md) | Reverse-engineered specification of the campaign generator: phases, inputs, fixed backbone, RNG and output invariants |
+| [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md) | Campaign generator: phases, inputs, the 543-entry base table, RNG and seed, tasking rules, output invariants and current parity status |
 | [`docs/TOOL-EVALUATION.md`](docs/TOOL-EVALUATION.md) | Tools considered for RE and verification, with decisions and the kvikdos-ng experiment plan |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Clean-room rules, what is accepted, review process |
 | [`docs/ENGINE-NOTES.md`](docs/ENGINE-NOTES.md) | Module map, build targets, viewer controls, limitations |
