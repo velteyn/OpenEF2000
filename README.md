@@ -283,6 +283,10 @@ Examples:
 ctest --test-dir build --output-on-failure
 ```
 
+CI runs the repository guard, the build, the GUI selftest and the smoke test on
+**Linux** and **Windows** (MSYS2/MinGW-w64). Standard GitHub-hosted runners are
+free for public repositories, so the Windows job adds no cost.
+
 ## Repository layout
 
 ```
