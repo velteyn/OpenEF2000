@@ -268,6 +268,21 @@ The target areas attached to strike missions are a subset of the 543 campaign
 areas; observed **28–33** per generated mission set, with the same type mix
 (AIRFIELD, PORT, EWR, CHOKE_POINT, POLITICAL_INDUSTRIAL, POL_TYPE).
 
+### 5.3a Route geometry
+
+Mission routes are not random walks. The captured files show three shapes:
+
+* **Fighters** (CAP, INTC) fly a compact patrol box about **five map units
+  across**, offset from the base by up to eighteen units, with the loop point
+  on the first patrol fix. Altitude 90.
+* **AWACS and JSTARS** orbit a station about **forty units** from the base on a
+  wide loop (span ~34). Altitude 250.
+* **Tankers** fly a wide racetrack (span ~39) centred on their base.
+* **Strike packages** use a short ingress, the target, and a direct egress.
+
+The generator reproduces the fighter box and the support orbits; measured
+against the capture the fighter patrol span is 5.3 units against 5.0.
+
 ### 5.4 Victory and defeat
 
 The generator evaluates the war state before tasking and stops if the campaign

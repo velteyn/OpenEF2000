@@ -865,20 +865,45 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 emit.addv("WAYPOINT", {"0", Number(base->x), Number(base->y), "0",
                                        "0", "0", "TAKE_OFF", "0", Number(wave),
                                        "0"});
-                const int alt = (r == "AWACS" || r == "JSTAR" || r == "REFUEL")
-                                    ? 250
-                                    : 90;
+                const bool support = r == "AWACS" || r == "JSTAR" ||
+                                     r == "REFUEL";
+                const int alt = support ? 250 : 90;
+                // Fighters fly a compact box offset from the base; AWACS and
+                // JSTARS orbit a station about forty units out; tankers orbit
+                // close to their base on a wide racetrack.
+                const int spread = (r == "AWACS" || r == "JSTAR")
+                                       ? 17
+                                       : (r == "REFUEL" ? 19 : 3);
+                int cx = base->x;
+                int cy = base->y;
+                if (r == "AWACS" || r == "JSTAR") {
+                    const double angle = static_cast<double>(rng.between(0, 359)) *
+                                         3.14159265358979323846 / 180.0;
+                    cx += static_cast<int>(std::lround(std::cos(angle) * 42.0));
+                    cy += static_cast<int>(std::lround(std::sin(angle) * 42.0));
+                } else if (r == "REFUEL") {
+                    cx += rng.between(-4, 4);
+                    cy += rng.between(-4, 4);
+                } else {
+                    cx += rng.between(-18, 18);
+                    cy += rng.between(-18, 18);
+                }
+                int loop_x = cx;
+                int loop_y = cy;
                 for (int w = 1; w <= 5; ++w) {
-                    const int dx = rng.between(-16, 16);
-                    const int dy = rng.between(-16, 16);
+                    const int px = cx + rng.between(-spread, spread);
+                    const int py = cy + rng.between(-spread, spread);
+                    if (w == 1) {
+                        loop_x = px;
+                        loop_y = py;
+                    }
                     emit.addv("WAYPOINT",
-                              {Number(w), Number(base->x + dx),
-                               Number(base->y + dy), Number(alt),
+                              {Number(w), Number(px), Number(py), Number(alt),
                                Number(rng.between(0, 2047)),
                                Number(rng.between(0, 2047)), "PATROL", "0", "0",
                                "0"});
                 }
-                emit.addv("WAYPOINT", {"6", Number(base->x), Number(base->y),
+                emit.addv("WAYPOINT", {"6", Number(loop_x), Number(loop_y),
                                        Number(alt), "0", "0", "PATROL_LOOP", "7",
                                        Number(wave), "0"});
                 emit.addv("WAYPOINT", {"7", Number(base->x), Number(base->y), "0",
