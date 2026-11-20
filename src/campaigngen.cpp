@@ -672,7 +672,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
 
         auto emit_flight = [&](const GenBase* base, const char* type,
                                const char* flight_role, int ships,
-                               const GenArea* target, bool strike_route, int wave) {
+                               const GenArea* target, bool strike_route, int wave,
+                               bool target_area = true) {
             emit.addv("FLIGHT", {Number(ships), type, flight_role, "OK"});
             const auto pylons = loadout_for(type, flight_role);
             for (int p = 0; p < 20; ++p) emit.addv("PYLON", {Number(p), pylons[p]});
@@ -690,7 +691,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 emit.addv("WAYPOINT", {"3", Number(base->x), Number(base->y), "0",
                                        "0", "0", "LANDING", "0", "0", "0"});
                 emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
-                if (r != "WW") {
+                if (r != "WW" && target_area) {
                     emit.addv("TARGET_AREA",
                               {base_type_for(target->type),
                                "\"" + target->name + "\""});
@@ -797,8 +798,10 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     }
                 } else if (role == "SEAD") {
                     emit_flight(base, type, "STRIKE", 6, target, true, wave);
-                    emit_flight(base, type, "SEAD_STRIKE", 4, target, true, wave + 2);
-                    emit_flight(base, escort, "ESCORT", 4, target, true, wave + 4);
+                    emit_flight(base, type, "SEAD_STRIKE", 4, target, true, wave + 2,
+                                false);
+                    emit_flight(base, escort, "ESCORT", 4, target, true, wave + 4,
+                                false);
                     out->aircraft += 14;
                 } else {
                     emit_flight(base, type, "INTERCEPT", req.ships, nullptr, false,
@@ -853,8 +856,10 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     for (const auto& area : campaign.areas) {
         for (const auto& site : area.sites) {
             if (site.weapon_class != 8 && site.weapon_class != 26) continue;
-            campaign.missions.values({Number(area.x), Number(area.y),
-                                      Number(area.x + 24), Number(area.y - 24)});
+            const int fx = area.x + site.off_x / 64;
+            const int fy = area.y + site.off_y / 64;
+            campaign.missions.values({Number(fx), Number(fy), Number(fx + 24),
+                                      Number(fy - 24)});
         }
     }
 
