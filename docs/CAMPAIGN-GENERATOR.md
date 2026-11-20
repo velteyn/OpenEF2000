@@ -357,9 +357,10 @@ offsetting conversions and losses, e.g. one captured step moved a side from
 269 to 255 SA-11 while its ZSU count rose from 92 to 126, and dropped 30
 Swedish BEDFORDs. The totals drift by a few dozen units per turn.
 
-Airframes that are not tasked are written back with status **RESERVED**; the
-tasked ones stay `OK`. In the captured state exactly 2,331 airframes are
-reserved and the count is stable across turns.
+An airframe belongs to the base at its position and side, and a base carries at
+most **49** airframes; the surplus stays in reserve. That reproduces the
+captured split exactly: 1,235 `OK` (based) and 2,331 `RESERVED`. The flights
+then draw from the based airframes, preferring the role's type.
 
 Combat results live in those same fields, not in a separate debrief file: a
 played campaign carries `DEAD` mobiles (170 in the later 3DFX state) and

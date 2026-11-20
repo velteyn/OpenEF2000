@@ -452,6 +452,28 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         campaign.mobiles.push_back(gm);
     }
 
+    // Airframes belong to the base at their position and side. A base carries
+    // at most 49 of them; the surplus stays in reserve.
+    {
+        constexpr int kBaseCapacity = 49;
+        std::map<std::tuple<std::string, int, int>, int> base_at;
+        std::map<int, int> based;
+        for (const auto& base : campaign.bases) {
+            base_at.emplace(std::make_tuple(base.side, base.x, base.y), base.index);
+        }
+        for (auto& gm : campaign.mobiles) {
+            if (gm.class_id >= 0) continue;  // air and ship mobiles only
+            const auto it = base_at.find(
+                std::make_tuple(std::string(side_name(gm.side_code)), gm.x, gm.y));
+            if (it == base_at.end() || based[it->second] >= kBaseCapacity) {
+                gm.base = -1;
+                continue;
+            }
+            gm.base = it->second;
+            ++based[it->second];
+        }
+    }
+
     // Link each ground mobile to the area at its exact position and side.
     // The scenario places every ground group on a target coordinate, so this
     // is the link the original's coordinate comparison performs.
@@ -706,10 +728,63 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             return out;
         };
 
+        auto unused_at = [&](const GenBase* base, const std::string& type) {
+            int n = 0;
+            for (const auto& gm : campaign.mobiles) {
+                if (gm.class_id >= 0 || gm.used) continue;
+                if (gm.state == 1 || gm.state == 2) continue;
+                if (gm.base != base->index) continue;
+                if (gm.source < campaign.state_mobiles.size() &&
+                    campaign.state_mobiles[gm.source].type != type)
+                    continue;
+                ++n;
+            }
+            return n;
+        };
+        auto choose_type = [&](const GenBase* base, const char* preferred) {
+            if (unused_at(base, preferred) > 0) return std::string(preferred);
+            std::map<std::string, int> counts;
+            for (const auto& gm : campaign.mobiles) {
+                if (gm.class_id >= 0 || gm.used) continue;
+                if (gm.state == 1 || gm.state == 2) continue;
+                if (gm.base != base->index) continue;
+                if (gm.source < campaign.state_mobiles.size())
+                    ++counts[campaign.state_mobiles[gm.source].type];
+            }
+            int best = 0;
+            std::string pick = preferred;
+            for (const auto& [name, n] : counts) {
+                if (n > best) {
+                    best = n;
+                    pick = name;
+                }
+            }
+            return pick;
+        };
+        auto take_airframes = [&](const GenBase* base, const std::string& type,
+                                  int ships, int mission_id, int flight_index) {
+            int taken = 0;
+            for (auto& gm : campaign.mobiles) {
+                if (taken >= ships) break;
+                if (gm.class_id >= 0 || gm.used) continue;
+                if (gm.state == 1 || gm.state == 2) continue;
+                if (gm.base != base->index) continue;
+                if (gm.source < campaign.state_mobiles.size() &&
+                    campaign.state_mobiles[gm.source].type != type)
+                    continue;
+                gm.used = true;
+                gm.mission = mission_id;
+                gm.flight = flight_index;
+                ++taken;
+            }
+            return taken;
+        };
+
         auto emit_flight = [&](const GenBase* base, const char* type,
                                const char* flight_role, int ships,
                                const GenArea* target, bool strike_route, int wave,
-                               bool target_area = true) {
+                               bool target_area = true, int mission_id = -1) {
+            take_airframes(base, type, ships, mission_id, wave);
             emit.addv("FLIGHT", {Number(ships), type, flight_role, "OK"});
             const auto pylons = loadout_for(type, flight_role);
             for (int p = 0; p < 20; ++p) emit.addv("PYLON", {Number(p), pylons[p]});
@@ -794,13 +869,14 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 emit.addv("MISSION", {"PLANE", req.side, role, "OK", "0",
                                       Number(id), "1"});
 
-                const char* type = aircraft_for(req.side);
+                const char* preferred = aircraft_for(req.side);
                 if (role == "AWACS_PATROL")
-                    type = std::string(req.side) == "RUSSIAN" ? "A50" : "E767";
-                else if (role == "JSTARS_PATROL") type = "J767";
+                    preferred = std::string(req.side) == "RUSSIAN" ? "A50" : "E767";
+                else if (role == "JSTARS_PATROL") preferred = "J767";
                 else if (role == "REFUELLER_PATROL")
-                    type = std::string(req.side) == "RUSSIAN" ? "IL78M" : "R767";
-                const char* escort = aircraft_for(req.side);
+                    preferred = std::string(req.side) == "RUSSIAN" ? "IL78M" : "R767";
+                const std::string type = choose_type(base, preferred);
+                const std::string escort = choose_type(base, aircraft_for(req.side));
 
                 const GenArea* target = nullptr;
                 const bool strike_role = role == "AF_KILL" || role == "INTERD" ||
@@ -814,34 +890,34 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     const char* fr = role == "AWACS_PATROL"   ? "AWACS"
                                      : role == "JSTARS_PATROL" ? "JSTAR"
                                                                : "REFUEL";
-                    emit_flight(base, type, fr, 1, nullptr, false, wave);
-                    emit_flight(base, escort, "ESCORT", 4, nullptr, false, wave + 2);
+                    emit_flight(base, type.c_str(), fr, 1, nullptr, false, wave, true, id);
+                    emit_flight(base, escort.c_str(), "ESCORT", 4, nullptr, false, wave + 2, true, id);
                     out->aircraft += 1 + 4;
                 } else if (role == "AF_KILL") {
-                    emit_flight(base, type, "STRIKE", 4, target, true, wave);
-                    emit_flight(base, type, "WW", 2, target, true, wave + 2);
+                    emit_flight(base, type.c_str(), "STRIKE", 4, target, true, wave, true, id);
+                    emit_flight(base, type.c_str(), "WW", 2, target, true, wave + 2, true, id);
                     out->aircraft += 6;
                     if (serial % 4 == 0) {
-                        emit_flight(base, escort, "ESCORT", 4, target, true, wave + 4);
+                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4, true, id);
                         out->aircraft += 4;
                     }
                 } else if (role == "INTERD") {
-                    emit_flight(base, type, "STRIKE", 4, target, true, wave);
+                    emit_flight(base, type.c_str(), "STRIKE", 4, target, true, wave, true, id);
                     out->aircraft += 4;
                     if (serial % 12 < 5) {
-                        emit_flight(base, escort, "ESCORT", 4, target, true, wave + 2);
+                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 2, true, id);
                         out->aircraft += 4;
                     }
                 } else if (role == "SEAD") {
-                    emit_flight(base, type, "STRIKE", 6, target, true, wave);
-                    emit_flight(base, type, "SEAD_STRIKE", 4, target, true, wave + 2,
-                                false);
-                    emit_flight(base, escort, "ESCORT", 4, target, true, wave + 4,
-                                false);
+                    emit_flight(base, type.c_str(), "STRIKE", 6, target, true, wave, true, id);
+                    emit_flight(base, type.c_str(), "SEAD_STRIKE", 4, target, true, wave + 2,
+                                false, id);
+                    emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4,
+                                false, id);
                     out->aircraft += 14;
                 } else {
-                    emit_flight(base, type, "INTERCEPT", req.ships, nullptr, false,
-                                wave);
+                    emit_flight(base, type.c_str(), "INTERCEPT", req.ships, nullptr, false,
+                                wave, true, id);
                     out->aircraft += req.ships;
                 }
             }
@@ -1004,7 +1080,7 @@ bool write_campaign_file(const std::string& path, const Scenario& scenario,
                 fields[16] = gm.base >= 0 ? gm.base : -1;
                 // Losses stay lost; the rest are either tasked or reserve.
                 if (gm.state != 1 && gm.state != 2) {
-                    status = gm.used ? "OK" : "RESERVED";
+                    status = gm.base >= 0 ? "OK" : "RESERVED";
                 }
             } else if (m.kind == "SH") {
                 fields[16] = gm.base >= 0 ? gm.base : -1;
