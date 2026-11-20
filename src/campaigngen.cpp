@@ -48,6 +48,18 @@ int ground_type_index(const std::string& name) {
 const char* const kSideNames[] = {"NATO",   "RUSSIAN", "SWEDISH", "FINNISH",
                                   "BALTIC", "DANISH",  "NORWEGIAN", "US", "UK"};
 
+//! Mobile status codes, in the order the game's status table uses.
+int status_code(const std::string& name) {
+    static const char* const kStatus[] = {"OK",     "DEAD",    "CRIPPLED",
+                                          "DISABLED", "DAMAGED", "NO_RESULT",
+                                          "UNKNOWN", "RESERVED", "ABORT",
+                                          "COMPLETE"};
+    for (int i = 0; i < 10; ++i) {
+        if (name == kStatus[i]) return i;
+    }
+    return 0;
+}
+
 int side_code(const std::string& name) {
     for (int i = 0; i < 9; ++i) {
         if (name == kSideNames[i]) return i;
@@ -428,7 +440,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         GenMobile gm;
         gm.source = i;
         gm.side_code = side_code(m.side);
-        gm.state = 0;
+        gm.state = status_code(m.status);
         gm.x = m.pos ? m.pos->x : 0;
         gm.y = m.pos ? m.pos->y : 0;
         if (m.kind == "GB") {
@@ -501,6 +513,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         for (const auto& gm : campaign.mobiles) {
             if (gm.class_id < 0 || gm.area != static_cast<int>(a)) continue;
             if (gm.used) continue;
+            // Dead and crippled units are not available for tasking.
+            if (gm.state == 1 || gm.state == 2) continue;
             ++available[gm.class_id];
         }
         const int* cycle = is_western(side) ? kWestDefence : kEastDefence;
@@ -523,7 +537,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             int consumed = 0;
             for (auto& gm : campaign.mobiles) {
                 if (gm.class_id != weapon || gm.area != static_cast<int>(a)) continue;
-                if (gm.used) continue;
+                if (gm.used || gm.state == 1 || gm.state == 2) continue;
                 gm.used = true;
                 gm.mission = mission_id;
                 if (++consumed >= count) break;
@@ -988,8 +1002,10 @@ bool write_campaign_file(const std::string& path, const Scenario& scenario,
                 fields[3] = gm.used ? 2 : 0;
                 fields[8] = gm.mission >= 0 ? gm.mission : -1;
                 fields[16] = gm.base >= 0 ? gm.base : -1;
-                // Airframes that were not tasked are kept as reserves.
-                status = gm.used ? "OK" : "RESERVED";
+                // Losses stay lost; the rest are either tasked or reserve.
+                if (gm.state != 1 && gm.state != 2) {
+                    status = gm.used ? "OK" : "RESERVED";
+                }
             } else if (m.kind == "SH") {
                 fields[16] = gm.base >= 0 ? gm.base : -1;
                 fields[8] = gm.mission >= 0 ? gm.mission : -1;

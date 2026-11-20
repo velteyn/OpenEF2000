@@ -361,6 +361,12 @@ Airframes that are not tasked are written back with status **RESERVED**; the
 tasked ones stay `OK`. In the captured state exactly 2,331 airframes are
 reserved and the count is stable across turns.
 
+Combat results live in those same fields, not in a separate debrief file: a
+played campaign carries `DEAD` mobiles (170 in the later 3DFX state) and
+reduced strengths (156, 82, 76). The generator skips `DEAD` and `CRIPPLED`
+units when it tasks, and never revives them. The debrief screen reads the same
+state to display the outcome.
+
 ### 8.2 Ownership is inherited, not recomputed
 
 The previous `CAMPAIGN.CG` is the ownership source. In the shipped state 35
