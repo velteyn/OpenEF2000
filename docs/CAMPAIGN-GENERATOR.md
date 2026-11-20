@@ -588,7 +588,24 @@ Flight composition per mission:
 | AWACS/REFUELLER kill | 1 | 2-ship intercept |
 
 That yields 264–266 `FLIGHT` records for the 226–229 air missions, matching
-the captured range.
+the captured range. Escorts take whatever the airfield still holds after the
+strike and wild-weasel flights, so their size is 1–4 ships rather than always
+four; support-package escorts stay at four. The captured mix is 18 four-ship
+escorts, two 2-ship, two 1-ship and one 3-ship. The remaining difference is
+*which* packages receive an escort: the capture assigns them through its own
+package plan, which is not decoded yet.
+
+### 8.5 Timetable observations
+
+The captured `TIMESLOT` rows are **per flight**, not per mission: a two-flight
+strike package has two `TAKE_OFF` rows and two `LANDING` rows, and the final
+field is the flight's index inside the package (0, 1, 2). Rows are sorted
+chronologically per base and mix take-offs and landings. On the reference
+base, CAPs launch first, then tanker/AWACS support, then strike packages in
+pairs, with the next package waiting for the previous wave's aircraft to
+recover. Our generator still writes one take-off/landing pair per mission, so
+row counts and exact launch times differ; the structural rule is recorded
+here for the next iteration.
 
 The base timetable is built from the missions assigned to that base. Airfields
 launch four aircraft per wave at two-minute spacing; the next wave starts two

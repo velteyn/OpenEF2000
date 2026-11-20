@@ -130,8 +130,9 @@ specification.
   position; the area order is identical; replaying a captured timestamp
   reproduces the thousands digit of all 543 target values with zero mismatches;
   26/26 CAP airfields and 8/8 support airfields match the captured basing; and
-  the flyable airframe types used are 638 against the capture's 612, with
-  identical `SU35`/`JAS39`/`F18`/`SU27`/`SU33`/`TORNADO` flight counts.
+  the flyable airframe types used are 617 against the capture's 612. Escorts
+  now take the remaining airframes at their airfield (1–4 ships), matching the
+  captured size mix, and all seven support escorts are four-ship.
 - **Route geometry:** strike packages now build one corridor per package with
   0–10 intermediate fixes per leg, a shared escort/weasel route and conditional
   refuelling; mean length 13.10 against the capture's 13.31.

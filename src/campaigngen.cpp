@@ -1588,21 +1588,35 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const std::string escort = choose_flight_type(base, "ESCORT");
 
                 // Extra flights are only flown when the airfield still holds
-                // the aircraft for them, which is why some captured packages
-                // are a single strike flight.
+                // the aircraft for them, and an escort takes whatever is left
+                // (the capture mixes 4-, 3-, 2- and 1-ship escorts).
                 bool af_ww = false;
                 bool af_extra = false;
                 bool interd_sead = false;
                 bool interd_escort = false;
+                int escort_ships = 4;
                 if (role == "AF_KILL") {
-                    af_ww = unused_at(base, type) >= 2;
-                    af_extra = unused_at(base, escort) >= 4 && serial % 4 == 0;
+                    af_ww = unused_at(base, type) >= strike_ships + 2;
+                    int available = unused_at(base, escort);
+                    if (escort == type)
+                        available -= strike_ships + (af_ww ? 2 : 0);
+                    escort_ships = std::clamp(std::min(4, available), 0, 4);
+                    af_extra = escort_ships > 0 && serial % 4 == 0;
                 } else if (role == "INTERD") {
                     const bool port = target != nullptr &&
                                       !is_airfield_type(target->type);
-                    interd_sead = port && unused_at(base, type) >= 2;
-                    interd_escort = !interd_sead && unused_at(base, escort) >= 4 &&
+                    interd_sead = port &&
+                                  unused_at(base, type) >= strike_ships + 2;
+                    int available = unused_at(base, escort);
+                    if (escort == type) available -= strike_ships;
+                    escort_ships = std::clamp(std::min(4, available), 0, 4);
+                    interd_escort = !interd_sead && escort_ships > 0 &&
                                     serial % 4 == 2;
+                    if (interd_sead) escort_ships = 0;
+                } else if (role == "SEAD") {
+                    int available = unused_at(base, escort);
+                    if (escort == type) available -= strike_ships + 4;
+                    escort_ships = std::clamp(std::min(4, available), 1, 4);
                 }
 
                 int flight_count = 1;
@@ -1632,8 +1646,9 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                                      : role == "JSTARS_PATROL" ? "JSTAR"
                                                                : "REFUEL";
                     emit_flight(base, type.c_str(), fr, 1, nullptr, nullptr, wave, true, id);
-                    emit_flight(base, escort.c_str(), "ESCORT", 4, nullptr, nullptr, wave + 2, true, id);
-                    out->aircraft += 1 + 4;
+                    emit_flight(base, escort.c_str(), "ESCORT", escort_ships,
+                                nullptr, nullptr, wave + 2, true, id);
+                    out->aircraft += 1 + escort_ships;
                 } else if (role == "AF_KILL") {
                     emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, pkg_route, wave, true, id);
                     out->aircraft += strike_ships;
@@ -1642,8 +1657,9 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                         out->aircraft += 2;
                     }
                     if (af_extra) {
-                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 4, true, id);
-                        out->aircraft += 4;
+                        emit_flight(base, escort.c_str(), "ESCORT", escort_ships,
+                                    target, pkg_route, wave + 4, true, id);
+                        out->aircraft += escort_ships;
                     }
                 } else if (role == "INTERD") {
                     emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, pkg_route, wave, true, id);
@@ -1652,16 +1668,17 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                         emit_flight(base, type.c_str(), "SEAD_STRIKE", 2, target, pkg_route, wave + 2, true, id);
                         out->aircraft += 2;
                     } else if (interd_escort) {
-                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 2, true, id);
-                        out->aircraft += 4;
+                        emit_flight(base, escort.c_str(), "ESCORT", escort_ships,
+                                    target, pkg_route, wave + 2, true, id);
+                        out->aircraft += escort_ships;
                     }
                 } else if (role == "SEAD") {
                     emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, pkg_route, wave, true, id);
                     emit_flight(base, type.c_str(), "SEAD_STRIKE", 4, target, pkg_route, wave + 2,
                                 true, id);
-                    emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 4,
-                                false, id);
-                    out->aircraft += 14;
+                    emit_flight(base, escort.c_str(), "ESCORT", escort_ships,
+                                target, pkg_route, wave + 4, false, id);
+                    out->aircraft += 10 + escort_ships;
                 } else {
                     emit_flight(base, type.c_str(), "INTERCEPT", req.ships, nullptr, nullptr,
                                 wave, true, id);

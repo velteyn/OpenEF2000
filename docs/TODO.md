@@ -87,6 +87,13 @@ table unlocks:
 
 ## 6. Cosmetic / smaller
 
-- [ ] Exact timetable launch times and wave sizes.
-- [ ] Escort flight sizes (capture mixes 1–4 ships).
-- [ ] `Refuel` flag position of the tanker track per side.
+- [ ] **Exact timetable launch times and wave sizes** — captures write one row
+      per flight (final field = flight index), sort the base's rows
+      chronologically and launch support first, then strike packages in pairs.
+      The generator still writes one row per mission.
+- [x] **Escort flight sizes** — escorts take the remaining airframes at their
+      airfield, 1–4 ships; support escorts stay at four. The captured 18×4,
+      2×2, 2×1, 1×3 mix is now representable. Which packages receive an escort
+      is still approximate.
+- [ ] `Refuel` flag position of the tanker track per side (the captured refuel
+      fix is the tanker orbit's far station, which differs per base).
