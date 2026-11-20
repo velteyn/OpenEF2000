@@ -1851,7 +1851,18 @@ int main(int argc, char** argv) {
                   campaign.counts.flights >= 250 && campaign.counts.flights <= 280);
             check("strike targets in range", campaign.counts.strike_targets >= 20 &&
                                                  campaign.counts.strike_targets <= 50);
-            check("mission file round-trips",
+            // Pins the value-draw rule: with a captured seed the upper half of the
+        // state selects the thousands digit, one draw per airfield/port in
+        // output order.
+        {
+            ef::CampaignRng probe(1795127529u);
+            int got[5] = {};
+            for (int& v : got) v = static_cast<int>((probe.next() >> 16) % 5);
+            check("value draws match the captured sequence",
+                  got[0] == 4 && got[1] == 4 && got[2] == 0 && got[3] == 4 &&
+                      got[4] == 3);
+        }
+        check("mission file round-trips",
                   [&] {
                       ef::MissionDocument again;
                       const std::string tmp = "/tmp/openef2000-selftest.cfg";

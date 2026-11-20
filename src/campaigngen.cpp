@@ -88,54 +88,8 @@ const VirtualPort kVirtualPorts[] = {
 };
 
 bool is_airfield_type(int type) { return type >= 40 && type <= 47; }
-
-//! Upper bound of the small value reduction for a non-base installation. The
-//! exact number of sub-targets lives in the `.sss` model; these bounds come
-//! from the observed per-class ranges.
-int damage_max(int type) {
-    if (type == 79 || type == 159) return 0;
-    if (type >= 96 && type <= 100) return 3;
-    if ((type >= 101 && type <= 111) || type == 63) return 4;
-    if (type == 127) return 6;
-    if (type == 142 || type == 143) return 2;
-    if (type == 192 || type == 193 || type == 194 || type == 195) return 2;
-    return 1;
-}
-
-//! Target-list ordering. The generator writes the areas grouped by
-//! installation class in this order, preserving table order inside a group.
-int area_priority(int type) {
-    if (is_airfield_type(type)) return 0;
-    if (type >= 90 && type <= 95) return 1;
-    switch (type) {
-        case 205: return 2;
-        case 206: return 3;
-        case 207: return 4;
-        case 204: return 5;
-        case 79: return 6;
-        case 127: return 7;
-        case 142: return 8;
-        case 143: return 9;
-        case 159: return 10;
-        case 101: return 11;
-        case 106: return 12;
-        case 107: return 13;
-        case 108: return 14;
-        case 109: return 15;
-        case 110: return 16;
-        case 111: return 17;
-        case 96: return 18;
-        case 97: return 19;
-        case 98: return 20;
-        case 99: return 21;
-        case 100: return 22;
-        case 192: return 23;
-        case 193: return 24;
-        case 194: return 25;
-        case 195: return 26;
-        case 63: return 27;
-        default: return 28;
-    }
+bool is_port_type(int type) {
+    return (type >= 90 && type <= 95) || (type >= 205 && type <= 207);
 }
 
 //! Number of defence slots per installation class. Airfields carry the full
@@ -146,9 +100,6 @@ int site_count_for_type(int type) {
     if (type == 142 || type == 143) return 1;
     if (type >= 96 && type <= 143) return 3;
     return 1;
-}
-bool is_port_type(int type) {
-    return (type >= 90 && type <= 95) || (type >= 205 && type <= 207);
 }
 
 const char* const kStampFormat = "%a %b %e %H:%M:%S %Y";
@@ -168,7 +119,18 @@ std::string now_stamp() {
 
 std::string Number(int v) { return std::to_string(v); }
 
-//! Parses one table row: `x  y  alt  model.sss  "Name"  ;type`.
+//! Upper bound of the small value reduction for a non-base installation. The
+//! exact number of sub-targets lives in the `.sss` model; these bounds come
+//! from the observed per-class ranges.
+int damage_for(int type, const std::string&) {
+    // Modal figure per class. The per-area variation comes from the
+    // installation's sub-target list (`.sss`), which is not modelled yet.
+    if (type >= 96 && type <= 100) return 1;
+    if (type >= 101 && type <= 111) return 2;
+    if (type == 127) return 4;
+    return 0;
+}
+
 bool parse_table_row(const std::string& line, TargetSite* out) {
     std::size_t q1 = line.find('"');
     if (q1 == std::string::npos) return false;
@@ -316,31 +278,78 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     const auto prev = previous != nullptr ? index_areas(*previous)
                                           : std::map<std::string, const ScenarioArea*>{};
 
-    // 1. Areas. The generator walks the fixed table, not the scenario list.
-    campaign.areas.reserve(table.size());
-    for (const auto& row : table) {
-        GenArea area;
-        area.name = row.name;
-        area.x = row.x;
-        area.y = row.y;
-        area.type = row.type;
-        if (auto it = prev.find(row.name); it != prev.end()) {
-            area.side = it->second->side;
-            area.airfield1 = it->second->airfield1;
-            area.airfield2 = it->second->airfield2;
-        } else if (auto it = current.find(row.name); it != current.end()) {
-            area.side = it->second->side;
-            area.airfield1 = it->second->airfield1;
-            area.airfield2 = it->second->airfield2;
-        }
-        campaign.areas.push_back(std::move(area));
+    // 1. Areas. The output order comes from the scenario/state file; the fixed
+    //    table supplies position and class by name. Table entries that the
+    //    scenario omits (Visby) are inserted after their nearest preceding
+    //    table neighbour, which is how the original's extra area lands
+    //    between Shimsk and Vardo.
+    std::map<std::string, const TargetSite*> table_by_name;
+    for (const auto& row : table) table_by_name.emplace(row.name, &row);
+
+    const auto& order_source =
+        (previous != nullptr && previous->areas.size() > 1) ? previous->areas
+                                                            : scenario.areas;
+    std::map<std::string, const ScenarioArea*> listed;
+    for (const auto& area : order_source) {
+        if (table_by_name.find(area.name) == table_by_name.end()) continue;
+        GenArea out_area;
+        out_area.name = area.name;
+        const TargetSite* row = table_by_name[area.name];
+        out_area.x = row->x;
+        out_area.y = row->y;
+        out_area.type = row->type;
+        out_area.side = area.side;
+        out_area.airfield1 = area.airfield1;
+        out_area.airfield2 = area.airfield2;
+        campaign.areas.push_back(std::move(out_area));
+        listed.emplace(area.name, &area);
     }
-    std::stable_sort(campaign.areas.begin(), campaign.areas.end(),
-                     [](const GenArea& a, const GenArea& b) {
-                         const int pa = area_priority(a.type);
-                         const int pb = area_priority(b.type);
-                         return pa < pb;
-                     });
+    for (std::size_t i = 0; i < table.size(); ++i) {
+        if (listed.count(table[i].name) != 0) continue;
+        GenArea out_area;
+        out_area.name = table[i].name;
+        out_area.x = table[i].x;
+        out_area.y = table[i].y;
+        out_area.type = table[i].type;
+        out_area.airfield1 = 30;
+        out_area.airfield2 = 30;
+        std::size_t insert_at = 0;
+        bool anchored = false;
+        for (std::size_t j = i; j-- > 0;) {
+            for (std::size_t k = 0; k < campaign.areas.size(); ++k) {
+                if (campaign.areas[k].name == table[j].name) {
+                    insert_at = k + 1;
+                    anchored = true;
+                    break;
+                }
+            }
+            if (anchored) break;
+        }
+        campaign.areas.insert(campaign.areas.begin() + insert_at,
+                              std::move(out_area));
+        listed.emplace(table[i].name, scenario.find_area(table[i].name));
+    }
+
+    // 2. Target values. One draw per area, in output order: the upper half of
+    //    the state selects the thousands digit (0..4). The low part of the
+    //    value is the installation's own worth, 1000 minus its damage count,
+    //    so a damaged site rolls the value back into the previous thousand.
+    for (auto& area : campaign.areas) {
+        // Only airfields and ports are valued by the draw. Every other
+        // installation stays at 1000 minus its own damage count and consumes
+        // no random number.
+        const bool valued = is_airfield_type(area.type) ||
+                            is_port_type(area.type) || area.type == 204;
+        if (!valued) {
+            area.value = 1000 - damage_for(area.type, area.side);
+        } else {
+            const int draw = static_cast<int>((rng.next() >> 16) & 0xFFFFu);
+            const int thousands = (draw % 5) * 1000;
+            const int site = 1000 - damage_for(area.type, area.side);
+            area.value = thousands + site;
+        }
+        area.map_cell = area.x / 40 + (area.y / 40) * 10;
+    }
     for (auto& area : campaign.areas) {
         if (area.side.empty()) {
             area.side = inherit_side(area.name, area.x, area.y, campaign.areas);
@@ -351,22 +360,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
     }
 
-    // 2. Target values. Only airfields and ports carry the randomised
-    //    thousands digit (1000..5000); every other installation sits just
-    //    below 1000, reduced by its own damage count.
-    for (auto& area : campaign.areas) {
-        if (is_airfield_type(area.type)) {
-            const int thousands = (rng.range(5) + 1) * 1000;
-            area.value = thousands - rng.between(8, 18);
-        } else if (is_port_type(area.type) || area.type == 204) {
-            const int thousands = (rng.range(5) + 1) * 1000;
-            area.value = thousands - rng.between(0, 3);
-        } else {
-            area.value = 1000 - rng.between(0, damage_max(area.type));
-        }
-        area.value = std::max(1, area.value);
-        area.map_cell = area.x / 40 + (area.y / 40) * 10;
-    }
+    // (Target values are assigned after the areas are put in output order:
+    //  the generator draws exactly one value per area, in that order.)
 
     // 3. Bases: airfields and ports from the table, then the virtual ports.
     for (const auto& area : campaign.areas) {

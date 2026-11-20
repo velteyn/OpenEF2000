@@ -178,27 +178,31 @@ vary while the totals do not.
 
 ### 5.1 Target values
 
-Only **airfields and ports** carry the randomised thousands digit; every other
-installation sits just below 1000. The class of the area decides the rule:
+The value draw is **exactly recoverable**. The generator seeds its custom RNG
+with the Unix timestamp of the DOS clock (`0xb2428` converts the `INT 21h`
+date/time through `mktime`), and it writes that same value into the file
+header. Feeding a captured file's timestamp back as the seed therefore
+reproduces its draw sequence.
 
-| Class | Value |
-|---|---|
-| airfields 40..47 | `(RNG % 5 + 1) * 1000 - RNG[8..18]` |
-| ports 90..95, 204..207 | `(RNG % 5 + 1) * 1000 - RNG[0..3]` |
-| all other targets | `1000 - RNG[0..m]` |
+Rules:
 
-`m` is the number of sub-targets the installation can lose: 0 for rigs and
-supply towns (type 79/159), 3 for the 96..100 town classes, 4 for 101..111 and
-the reserve airfields, 6 for the 127 class, 2 for 142/143 and 192..195.
+* Only **airfields and ports** are valued. Every other installation consumes
+  no random number.
+* One draw per valued area, in output order.
+* The **upper half** of the state selects the thousands digit:
+  `thousands = ((state >> 16) % 5) * 1000`.
+* The value is `thousands + site`, where `site` is the installation's worth,
+  1000 when intact. A damaged installation rolls the value back into the
+  previous thousand (982 gives 4982, not 5982).
+* Rigs (type 79) and supply towns (159) are never valued; they stay at 1000.
 
-This reproduces the observed per-class ranges exactly, for example type 127 is
-993..1000, type 142 is 998..1000, type 159 is always 1000, and airfields run
-from 988 to 4991. Across all 543 areas the bucket counts are 344/154/15/15/13/2
-against 298/194/13/10/20/8 captured.
+Verification: replaying a captured run's timestamp as the seed reproduces the
+**thousands digit of all 543 areas with zero mismatches**, and the area order
+is identical. The remaining difference is the low `site` component (982..1000),
+which varies per turn and comes from the installation's sub-target list.
 
-The same value is reused by the corresponding `BASE` record, so the base and
-its target area stay in sync. The exact per-area draw order (which area gets
-which draw) is still open; the distribution and the per-class bounds are not.
+The same value feeds the corresponding `BASE` record, so the base and its
+target area stay in sync.
 
 ### 5.1a Campaign update passes (before tasking)
 
@@ -300,8 +304,9 @@ rewritten.
 
 * the exact mapping from the 0..9 difficulty byte and the influence flag to
   the package-size thresholds;
-* the exact per-side/per-class condition that selects the randomised 1000–5000
-  target values;
+* the low `site` component of a target value (982..1000): it varies per turn
+  and is not drawn in the value loop, so it comes from the installation's
+  sub-target list or the site-health pass;
 * the `MOB` and `PIL` numeric tail semantics;
 * the attack-pattern/node generation rules (routes, actions, counts);
 * whether the RNG is advanced by other game systems between launch and
@@ -330,14 +335,14 @@ x  y  altitude  model.sss  "Name"  ;type
 | 96..143, 159 | towns, industry, EWR, bridges, chokepoints | 422 |
 
 The scenario's 542 `SSNAME` records are matched to the table **by name**. The
-one table entry missing from `CONFLICT.CG` (`Visby`) is added anyway, taking the
-side of its nearest listed neighbour. The written `CAMPAIGN.CG` therefore has
-**543** areas.
+one table entry missing from `CONFLICT.CG` (`Visby`) is added after its nearest
+preceding table neighbour, landing between Shimsk and Vardo. The written
+`CAMPAIGN.CG` therefore has **543** areas.
 
-Area order in the output is grouped by installation class in a fixed priority
-(airfields, ports, naval stations, rigs, EWR, towns, ...), preserving table
-order inside a group. A handful of entries are appended after their group; the
-set and grouping are reproduced, the exact tail order is not yet.
+**The output order comes from the scenario file, not the table.** `CONFLICT.CG`
+already lists the areas in the generator's order (the rigs, for example, start
+at Sleipner rather than at the table's Albuskjell). Every captured run keeps
+that order unchanged, so it is carried forward with the ownership.
 
 ### 8.1 The live order of battle is carried forward
 
@@ -458,7 +463,8 @@ Verified against captured runs. Two comparisons:
 | Check | From `CONFLICT.CG` | From a captured previous state |
 |---|---|---|
 | Bases (side, type, name, position) | 77/77 | 77/77 |
-| Areas | 543, grouped | 543, grouped |
+| Areas | 543, identical order | 543, identical order |
+| Target values (thousands digit) | **543/543 exact** | **543/543 exact** |
 | Air-defence missions | 448 vs 481 | 489 vs 502 |
 | Air missions | 229 vs 229 | 229 vs 226 |
 | Sea supply | 13 vs 13 | 13 vs 13 |
