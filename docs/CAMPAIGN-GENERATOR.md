@@ -198,6 +198,28 @@ The same value is reused by the corresponding `BASE` record
 (`BASE ... "Vaxjo" ... <value>`), so the base and its target area stay in
 sync.
 
+### 5.1a Campaign update passes (before tasking)
+
+Before missions are built, the generator updates the previous campaign state:
+
+* **Link pass** (`0xd8d28`): each mobile/site record (27-byte stride) is matched
+  to a target by its coordinates and side, and the target's site block is
+  copied in.
+* **Attrition pass** (`0xd8e50`): matching sites lose health; a site whose
+  health falls below 75 (and is not already in a special state) is marked
+  damaged, and a destroyed state propagates to its target. The pass only runs
+  on sites that are not already resolved.
+* **Repair pass** (`0xd8ac0`): a site below full health gains a small random
+  amount (`RNG % 10`, or `RNG % 35` for some classes), capped at 100.
+
+The 21-byte site record carries a health byte at offset 5 (0..100) and the
+site's coordinates at +7/+9/+11. The mission count at an airfield reflects the
+available sites after these passes; for example Vaxjo's 9 Patriot and 6 Rapier
+mobiles become 7 and 4 missions in the sampled run.
+
+The exact damage/availability formula and the site-to-target ownership rules
+are the main remaining open item for byte-exact reproduction.
+
 ### 5.2 Air-defence tasking
 
 `GBASED` / `AIR_DEFENSE` missions are generated from each target area's site
@@ -291,8 +313,10 @@ The clean-room foundation is in the engine now:
 * `src/conflict.h/.cpp` — full `CONFLICT.CG`/`CAMPAIGN.CG` parser and writer.
   Round-trip verified on the shipped file: 542 areas, 6458 mobiles, 6458
   pilots, 46 allegiance rows.
-* `src/campaign.h/.cpp` — the custom 32-bit additive RNG and the target-value
-  pass.
+* `src/campaign.h/.cpp` — the custom 32-bit additive RNG and an experimental
+  target-value pass. The RNG is exact; the target pass uses a placeholder
+  class selector until the target-class byte is decoded, so it is not yet a
+  byte-parity claim.
 * CLI: `--conflict FILE`, `--conflict-roundtrip OUT`, `--campaign-generate
   FILE`, `--campaign-seed N`, `--campaign-difficulty N`, `--campaign-out DIR`.
 * The GUI selftest covers RNG determinism and seed-reproducible target values.
