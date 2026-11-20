@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2026 velteyn
 
+#include "campaign.h"
+#include "conflict.h"
 #include "did.h"
 #include "guirender.h"
 #include "meshview.h"
@@ -68,6 +70,12 @@ void usage() {
         "  --camp-noflags      hide unit markers (the `f` toggle)\n"
         "  --camp-fuel         planner fuel ring (assumed radius)\n"
         "  --camp-mission N    selected mission for headless GUI inspection\n"
+        "  --conflict FILE     analyse a CONFLICT.CG / CAMPAIGN.CG\n"
+        "  --conflict-roundtrip OUT  save and reload the scenario to verify the parser\n"
+        "  --campaign-generate FILE  randomize target values from a scenario\n"
+        "  --campaign-out DIR  write CAMPAIGN.CG into DIR\n"
+        "  --campaign-seed N   generator seed (default 0x31415926)\n"
+        "  --campaign-difficulty N  override the scenario difficulty\n"
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
@@ -1482,6 +1490,34 @@ routine mpToggleIcons
                   ef::base_efa_count(sd, 0, true) == 2);
     }
 
+    // Campaign generator foundations: the custom RNG and the target-value
+    // pass must be reproducible from the seed.
+    {
+        ef::CampaignRng a(0x31415926u), b(0x31415926u);
+        bool same = true;
+        for (int i = 0; i < 8; ++i) same = same && (a.next() == b.next());
+        check("campaign RNG is deterministic for a seed", same);
+
+        ef::Scenario one;
+        for (int i = 0; i < 6; ++i) {
+            ef::ScenarioArea area;
+            area.name = "A" + std::to_string(i);
+            area.side = "NATO";
+            area.airfield1 = 30;
+            area.airfield2 = 30;
+            one.areas.push_back(area);
+        }
+        ef::Scenario two = one;
+        ef::CampaignRng r1(1234), r2(1234);
+        ef::randomize_target_values(one, r1);
+        ef::randomize_target_values(two, r2);
+        bool equal = one.areas.size() == two.areas.size();
+        for (std::size_t i = 0; equal && i < one.areas.size(); ++i) {
+            equal = one.areas[i].value == two.areas[i].value;
+        }
+        check("target-value pass is reproducible from the seed", equal);
+    }
+
     std::printf("%s (%d failure%s)\n", failures == 0 ? "gui selftest: PASS" : "gui selftest: FAIL",
                 failures, failures == 1 ? "" : "s");
     return failures == 0 ? 0 : 1;
@@ -1498,6 +1534,12 @@ int main(int argc, char** argv) {
     std::string texture_override;
     std::string palette_name = "2000";
     std::string gui_screen;
+    std::string conflict_path;
+    std::string conflict_out;
+    std::string campaign_src;
+    std::string campaign_out;
+    int campaign_difficulty = -1;
+    unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
     std::string dump_palette;
     std::string gui_render;
@@ -1613,6 +1655,18 @@ int main(int argc, char** argv) {
             }
         } else if (std::strcmp(argv[i], "--focus") == 0) {
             focus = true;
+        } else if (std::strcmp(argv[i], "--conflict") == 0 && i + 1 < argc) {
+            conflict_path = argv[++i];
+        } else if (std::strcmp(argv[i], "--conflict-roundtrip") == 0 && i + 1 < argc) {
+            conflict_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-generate") == 0 && i + 1 < argc) {
+            campaign_src = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-out") == 0 && i + 1 < argc) {
+            campaign_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-seed") == 0 && i + 1 < argc) {
+            campaign_seed = static_cast<unsigned>(std::strtoul(argv[++i], nullptr, 0));
+        } else if (std::strcmp(argv[i], "--campaign-difficulty") == 0 && i + 1 < argc) {
+            campaign_difficulty = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--interactive") == 0) {
             interactive = true;
         } else if (std::strcmp(argv[i], "--help") == 0 ||
@@ -1627,6 +1681,86 @@ int main(int argc, char** argv) {
     }
 
     if (gui_selftest) return run_gui_selftest();
+
+    if (!conflict_path.empty()) {
+        ef::Scenario scenario;
+        std::string error;
+        if (!ef::load_conflict(conflict_path, &scenario, &error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+        std::printf("scenario %s\n", conflict_path.c_str());
+        std::printf("  difficulty %d  performance %d %d\n", scenario.difficulty,
+                    scenario.performance_a, scenario.performance_b);
+        std::printf("  world status");
+        for (int v : scenario.world_status) std::printf(" %d", v);
+        std::printf("\n  areas %zu  mobiles %zu  pilots %zu  allegiance rows %zu\n",
+                    scenario.areas.size(), scenario.mobiles.size(),
+                    scenario.pilots.size(), scenario.allegiances.size());
+        for (const char* kind : {"PL", "GB", "SH"}) {
+            const auto groups = ef::group_mobiles(scenario, kind);
+            int units = 0;
+            for (const auto& g : groups) units += g.count();
+            std::printf("  %s: %d groups, %d units\n", kind,
+                        static_cast<int>(groups.size()), units);
+            for (std::size_t i = 0; i < groups.size() && i < 5; ++i) {
+                std::printf("    %-8s (%3d,%3d) %3d\n", groups[i].side.c_str(),
+                            groups[i].pos.x, groups[i].pos.y, groups[i].count());
+            }
+        }
+        if (!conflict_out.empty()) {
+            if (!ef::save_conflict(conflict_out, scenario, &error)) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            ef::Scenario again;
+            if (!ef::load_conflict(conflict_out, &again, &error)) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            const bool same =
+                again.areas.size() == scenario.areas.size() &&
+                again.mobiles.size() == scenario.mobiles.size() &&
+                again.pilots.size() == scenario.pilots.size();
+            std::printf("  round-trip %s\n", same ? "ok" : "MISMATCH");
+            if (!same) return 1;
+        }
+        return 0;
+    }
+
+    if (!campaign_src.empty()) {
+        ef::Scenario scenario;
+        std::string error;
+        if (!ef::load_conflict(campaign_src, &scenario, &error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+        if (campaign_difficulty >= 0) scenario.difficulty = campaign_difficulty;
+        ef::CampaignRng rng(campaign_seed);
+        const int changed = ef::randomize_target_values(scenario, rng);
+        int buckets[6] = {0, 0, 0, 0, 0, 0};
+        for (const auto& a : scenario.areas) {
+            const int b = a.value / 1000;
+            if (b >= 0 && b < 6) ++buckets[b];
+        }
+        std::printf("campaign seed 0x%08x difficulty %d\n", campaign_seed,
+                    scenario.difficulty);
+        std::printf("  targets %d randomized, %zu areas\n", changed,
+                    scenario.areas.size());
+        std::printf("  thousands");
+        for (int i = 0; i < 6; ++i) std::printf(" %d", buckets[i]);
+        std::printf("\n");
+        if (!campaign_out.empty()) {
+            std::filesystem::create_directories(campaign_out);
+            const std::string out = campaign_out + "/CAMPAIGN.CG";
+            if (!ef::save_conflict(out, scenario, &error)) {
+                std::fprintf(stderr, "%s\n", error.c_str());
+                return 1;
+            }
+            std::printf("wrote %s\n", out.c_str());
+        }
+        return 0;
+    }
 
     if (boot) {
         if (gui_screen.empty()) gui_screen = "mainmenu";

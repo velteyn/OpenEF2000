@@ -156,11 +156,14 @@ Across all captured runs these are identical (or fixed up to the value field):
 | Aircraft mix | Su-35 291, EFA 106, JAS-39 54, F/A-18 54, Su-27 18, Su-33 14, F-22 12, Harrier 12, plus smaller types |
 | Fixed roles | CAP 162, INTC 26, SEA_SUPPLY 13, REFUELLER_PATROL 6, AWACS_PATROL 2 |
 | Target areas in `CAMPAIGN.CG` | **543**, same names and order every run |
+| Scenario mobiles | **6458**: 3566 air (`PL`, 42 side/position groups), 2502 ground (`GB`, 500 groups of 24), 390 naval (`SH`, 6 groups) |
+| Pilots | **6458**, one per mobile, carrying the mobile's `3DP` position |
 | `CONFLICT.CG` / `NAVIG.NAV` | byte-identical after generation |
 
-The base records are built from an **embedded table** in the executable
-(record stride `0x53`, entries copied nine at a time by `0x10756c`). The
-table carries side, class, name, coordinates and capacity. Each base also
+The 68 named bases take their **positions from the mobile pilots' `3DP`**
+records; the names and order come from the `SSNAME` list. A second, embedded
+table supplies the nine **virtual ports** (Gdansk, Sassnitz, Karlshamn,
+Helsingor, Muros, Inverness, Baltiysk, nayyanmar, Archangelsk). Each base also
 gets:
 
 * per-class mobile counts (air, ground, ship),
@@ -203,7 +206,10 @@ list:
 * each site record is 21 bytes; the list length is carried by the target
   area record;
 * sites are filtered by class and by the owning side;
-* up to **four** missions are created per site;
+* each airfield position gets a **PATRIOT** and a **RAPIER** mission in the
+  sampled runs (e.g. Vaxjo: 9 Patriot and 6 Rapier mobiles become 7 and 4);
+* the reduction from the mobile count is the readiness/assignment filter; the
+  counts vary with the state and the RNG;
 * adjacent sites are placed a site-dependent step apart (8/9 in the sampled
   data);
 * the site classes map to the observed group types (SA-11, SA-6, Patriot,
@@ -278,7 +284,23 @@ rewritten.
   generation (the seed is at startup; the number of draws before generation
   depends on startup work).
 
-## 8. Reconstruction plan
+## 8. Implementation status
+
+The clean-room foundation is in the engine now:
+
+* `src/conflict.h/.cpp` — full `CONFLICT.CG`/`CAMPAIGN.CG` parser and writer.
+  Round-trip verified on the shipped file: 542 areas, 6458 mobiles, 6458
+  pilots, 46 allegiance rows.
+* `src/campaign.h/.cpp` — the custom 32-bit additive RNG and the target-value
+  pass.
+* CLI: `--conflict FILE`, `--conflict-roundtrip OUT`, `--campaign-generate
+  FILE`, `--campaign-seed N`, `--campaign-difficulty N`, `--campaign-out DIR`.
+* The GUI selftest covers RNG determinism and seed-reproducible target values.
+
+Not yet implemented: base ownership, the mission tasking writer, flight
+timetable assignment and attack patterns. Those are the next steps in §9.
+
+## 9. Reconstruction plan
 
 1. **Model and loader.** Parse `CONFLICT.CG`, `CAMPAIGN.CG`, `MISSION.CFG`
    with the existing campaign parser; represent target areas, mobiles,
