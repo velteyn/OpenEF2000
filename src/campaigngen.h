@@ -51,6 +51,8 @@ struct GenSettings {
     //! the session (three in most captured runs, zero in one), so it is a
     //! replay knob rather than a generator rule.
     int draw_offset = 0;
+    //! Eight-hour campaign steps to advance before generating (0 or more).
+    int advance_steps = 0;
     std::array<int, 4> world_status{0, 0, 0, 0};
     std::array<int, 2> clock{0, 0};  //!< campaign day, 8-hour slot
 };
@@ -125,6 +127,11 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                        const std::vector<TargetSite>& table,
                        const GenSettings& settings, GeneratedCampaign* out,
                        std::string* error);
+
+//! Advances the campaign clock by one 8-hour step: hour 0 -> 8 -> 16 -> next
+//! day, minute cleared. `clock` is `WORLD_STATUS` in file order
+//! (`day`, `hour`, `minute`, ...).
+void advance_campaign_clock(std::array<int, 6>* clock);
 
 //! Writes the regenerated `CAMPAIGN.CG` (areas, mobiles, pilots, allegiances).
 bool write_campaign_file(const std::string& path, const Scenario& scenario,

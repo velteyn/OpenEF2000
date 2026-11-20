@@ -1555,6 +1555,7 @@ int main(int argc, char** argv) {
     std::string mission_out;
     int campaign_difficulty = -1;
     int campaign_offset = 0;
+    int campaign_advance = 0;
     unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
     std::string dump_palette;
@@ -1690,6 +1691,8 @@ int main(int argc, char** argv) {
             campaign_state = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-out") == 0 && i + 1 < argc) {
             campaign_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-advance") == 0 && i + 1 < argc) {
+            campaign_advance = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--campaign-offset") == 0 && i + 1 < argc) {
             campaign_offset = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--campaign-seed") == 0 && i + 1 < argc) {
@@ -1876,6 +1879,16 @@ int main(int argc, char** argv) {
                   got[0] == 1 && got[1] == 0 && got[2] == 3 && got[3] == 1 &&
                       got[4] == 3);
         }
+        {
+            std::array<int, 6> clock{};
+            ef::advance_campaign_clock(&clock);
+            const bool step1 = clock[1] == 8 && clock[0] == 0;
+            ef::advance_campaign_clock(&clock);
+            const bool step2 = clock[1] == 16 && clock[0] == 0;
+            ef::advance_campaign_clock(&clock);
+            const bool step3 = clock[1] == 0 && clock[0] == 1;
+            check("campaign clock advances in 8-hour steps", step1 && step2 && step3);
+        }
         check("mission file round-trips",
                   [&] {
                       ef::MissionDocument again;
@@ -1925,6 +1938,7 @@ int main(int argc, char** argv) {
         settings.seed = campaign_seed;
         settings.world_status = {0, 0, 0, 2};
         settings.draw_offset = campaign_offset;
+        settings.advance_steps = campaign_advance;
 
         ef::GeneratedCampaign campaign;
         if (!ef::generate_campaign(scenario, have_state ? &state : nullptr, table,

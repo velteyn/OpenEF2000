@@ -273,6 +273,20 @@ std::string base_type_for(int type) {
 
 }  // namespace
 
+void advance_campaign_clock(std::array<int, 6>* clock) {
+    if (clock == nullptr) return;
+    int& day = (*clock)[0];
+    int& hour = (*clock)[1];
+    int& minute = (*clock)[2];
+    if (hour < 0x10) {
+        hour += 8;
+    } else {
+        hour = 0;
+    }
+    if (hour == 0) ++day;
+    minute = 0;
+}
+
 bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                        const std::vector<TargetSite>& table,
                        const GenSettings& settings, GeneratedCampaign* out,
@@ -284,9 +298,16 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     GeneratedCampaign campaign;
     CampaignRng rng(settings.seed);
     for (int i = 0; i < settings.draw_offset; ++i) rng.next();
-    campaign.world_status = {settings.world_status[0], settings.world_status[1],
-                             settings.world_status[2], settings.world_status[3],
-                             settings.clock[0], settings.clock[1]};
+    if (previous != nullptr) {
+        campaign.world_status = previous->world_status;
+    } else {
+        campaign.world_status = {settings.world_status[0], settings.world_status[1],
+                                 settings.world_status[2], settings.world_status[3],
+                                 settings.clock[0], settings.clock[1]};
+    }
+    for (int i = 0; i < settings.advance_steps; ++i) {
+        advance_campaign_clock(&campaign.world_status);
+    }
 
     const auto current = index_areas(scenario);
     const auto prev = previous != nullptr ? index_areas(*previous)
@@ -518,8 +539,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     emit.addv("NUM_MISSIONS", {"0", "INCLUDE_PILOTS"});
     emit.blank();
     emit.addv("WORLD_STATUS",
-              {Number(settings.world_status[0]), Number(settings.world_status[1]),
-               Number(settings.world_status[2]), Number(settings.world_status[3])});
+              {Number(campaign.world_status[0]), Number(campaign.world_status[1]),
+               Number(campaign.world_status[2]), Number(campaign.world_status[3])});
 
     // 6. Air-defence tasking.
     std::array<int, 27> used{};

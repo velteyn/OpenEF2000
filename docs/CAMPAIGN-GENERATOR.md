@@ -105,14 +105,17 @@ down because our runtime runs all used the Pro setting.
 
 ### 3.2 World clock
 
-`WORLD_STATUS` is a packed campaign clock:
+`WORLD_STATUS` is a packed campaign clock. In file order:
 
-* day (starts at 0, displayed as day + 1),
-* 8-hour slot (0, 8, 16) with a day rollover,
-* minute.
+* `day` (starts at 0, displayed as day + 1),
+* `hour` — the 8-hour slot, 0 / 8 / 16,
+* `minute`,
+* three trailing words (the last two carry the generator's RNG state).
 
-The 8-hour advance routine increments the slot, rolls the day at 16, and
-clears the minute. The clock feeds:
+The advance routine (`0xbe0e0`) adds 8 to the hour; past 16 it wraps to 0 and
+increments the day, and the minute is cleared. Implemented as
+`advance_campaign_clock` and exposed as `--campaign-advance N`; the clock is
+carried forward from the previous campaign rather than reset. The clock feeds:
 
 * the time-slot schedules of every base,
 * the mission-package policy,

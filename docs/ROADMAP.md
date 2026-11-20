@@ -118,6 +118,7 @@ derivative asset.
 | Archive and resource readers | working |
 | Scenario and campaign parsing | working, byte-exact round trip |
 | Campaign generation | values and area order exact; tasking 99.4 %; attrition open |
+| Campaign clock | 8-hour advance implemented and carried across turns |
 | Mission file writer | byte-exact round trip |
 | GUI shell and strategic map | working prototype |
 | 3D models, textures, palettes | working |
