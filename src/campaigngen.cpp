@@ -940,14 +940,6 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             {"JSTARS_PATROL", "NATO", 1, 1},
         };
 
-        auto aircraft_for = [](const std::string& side) -> const char* {
-            if (side == "SWEDISH") return "JAS39";
-            if (side == "RUSSIAN") return "SU35";
-            if (side == "FINNISH") return "F18";
-            if (side == "BALTIC") return "SU27";
-            return "EFA";
-        };
-
         std::vector<const ScenarioPilot*> pilots;
         for (const auto& m : scenario.mobiles) {
             if (m.kind == "PL" && m.has_pilot) pilots.push_back(&m.pilot);
@@ -978,21 +970,195 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             }
         }
 
-        // Airfield-denial packages strike airfields; interdiction and SEAD go
-        // after the ports and other installations.
-        std::vector<const GenArea*> airfield_targets;
-        std::vector<const GenArea*> other_targets;
-        for (const auto& area : campaign.areas) {
-            if (area.side == "NATO" || area.side == "SWEDISH") continue;
-            if (is_airfield_type(area.type)) airfield_targets.push_back(&area);
-            else if (is_port_type(area.type)) other_targets.push_back(&area);
+        // Which aircraft types are based where. Used to pick a base for the
+        // support flights and to keep CAP at the airfields that hold fighters.
+        std::map<std::string, std::vector<const GenBase*>> type_base_list;
+        {
+            std::map<int, std::set<std::string>> base_types;
+            for (const auto& gm : campaign.mobiles) {
+                if (gm.class_id >= 0 || gm.used) continue;
+                if (gm.state == 1 || gm.state == 2) continue;
+                if (gm.base < 0 || gm.source >= campaign.state_mobiles.size())
+                    continue;
+                base_types[gm.base].insert(campaign.state_mobiles[gm.source].type);
+            }
+            for (const auto& base : campaign.bases) {
+                const auto it = base_types.find(base.index);
+                if (it == base_types.end()) continue;
+                for (const auto& type : it->second)
+                    type_base_list[type].push_back(&base);
+            }
+            for (auto& [type, list] : type_base_list) {
+                std::sort(list.begin(), list.end(),
+                          [](const GenBase* a, const GenBase* b) {
+                              return a->index < b->index;
+                          });
+            }
         }
-        const auto by_name = [](const GenArea* a, const GenArea* b) {
-            return a->name < b->name;
+
+        // Strike packages are grouped by airfield: the capture fills one
+        // airfield's strike aircraft before moving to the next. Airfields are
+        // ordered by the role suitability of their aircraft type (torndo
+        // before harrier, Su-25 before Su-34, ...), then by index.
+        auto role_preferred = [](const std::string& side, const std::string& role) {
+            if (role == "AF_KILL") {
+                if (side == "RUSSIAN")
+                    return std::vector<std::string>{"SU25", "SU34", "MIG27"};
+                if (side == "SWEDISH") return std::vector<std::string>{"JAS39"};
+                if (side == "FINNISH") return std::vector<std::string>{"F18"};
+                if (side == "BALTIC") return std::vector<std::string>{"SU27", "MIG29"};
+                return std::vector<std::string>{"TORNADO", "HARRIER_GR6", "F117A",
+                                                "F111R"};
+            }
+            if (role == "INTERD") {
+                if (side == "RUSSIAN")
+                    return std::vector<std::string>{"SU34", "SU25", "MIG27"};
+                if (side == "SWEDISH") return std::vector<std::string>{"JAS39"};
+                if (side == "FINNISH") return std::vector<std::string>{"F18"};
+                if (side == "BALTIC") return std::vector<std::string>{"SU27", "MIG29"};
+                return std::vector<std::string>{"F117A", "F111R", "TORNADO",
+                                                "HARRIER_GR6"};
+            }
+            if (role == "SEAD") {
+                if (side == "RUSSIAN")
+                    return std::vector<std::string>{"SU35", "SU27", "SU34"};
+                return std::vector<std::string>{"EFA", "F22", "TORNADO"};
+            }
+            return std::vector<std::string>{};
         };
-        std::sort(airfield_targets.begin(), airfield_targets.end(), by_name);
-        std::sort(other_targets.begin(), other_targets.end(), by_name);
-        std::size_t target_index = 0;
+        auto count_type_at_base = [&](const GenBase* base, const std::string& type) {
+            int n = 0;
+            for (const auto& gm : campaign.mobiles) {
+                if (gm.class_id >= 0 || gm.used) continue;
+                if (gm.state == 1 || gm.state == 2) continue;
+                if (gm.base != base->index) continue;
+                if (gm.source < campaign.state_mobiles.size() &&
+                    campaign.state_mobiles[gm.source].type == type)
+                    ++n;
+            }
+            return n;
+        };
+        std::map<std::string, std::vector<const GenBase*>> role_base_order;
+        {
+            for (const auto& req : kRoles) {
+                const std::string role = req.role;
+                if (role != "AF_KILL" && role != "INTERD" && role != "SEAD")
+                    continue;
+                const auto preferred = role_preferred(req.side, role);
+                if (preferred.empty()) continue;
+                auto it = bases_by_side.find(req.side);
+                if (it == bases_by_side.end()) continue;
+                std::vector<std::pair<int, const GenBase*>> ranked;
+                for (const GenBase* base : it->second) {
+                    int rank = -1;
+                    for (std::size_t i = 0; i < preferred.size(); ++i) {
+                        if (count_type_at_base(base, preferred[i]) >= 4) {
+                            rank = static_cast<int>(i);
+                            break;
+                        }
+                    }
+                    if (rank < 0) continue;
+                    ranked.emplace_back(rank, base);
+                }
+                std::sort(ranked.begin(), ranked.end(),
+                          [](const auto& a, const auto& b) {
+                              if (a.first != b.first) return a.first < b.first;
+                              return a.second->index < b.second->index;
+                          });
+                auto& order = role_base_order[std::string(req.side) + "/" + role];
+                for (const auto& entry : ranked) order.push_back(entry.second);
+            }
+        }
+        std::map<std::string, std::size_t> role_base_cursor;
+
+        // CAP sorties are not spread evenly over a side's airfields. The
+        // capture fills the highest-numbered (front-line) airfields with eight
+        // sorties each while leaving four for every airfield that remains, and
+        // gives the leftovers to the lower ones. This reproduces all four
+        // sides exactly.
+        std::map<std::string, std::vector<const GenBase*>> cap_plan;
+        std::map<std::string, std::size_t> cap_cursor;
+        std::map<std::string, int> support_serial;
+        {
+            std::map<std::string, int> quota;
+            for (const auto& req : kRoles) {
+                if (std::string(req.role) == "CAP") quota[req.side] += req.count;
+            }
+            for (const auto& [side, list] : bases_by_side) {
+                std::vector<const GenBase*> sorted;
+                for (const GenBase* base : list) {
+                    bool has_aircraft = false;
+                    for (const auto& gm : campaign.mobiles) {
+                        if (gm.class_id >= 0 || gm.base != base->index) continue;
+                        has_aircraft = true;
+                        break;
+                    }
+                    if (has_aircraft) sorted.push_back(base);
+                }
+                std::sort(sorted.begin(), sorted.end(),
+                          [](const GenBase* a, const GenBase* b) {
+                              return a->index < b->index;
+                          });
+                std::vector<int> per_base(sorted.size(), 0);
+                int remaining = quota[side];
+                for (int i = static_cast<int>(sorted.size()) - 1; i >= 0; --i) {
+                    int give = std::min(8, std::max(0, remaining - 4 * i));
+                    give = std::min(give, remaining);
+                    per_base[static_cast<std::size_t>(i)] = give;
+                    remaining -= give;
+                }
+                if (remaining > 0 && !per_base.empty())
+                    per_base.back() += remaining;
+                for (std::size_t i = 0; i < sorted.size(); ++i) {
+                    for (int n = 0; n < per_base[i]; ++n)
+                        cap_plan[side].push_back(sorted[i]);
+                }
+            }
+        }
+
+        // Airfield-denial packages strike the other side's airfields,
+        // interdiction its ports, rigs, bridges and tunnels, and SEAD its
+        // early-warning sites. The capture keeps the campaign's area order.
+        auto enemy_of = [](const std::string& side) {
+            if (side == "NATO") return std::string("RUSSIAN");
+            if (side == "RUSSIAN") return std::string("NATO");
+            return std::string();
+        };
+        auto is_interdiction_type = [](int type) {
+            return type == 79 || type == 91 || type == 95 || type == 96 ||
+                   type == 127 || type == 142 || type == 143 || type == 204;
+        };
+        auto near_friendly = [&](const GenArea& area, const std::string& side) {
+            // Strike planning only reaches installations near the attacker's
+            // airfields; the captures never target the far east from Norway.
+            long best = -1;
+            for (const auto& base : campaign.bases) {
+                if (base.side != side || base.port) continue;
+                const long d = std::abs(base.x - area.x) + std::abs(base.y - area.y);
+                if (best < 0 || d < best) best = d;
+            }
+            return best >= 0 && best <= 191;
+        };
+        std::map<std::string, std::vector<const GenArea*>> airfields_of;
+        std::map<std::string, std::vector<const GenArea*>> interd_of;
+        std::map<std::string, std::vector<const GenArea*>> ewr_of;
+        for (const auto& area : campaign.areas) {
+            if (area.side != "NATO" && area.side != "RUSSIAN") continue;
+            if (is_airfield_type(area.type)) {
+                airfields_of[area.side].push_back(&area);
+            } else if (area.type == 63) {
+                if (near_friendly(area, enemy_of(area.side)))
+                    ewr_of[area.side].push_back(&area);
+            } else if (is_interdiction_type(area.type)) {
+                if (near_friendly(area, enemy_of(area.side)))
+                    interd_of[area.side].push_back(&area);
+            }
+        }
+        // Airfield denial concentrates on the three nearest enemy airfields.
+        for (auto& [side, list] : airfields_of) {
+            if (list.size() > 3) list.resize(3);
+        }
+        std::map<std::string, std::size_t> target_index;
 
         auto loadout_for = [](const char* type, const char* flight_role) {
             std::vector<std::string> out(20, "NO_WEAPON");
@@ -1047,25 +1213,84 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             }
             return n;
         };
-        auto choose_type = [&](const GenBase* base, const char* preferred) {
-            if (unused_at(base, preferred) > 0) return std::string(preferred);
-            std::map<std::string, int> counts;
+        auto fighter_types = [](const std::string& side) {
+            if (side == "RUSSIAN")
+                return std::vector<std::string>{"SU35", "SU27", "SU33", "MIG29",
+                                                "MIG21"};
+            if (side == "SWEDISH") return std::vector<std::string>{"JAS39"};
+            if (side == "FINNISH") return std::vector<std::string>{"F18"};
+            if (side == "BALTIC") return std::vector<std::string>{"SU27", "MIG29"};
+            return std::vector<std::string>{"F15", "F22", "EFA", "F18"};
+        };
+        // Escorts fly the multi-role fighter first; CAP and interceptors take
+        // the dedicated interceptor when the base has one.
+        auto escort_types = [](const std::string& side) {
+            if (side == "RUSSIAN")
+                return std::vector<std::string>{"SU35", "SU33", "SU27", "MIG29"};
+            if (side == "SWEDISH") return std::vector<std::string>{"JAS39"};
+            if (side == "FINNISH") return std::vector<std::string>{"F18"};
+            if (side == "BALTIC") return std::vector<std::string>{"SU27", "MIG29"};
+            return std::vector<std::string>{"EFA", "F22", "F15", "F18"};
+        };
+        auto strike_types = [](const std::string& side) {
+            if (side == "RUSSIAN")
+                return std::vector<std::string>{"SU35", "SU34", "SU25", "MIG27",
+                                                "SU27", "MIG29"};
+            if (side == "SWEDISH") return std::vector<std::string>{"JAS39"};
+            if (side == "FINNISH") return std::vector<std::string>{"F18"};
+            if (side == "BALTIC") return std::vector<std::string>{"SU27", "MIG29"};
+            return std::vector<std::string>{"EFA", "TORNADO", "F22", "F117A",
+                                            "HARRIER_GR6", "F111R"};
+        };
+        // First unused airframe at the base whose type is in the class. The
+        // original walks the stored order of battle, not a preferred list.
+        auto mobile_first = [&](const GenBase* base,
+                                const std::vector<std::string>& types) {
             for (const auto& gm : campaign.mobiles) {
                 if (gm.class_id >= 0 || gm.used) continue;
                 if (gm.state == 1 || gm.state == 2) continue;
                 if (gm.base != base->index) continue;
-                if (gm.source < campaign.state_mobiles.size())
-                    ++counts[campaign.state_mobiles[gm.source].type];
+                if (gm.source >= campaign.state_mobiles.size()) continue;
+                const std::string& type = campaign.state_mobiles[gm.source].type;
+                if (types.empty() ||
+                    std::find(types.begin(), types.end(), type) != types.end())
+                    return type;
             }
-            int best = 0;
-            std::string pick = preferred;
-            for (const auto& [name, n] : counts) {
-                if (n > best) {
-                    best = n;
-                    pick = name;
-                }
+            return std::string();
+        };
+        auto preferred_type = [&](const GenBase* base,
+                                  const std::vector<std::string>& types) {
+            for (const auto& type : types) {
+                if (unused_at(base, type) > 0) return type;
             }
-            return pick;
+            // Never fall back to a tanker or AWACS airframe for a combat
+            // flight; keep the role's preferred type even if the base is out.
+            return types.empty() ? std::string("EFA") : types.front();
+        };
+        auto choose_flight_type = [&](const GenBase* base,
+                                      const std::string& role) {
+            const std::string& side = base->side;
+            if (role == "AWACS_PATROL")
+                return preferred_type(base, {side == "RUSSIAN" ? "A50" : "E767"});
+            if (role == "JSTARS_PATROL") return preferred_type(base, {"J767"});
+            if (role == "REFUELLER_PATROL")
+                return preferred_type(base, {side == "RUSSIAN" ? "IL78M" : "R767"});
+            if (role == "STRIKE" || role == "WW" || role == "SEAD_STRIKE" ||
+                role == "AF_KILL" || role == "INTERD" || role == "SEAD") {
+                const std::string first = mobile_first(base, strike_types(side));
+                if (!first.empty()) return first;
+                return preferred_type(base, strike_types(side));
+            }
+            if (role == "ESCORT" || role == "INTERCEPT" || role == "REFUELLER_KILL" ||
+                role == "AWACS_KILL")
+                return preferred_type(base, escort_types(side));
+            return preferred_type(base, fighter_types(side));
+        };
+        auto support_base = [&](const std::string& type, int nth) -> const GenBase* {
+            const auto it = type_base_list.find(type);
+            if (it == type_base_list.end() || it->second.empty()) return nullptr;
+            const auto& list = it->second;
+            return list[static_cast<std::size_t>(nth) % list.size()];
         };
         auto take_airframes = [&](const GenBase* base, const std::string& type,
                                   int ships, int mission_id, int flight_index) {
@@ -1250,47 +1475,147 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const int id = mission_id++;
                 const std::string role = req.role;
                 const int serial = role_serial[role]++;
+                if (role == "CAP") {
+                    const auto& plan = cap_plan[req.side];
+                    if (!plan.empty())
+                        base = plan[cap_cursor[req.side]++ % plan.size()];
+                } else if (role == "AWACS_PATROL") {
+                    const char* want = std::string(req.side) == "RUSSIAN" ? "A50" : "E767";
+                    if (const GenBase* b =
+                            support_base(want, support_serial[req.side + role]++))
+                        base = b;
+                } else if (role == "JSTARS_PATROL") {
+                    if (const GenBase* b =
+                            support_base("J767", support_serial[req.side + role]++))
+                        base = b;
+                } else if (role == "REFUELLER_PATROL") {
+                    const char* want =
+                        std::string(req.side) == "RUSSIAN" ? "IL78M" : "R767";
+                    if (const GenBase* b =
+                            support_base(want, support_serial[req.side + role]++))
+                        base = b;
+                } else if (role == "REFUELLER_KILL" || role == "AWACS_KILL") {
+                    const char* want =
+                        std::string(req.side) == "RUSSIAN" ? "IL78M" : "R767";
+                    if (const GenBase* b = support_base(want, 0)) base = b;
+                } else if (role == "AF_KILL" || role == "INTERD" ||
+                           role == "SEAD") {
+                    const std::string key = std::string(req.side) + "/" + role;
+                    const auto oit = role_base_order.find(key);
+                    if (oit != role_base_order.end()) {
+                        const auto types = strike_types(req.side);
+                        auto& cursor = role_base_cursor[key];
+                        auto has_strike = [&](const GenBase* b) {
+                            for (const auto& gm : campaign.mobiles) {
+                                if (gm.class_id >= 0 || gm.used) continue;
+                                if (gm.state == 1 || gm.state == 2) continue;
+                                if (gm.base != b->index) continue;
+                                if (gm.source >= campaign.state_mobiles.size())
+                                    continue;
+                                const std::string& t =
+                                    campaign.state_mobiles[gm.source].type;
+                                if (std::find(types.begin(), types.end(), t) !=
+                                    types.end())
+                                    return true;
+                            }
+                            return false;
+                        };
+                        while (cursor < oit->second.size() &&
+                               !has_strike(oit->second[cursor]))
+                            ++cursor;
+                        if (cursor < oit->second.size())
+                            base = oit->second[cursor];
+                    }
+                }
                 schedule[base->index].emplace_back(id, role);
                 // The mission line carries the flying base and the number of
                 // flights in the package, as the captured files do.
                 const bool support = role == "AWACS_PATROL" ||
                                      role == "JSTARS_PATROL" ||
                                      role == "REFUELLER_PATROL";
-                // Airfield-denial packages carry either a wild-weasel element
-                // or an escort; some add an escort on top of the weasels.
-                const bool af_ww = role == "AF_KILL" && serial % 5 < 3;
-                const bool af_extra = af_ww && serial % 4 == 0;
-                const bool interd_escort = role == "INTERD" && serial % 12 < 5;
-                int flight_count = 1;
-                if (support) flight_count = 2;
-                else if (role == "AF_KILL") flight_count = 2 + (af_extra ? 1 : 0);
-                else if (role == "INTERD") flight_count = 1 + (interd_escort ? 1 : 0);
-                else if (role == "SEAD") flight_count = 3;
-                emit.addv("MISSION", {"PLANE", req.side, role, "OK",
-                                      Number(base->index), Number(id),
-                                      Number(flight_count)});
-
-                const char* preferred = aircraft_for(req.side);
-                if (role == "AWACS_PATROL")
-                    preferred = std::string(req.side) == "RUSSIAN" ? "A50" : "E767";
-                else if (role == "JSTARS_PATROL") preferred = "J767";
-                else if (role == "REFUELLER_PATROL")
-                    preferred = std::string(req.side) == "RUSSIAN" ? "IL78M" : "R767";
-                const std::string type = choose_type(base, preferred);
-                const std::string escort = choose_type(base, aircraft_for(req.side));
 
                 const GenArea* target = nullptr;
                 const bool strike_role = role == "AF_KILL" || role == "INTERD" ||
                                          role == "SEAD";
                 int strike_ships = 4;
-                if (role == "AF_KILL" && !airfield_targets.empty())
-                    target = airfield_targets[target_index++ % airfield_targets.size()];
-                else if (strike_role && !other_targets.empty())
-                    target = other_targets[target_index++ % other_targets.size()];
+                const std::string enemy = enemy_of(req.side);
+                if (strike_role && !enemy.empty()) {
+                    const auto& list =
+                        role == "AF_KILL"
+                            ? airfields_of[enemy]
+                            : (role == "SEAD" ? ewr_of[enemy] : interd_of[enemy]);
+                    // The planned targets for an airfield are the ones within
+                    // reach of that airfield, in campaign order. The captured
+                    // packages never cross the whole map to a target.
+                    std::vector<const GenArea*> local;
+                    for (const GenArea* area : list) {
+                        if (std::abs(base->x - area->x) +
+                                std::abs(base->y - area->y) <=
+                            191)
+                            local.push_back(area);
+                    }
+                    if (local.empty()) local = list;
+                    if (!local.empty()) {
+                        std::size_t& index =
+                            target_index[std::to_string(base->index) + "/" + role];
+                        if (index >= local.size()) {
+                            // The captured blocks cycle back to the nearest
+                            // target rather than restarting the list.
+                            std::size_t best = 0;
+                            long best_d = -1;
+                            for (std::size_t i = 0; i < local.size(); ++i) {
+                                const long d = std::abs(base->x - local[i]->x) +
+                                               std::abs(base->y - local[i]->y);
+                                if (best_d < 0 || d < best_d) {
+                                    best_d = d;
+                                    best = i;
+                                }
+                            }
+                            target = local[best];
+                        } else {
+                            target = local[index];
+                        }
+                        ++index;
+                    }
+                }
                 if (target != nullptr && !target->elements.empty()) {
                     strike_ships = std::clamp(
                         static_cast<int>(target->elements.size()), 2, 6);
                 }
+                if (role == "SEAD") strike_ships = 6;
+
+                const std::string type = choose_flight_type(base, role);
+                const std::string escort = choose_flight_type(base, "ESCORT");
+
+                // Extra flights are only flown when the airfield still holds
+                // the aircraft for them, which is why some captured packages
+                // are a single strike flight.
+                bool af_ww = false;
+                bool af_extra = false;
+                bool interd_sead = false;
+                bool interd_escort = false;
+                if (role == "AF_KILL") {
+                    af_ww = unused_at(base, type) >= 2;
+                    af_extra = unused_at(base, escort) >= 4 && serial % 4 == 0;
+                } else if (role == "INTERD") {
+                    const bool port = target != nullptr &&
+                                      !is_airfield_type(target->type);
+                    interd_sead = port && unused_at(base, type) >= 2;
+                    interd_escort = !interd_sead && unused_at(base, escort) >= 4 &&
+                                    serial % 4 == 2;
+                }
+
+                int flight_count = 1;
+                if (support) flight_count = 2;
+                else if (role == "AF_KILL")
+                    flight_count = 1 + (af_ww ? 1 : 0) + (af_extra ? 1 : 0);
+                else if (role == "INTERD")
+                    flight_count = 1 + (interd_sead ? 1 : 0) +
+                                   (interd_escort ? 1 : 0);
+                else if (role == "SEAD") flight_count = 3;
+                emit.addv("MISSION", {"PLANE", req.side, role, "OK",
+                                      Number(base->index), Number(id),
+                                      Number(flight_count)});
 
                 // One corridor per package, shared by every flight in it.
                 std::vector<std::array<int, 4>> package_route;
@@ -1315,9 +1640,6 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     if (af_ww) {
                         emit_flight(base, type.c_str(), "WW", 2, target, pkg_route, wave + 2, true, id);
                         out->aircraft += 2;
-                    } else {
-                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 2, true, id);
-                        out->aircraft += 4;
                     }
                     if (af_extra) {
                         emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 4, true, id);
@@ -1325,8 +1647,11 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     }
                 } else if (role == "INTERD") {
                     emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, pkg_route, wave, true, id);
-                    out->aircraft += 4;
-                    if (interd_escort) {
+                    out->aircraft += strike_ships;
+                    if (interd_sead) {
+                        emit_flight(base, type.c_str(), "SEAD_STRIKE", 2, target, pkg_route, wave + 2, true, id);
+                        out->aircraft += 2;
+                    } else if (interd_escort) {
                         emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 2, true, id);
                         out->aircraft += 4;
                     }

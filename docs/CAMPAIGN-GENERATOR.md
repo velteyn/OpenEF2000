@@ -268,7 +268,49 @@ The target areas attached to strike missions are a subset of the 543 campaign
 areas; observed **28–33** per generated mission set, with the same type mix
 (AIRFIELD, PORT, EWR, CHOKE_POINT, POLITICAL_INDUSTRIAL, POL_TYPE).
 
-### 5.3a Route geometry
+### 5.3a Package basing and composition
+
+Package basing is driven by the stored order of battle, not by a cursor over
+all airfields:
+
+* **Targets** are the other side's installations, kept in campaign (area)
+  order. Airfield denial uses the first three enemy airfields; interdiction
+  uses ports, oil rigs, bridges, tunnels and supply towns (types 79, 91, 95,
+  96, 127, 142, 143, 204); SEAD uses early-warning sites (type 63). A target
+  must lie within 191 grid steps (Manhattan) of the attacking airfield.
+* **Strike airfields** form role-specific blocks. Airfields are ranked by the
+  suitability of their aircraft type — `TORNADO` then `HARRIER_GR6` for
+  airfield denial, `F117A` then `F111R` for interdiction, `SU25` then `SU34`
+  then `MIG27` for the Russian equivalents, and multi-role fighters for SEAD.
+  Each airfield is filled before the next is used, which reproduces the
+  captured blocks (`Rygge` 6, `Molde` 3; `Gardemoen` 10, `Molde` 1;
+  `Orland` 2, `Vaernes` 4; `Narvic` 1; `Bodo` 2).
+* **CAP** is not spread evenly. Each side's CAP quota is allocated from the
+  highest-numbered airfield down: an airfield receives eight sorties while
+  four remain for every lower airfield, and the remainder goes to the lowest.
+  This reproduces the captured per-airfield counts exactly for all four sides
+  (Russian 6..13 → 4, 14..26 → 8; NATO 1..4 → 4, 5 → 2; Swedish and Finnish
+  8 each).
+* **Support** flights use the airframe type, not the side's default fighter.
+  Tankers take the first airfields holding `R767`/`IL78M` (NATO 2, 3, 5;
+  Russian 8, 12, 13), AWACS the base holding `E767`/`A50`, JSTARS the base
+  holding `J767`, and the anti-tanker/anti-AWACS flights launch from the first
+  tanker base. Captured bases match exactly.
+* **Combat types** follow the role: interceptors prefer the dedicated
+  interceptor (`F15`, `SU35`), escorts the multi-role fighter (`EFA`, `F22`,
+  `SU35`), and strike flights the first suitable airframe in the stored order
+  at their airfield. Wild-weasel and escort flights are only added when the
+  airfield still holds the aircraft for them, which is why some captured
+  packages are a single strike flight.
+
+Measured against the capture: all 26 CAP airfields and all 8 support bases
+match; the flyable airframe types used are 638 against 612, and the per-type
+flight counts agree within a few sorties (`SU35` 119/119, `JAS39` 27/27,
+`F18` 27/27, `SU27` 9/9, `SU33` 6/6, `TORNADO` 4/4). The remaining difference
+is the exact target-to-airfield pairing (`SU25`/`SU34` usage and the order of
+the blocks), which is still open.
+
+### 5.3b Route geometry
 
 Mission routes are not random walks. The captured files show three shapes:
 
@@ -305,7 +347,7 @@ package-to-base assignment is still approximate (see Package composition).
 The generator reproduces the fighter box and the support orbits; measured
 against the capture the fighter patrol span is 5.3 units against 5.0.
 
-### 5.3b Attack patterns
+### 5.3c Attack patterns
 
 The attack geometry is **constant**, not generated: every captured
 `LAYDOWN_ATTACK` block is byte-identical to every other, and so are the

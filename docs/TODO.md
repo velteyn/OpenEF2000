@@ -48,8 +48,21 @@ table unlocks:
 
 ## 3. Package composition
 
-- [ ] Match the per-package flight mix and sizes exactly (escape/weasel counts,
-      2–6-ship flights, SEAD flight split).
+- [x] **CAP per-airfield allocation** — quota from the highest airfield down,
+      eight while four remain for each lower airfield. Exact on all four sides.
+- [x] **Support basing** — tankers/AWACS/JSTARS launch from the airfields that
+      hold those airframe types. All eight support bases match.
+- [x] **Target lists** — per side, campaign order, correct target classes and a
+      191-step reach limit. Airfield denial uses the first three enemy
+      airfields; interdiction and SEAD use their own classes.
+- [x] **Role-aware aircraft types** — interceptors, escorts and strike flights
+      draw the appropriate type instead of the side's default fighter.
+- [x] **Availability-based extra flights** — wild-weasel/escort/SEAD elements
+      are only added when the airfield still holds the aircraft.
+- [ ] **Exact target-to-airfield pairing** — the captured blocks assign
+      particular targets to particular airfields; the generator still cycles
+      within a reachable list. This is why `SU25` is used and `SU34` is not,
+      and why the block split is 5/4 rather than 6/3 in places.
 
 ## 4. GUI
 
