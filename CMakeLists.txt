@@ -37,4 +37,8 @@ target_link_libraries(openef2000 PRIVATE
     PkgConfig::SDL2_TTF
     PkgConfig::SDL2_IMAGE)
 
-target_compile_options(openef2000 PRIVATE -Wall -Wextra -Wpedantic)
+if (MSVC)
+    target_compile_options(openef2000 PRIVATE /W4)
+else()
+    target_compile_options(openef2000 PRIVATE -Wall -Wextra -Wpedantic)
+endif()
