@@ -310,6 +310,25 @@ bool parse_conflict(const std::string& path, Dataset& ds) {
     return true;
 }
 
+bool parse_campaign_support(const std::string& path, Dataset& ds) {
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return false;
+    std::string line;
+    while (std::getline(file, line)) {
+        auto t = tokenize(line);
+        if (t.size() < 5 || t[0] != "MOB" || t[1] != "PL") continue;
+        const std::string& type = t[2];
+        const std::string& status = t[3];
+        const std::string& side = t[4];
+        if (status != "OK") continue;
+        auto& s = ds.support[side];
+        if (type == "E767" || type == "A50") s.awacs = true;
+        else if (type == "J767") s.jstars = true;
+        else if (type == "R767" || type == "IL78M") s.tanker = true;
+    }
+    return true;
+}
+
 Dataset load_dataset(const std::string& dir) {
     Dataset ds;
     ds.dir = dir;
@@ -318,6 +337,7 @@ Dataset load_dataset(const std::string& dir) {
     if (fs::exists(p("MISSION.CFG"))) parse_mission(p("MISSION.CFG"), ds);
     if (fs::exists(p("NAVIG.NAV"))) parse_navig(p("NAVIG.NAV"), ds);
     if (fs::exists(p("CONFLICT.CG"))) parse_conflict(p("CONFLICT.CG"), ds);
+    if (fs::exists(p("CAMPAIGN.CG"))) parse_campaign_support(p("CAMPAIGN.CG"), ds);
     return ds;
 }
 

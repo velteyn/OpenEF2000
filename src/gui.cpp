@@ -808,17 +808,29 @@ void fill_mission_brief(GuiSystem& gui, const Dataset& ds) {
             if (w.action == "REFUEL") refuel = true;
         }
     }
-    set("refuel", refuel ? "Yes" : "No");
-
-    bool awacs = m.role == "AWACS_PATROL";
-    bool jstars = m.role == "JSTARS_PATROL";
-    for (const auto& other : ds.missions) {
-        if (other.side != m.side) continue;
-        if (other.role == "AWACS_PATROL") awacs = true;
-        if (other.role == "JSTARS_PATROL") jstars = true;
+    // Support depends on the side still fielding a living platform: shooting
+    // down the last AWACS turns the flag off. Fall back to the mission list
+    // when no campaign roster was loaded.
+    bool awacs = false;
+    bool jstars = false;
+    bool tanker = false;
+    if (const auto it = ds.support.find(m.side); it != ds.support.end()) {
+        awacs = it->second.awacs;
+        jstars = it->second.jstars;
+        tanker = it->second.tanker;
+    } else {
+        awacs = m.role == "AWACS_PATROL";
+        jstars = m.role == "JSTARS_PATROL";
+        for (const auto& other : ds.missions) {
+            if (other.side != m.side) continue;
+            if (other.role == "AWACS_PATROL") awacs = true;
+            if (other.role == "JSTARS_PATROL") jstars = true;
+        }
+        tanker = true;
     }
     set("awacs", awacs ? "Yes" : "No");
     set("jstars", jstars ? "Yes" : "No");
+    set("refuel", refuel && tanker ? "Yes" : "No");
 }
 
 }  // namespace
@@ -1561,8 +1573,16 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         gui.set_camp_layer_mask(0x3Fu);  // all layers
         gui.set_camp_mission(0);
         gui.select("missionsel", "1", true);
-        if (dataset != nullptr && !dataset->missions.empty())
-            select_campaign_mission(gui, *dataset, 0);
+        if (dataset != nullptr && !dataset->missions.empty()) {
+            int first = 0;
+            for (int i = 0; i < static_cast<int>(dataset->missions.size()); ++i) {
+                if (dataset->missions[i].type == "PLANE") {
+                    first = i;
+                    break;
+                }
+            }
+            select_campaign_mission(gui, *dataset, first);
+        }
     });
 
     // Debrief tabs and NEXT are shared with the simulator debrief screen.

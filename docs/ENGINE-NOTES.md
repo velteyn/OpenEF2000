@@ -463,7 +463,12 @@ Observed shell flow:
   mission number, time, type, flight number, lead call sign, target, aircraft
   count, and the Refuel / AWACS / JSTARS support flags. It is filled from the
   loaded mission data by `select_campaign_mission`, which the mission list, the
-  map click and the screen's `InitCampaign` startup all call. The hook now runs the reconstructed
+  map click and the screen's `InitCampaign` startup all call.
+- The support flags follow the **living roster**, not the mission list: one `OK`
+  airframe of the relevant type (`E767`/`A50`, `J767`, `R767`/`IL78M`) keeps the
+  flag at Yes, so shooting down a side's last AWACS turns it off. `Refuel` also
+  needs a living tanker. `--campaign-brief` prints the values for inspection; the
+  played state with a dead `E767` reports NATO AWACS `No`. The hook now runs the reconstructed
   generator against the data directory, rewrites `CAMPAIGN.CG` and
   `MISSION.CFG`, reloads the mission data and opens the campaign screen;
 - Quick Combat: `R`/`P`/`T` difficulty, `F1`..`F12` mission, `Return` accept.

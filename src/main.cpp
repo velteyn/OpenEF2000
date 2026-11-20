@@ -1558,6 +1558,7 @@ int main(int argc, char** argv) {
     int campaign_offset = 0;
     int campaign_advance = 0;
     bool campaign_status = false;
+    bool campaign_brief = false;
     unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
     std::string dump_palette;
@@ -1693,6 +1694,8 @@ int main(int argc, char** argv) {
             campaign_state = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-out") == 0 && i + 1 < argc) {
             campaign_out = argv[++i];
+        } else if (std::strcmp(argv[i], "--campaign-brief") == 0) {
+            campaign_brief = true;
         } else if (std::strcmp(argv[i], "--campaign-status") == 0) {
             campaign_status = true;
         } else if (std::strcmp(argv[i], "--campaign-advance") == 0 && i + 1 < argc) {
@@ -1795,6 +1798,56 @@ int main(int argc, char** argv) {
                 again.pilots.size() == scenario.pilots.size();
             std::printf("  round-trip %s\n", same ? "ok" : "MISMATCH");
             if (!same) return 1;
+        }
+        return 0;
+    }
+
+    if (campaign_brief) {
+        // Prints the Mission Briefing values for the first campaign sortie,
+        // including whether each side still fields its support platforms.
+        ef::Dataset brief;
+        try {
+            brief = ef::load_dataset(data);
+        } catch (const std::exception&) {
+            std::fprintf(stderr, "cannot load mission data from %s\n", data.c_str());
+            return 1;
+        }
+        ef::GuiScreen screen;
+        ef::GuiWindow window;
+        window.name = "missionbrief";
+        for (const char* name : {"missionnum", "time", "type", "flightnum",
+                                 "callsign", "target", "planes", "refuel", "awacs",
+                                 "jstars"}) {
+            ef::GuiWidget widget;
+            widget.name = name;
+            window.icons.push_back(widget);
+        }
+        screen.windows.push_back(std::move(window));
+        ef::GuiSystem shell;
+        shell.set_screen(std::move(screen));
+        int first = 0;
+        for (int i = 0; i < static_cast<int>(brief.missions.size()); ++i) {
+            if (brief.missions[i].type == "PLANE") {
+                first = i;
+                break;
+            }
+        }
+        ef::select_campaign_mission(shell, brief, first);
+        const auto text = [&](const char* name) {
+            auto* w = shell.find_widget("missionbrief", name);
+            return w != nullptr ? w->text["en"] : std::string();
+        };
+        std::printf("mission briefing (%zu missions)\n", brief.missions.size());
+        std::printf("  number  %s\n  time    %s\n  type    %s\n  target  %s\n",
+                    text("missionnum").c_str(), text("time").c_str(),
+                    text("type").c_str(), text("target").c_str());
+        std::printf("  planes  %s\n  refuel  %s\n  awacs   %s\n  jstars  %s\n",
+                    text("planes").c_str(), text("refuel").c_str(),
+                    text("awacs").c_str(), text("jstars").c_str());
+        for (const auto& [side, s] : brief.support) {
+            std::printf("  %-9s awacs %s jstars %s tanker %s\n", side.c_str(),
+                        s.awacs ? "yes" : "no", s.jstars ? "yes" : "no",
+                        s.tanker ? "yes" : "no");
         }
         return 0;
     }
@@ -1962,6 +2015,14 @@ int main(int argc, char** argv) {
                       text("planes") == "4" && text("refuel") == "Yes" &&
                       text("awacs") == "Yes" && text("jstars") == "No" &&
                       text("target") == "Vaernes");
+
+            // Support follows the living roster: a lost AWACS and no tanker
+            // turn those flags off even though the missions exist.
+            brief.support["NATO"] = {false, true, false};
+            ef::select_campaign_mission(shell, brief, 0);
+            check("briefing support flags follow the airframes",
+                  text("awacs") == "No" && text("jstars") == "Yes" &&
+                      text("refuel") == "No");
         }
         check("mission file round-trips",
                   [&] {

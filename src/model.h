@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <map>
 #include <optional>
 #include <string>
 #include <utility>
@@ -104,6 +105,14 @@ struct ConflictArea {
     int value = 0;
 };
 
+//! Which support platforms a side still has in service: one living (status
+//! `OK`) airframe of the relevant type is enough.
+struct SupportAvailability {
+    bool awacs = false;
+    bool jstars = false;
+    bool tanker = false;
+};
+
 struct Dataset {
     std::string dir;
     std::string mission_path, navig_path, conflict_path;
@@ -115,6 +124,7 @@ struct Dataset {
     std::vector<Base> bases;
     std::vector<Bna> bnas;
     std::vector<ConflictArea> areas;
+    std::map<std::string, SupportAvailability> support;
 };
 
 }  // namespace ef

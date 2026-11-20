@@ -16,6 +16,8 @@ int to_int(const std::string& s);
 bool parse_mission(const std::string& path, Dataset& ds);
 bool parse_navig(const std::string& path, Dataset& ds);
 bool parse_conflict(const std::string& path, Dataset& ds);
+//! Records which support platforms each side still has from `CAMPAIGN.CG`.
+bool parse_campaign_support(const std::string& path, Dataset& ds);
 
 Dataset load_dataset(const std::string& dir);
 
