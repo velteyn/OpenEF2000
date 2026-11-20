@@ -35,8 +35,16 @@ table unlocks:
 
 ## 2. Strike routes
 
-- [ ] Reproduce the 17-waypoint ingress/egress path (currently take-off, refuel,
-      ingress, target, landing).
+- [x] **Corridor length and shape** — 0–10 intermediate fixes per leg, shared
+      by every flight in a package, entry/egress corridors, per-package
+      altitude 10/120, ingress at 5. Measured mean 13.10 against the capture's
+      13.31 over 29 packages.
+- [x] **Conditional refuelling** — only packages based where a tanker patrol
+      flies and with a target beyond ~100 map units.
+- [ ] **Exact corridor fixes** — the original picks its intermediate fixes from
+      a network that is not the area table; the generator uses jittered points
+      along the base–target line. Length and altitude distributions match, the
+      individual fixes do not.
 
 ## 3. Package composition
 

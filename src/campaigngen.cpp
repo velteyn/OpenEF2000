@@ -59,6 +59,70 @@ const char* element_name(int kind) {
     return kind >= 0 && kind < kCount ? kElementNames[kind] : "TARGET";
 }
 
+//! Builds one strike package's route: a tanker track behind the base, a
+//! meandering outbound corridor, an ingress fix, the target and a separate
+//! corridor home. Every flight of the package flies the same geometry; only
+//! the strike flight marks the ingress and target waypoints.
+std::vector<std::array<int, 4>> build_strike_route(const GenBase& base,
+                                                   const GenArea& target,
+                                                   bool tanker_at_base,
+                                                   CampaignRng& rng) {
+    std::vector<std::array<int, 4>> route;  // x, y, z, action
+    const double dx = target.x - base.x;
+    const double dy = target.y - base.y;
+    const double distance = std::sqrt(dx * dx + dy * dy);
+    const double ux = distance > 0.0 ? dx / distance : 0.0;
+    const double uy = distance > 0.0 ? dy / distance : 0.0;
+
+    route.push_back({base.x, base.y, 0, 0});  // TAKE_OFF
+    int origin_x = base.x;
+    int origin_y = base.y;
+    if (tanker_at_base && distance > 100.0) {
+        // The tanker track sits about twenty-six cells behind the base.
+        route.push_back({base.x - 26, base.y - 1, 250, 1});  // REFUEL
+        origin_x = base.x - 26;
+        origin_y = base.y - 1;
+    }
+
+    // Captured packages carry anywhere from zero to ten intermediate fixes
+    // on each leg, so the corridor length is drawn, not derived from range.
+    const int out_fixes = rng.range(9);
+    const int back_fixes = rng.range(10);
+    // Captured routes fly low over the target more often than not, but both
+    // altitude bands are common.
+    const int altitude = rng.range(10) < 6 ? 120 : 10;
+
+    std::vector<double> fractions;
+    fractions.reserve(static_cast<std::size_t>(std::max(out_fixes, back_fixes)));
+    for (int i = 0; i < out_fixes; ++i)
+        fractions.push_back(rng.between(6, 86) / 100.0);
+    std::sort(fractions.begin(), fractions.end());
+    for (double t : fractions) {
+        const int jitter = rng.between(-18, 18);
+        route.push_back({static_cast<int>(std::lround(origin_x + dx * t - uy * jitter)),
+                         static_cast<int>(std::lround(origin_y + dy * t + ux * jitter)),
+                         altitude, 2});  // NO_ACTION
+    }
+
+    route.push_back({target.x - static_cast<int>(std::lround(ux * 9.0)),
+                     target.y - static_cast<int>(std::lround(uy * 9.0)), 5,
+                     3});  // INGRESS
+    route.push_back({target.x, target.y, 0, 4});  // STRIKE_TARGET
+
+    fractions.clear();
+    for (int i = 0; i < back_fixes; ++i)
+        fractions.push_back(rng.between(6, 86) / 100.0);
+    std::sort(fractions.begin(), fractions.end(), std::greater<double>());
+    for (double t : fractions) {
+        const int jitter = rng.between(-24, 24);
+        route.push_back({static_cast<int>(std::lround(origin_x + dx * t - uy * jitter)),
+                         static_cast<int>(std::lround(origin_y + dy * t + ux * jitter)),
+                         altitude, 2});  // NO_ACTION
+    }
+    route.push_back({base.x, base.y, 0, 5});  // LANDING
+    return route;
+}
+
 const char* const kGroundTypes[] = {
     "BEDFORD_1", "BEDFORD_2", "BMP_1",   "CHALENGER", "D_30",      "JUG_1",
     "JUG_2",     "JUG_3",     "M_163_VULCAN", "M198",  "MLRS",     "MOBRIDGE",
@@ -896,6 +960,24 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
         std::map<std::string, std::size_t> next_base;
 
+        // Strike packages refuel only when their base hosts a tanker and the
+        // target is beyond a hundred cells. The tanker bases are deterministic
+        // for the package table, so work them out before emitting anything.
+        std::set<int> tanker_bases;
+        {
+            std::map<std::string, std::size_t> cursor;
+            for (const auto& req : kRoles) {
+                auto it = bases_by_side.find(req.side);
+                if (it == bases_by_side.end() || it->second.empty()) continue;
+                const auto& list = it->second;
+                for (int n = 0; n < req.count; ++n) {
+                    const GenBase* base = list[cursor[req.side]++ % list.size()];
+                    if (std::string(req.role) == "REFUELLER_PATROL")
+                        tanker_bases.insert(base->index);
+                }
+            }
+        }
+
         // Airfield-denial packages strike airfields; interdiction and SEAD go
         // after the ports and other installations.
         std::vector<const GenArea*> airfield_targets;
@@ -1006,30 +1088,33 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
 
         auto emit_flight = [&](const GenBase* base, const char* type,
                                const char* flight_role, int ships,
-                               const GenArea* target, bool strike_route, int wave,
-                               bool target_area = true, int mission_id = -1) {
+                               const GenArea* target,
+                               const std::vector<std::array<int, 4>>* route,
+                               int wave, bool target_area = true,
+                               int mission_id = -1) {
             take_airframes(base, type, ships, mission_id, wave);
             emit.addv("FLIGHT", {Number(ships), type, flight_role, "OK"});
             const auto pylons = loadout_for(type, flight_role);
             for (int p = 0; p < 20; ++p) emit.addv("PYLON", {Number(p), pylons[p]});
             emit.addv("3DP", {Number(base->x), Number(base->y), "0", "0", "0", "0"});
             const std::string r(flight_role);
-            if (strike_route && target != nullptr) {
-                // Strike packages top up at a tanker track behind the base
-                // before ingressing.
-                emit.addv("WP_ROUTE", {"5", "0", "0"});
-                emit.addv("WAYPOINT", {"0", Number(base->x), Number(base->y), "0",
-                                       "0", "0", "TAKE_OFF", "0", "0", "0"});
-                emit.addv("WAYPOINT", {"1", Number(base->x - 26),
-                                       Number(base->y - 1), "250", "0", "0",
-                                       "REFUEL", "0", "0", "0"});
-                emit.addv("WAYPOINT", {"2", Number(target->x), Number(target->y),
-                                       "0", "0", "0", "INGRESS", "0", "0", "0"});
-                emit.addv("WAYPOINT", {"3", Number(target->x), Number(target->y),
-                                       "0", "0", "0", "STRIKE_TARGET", "0", "0",
+            if (route != nullptr && target != nullptr) {
+                static const char* const kRouteAction[] = {
+                    "TAKE_OFF", "REFUEL", "NO_ACTION", "INGRESS", "STRIKE_TARGET",
+                    "LANDING"};
+                // Only the strike flight marks ingress and target; the escort
+                // and wild-weasel flights fly the same corridor as plain fixes.
+                const bool mark_target = r == "STRIKE" || r == "SEAD_STRIKE";
+                emit.addv("WP_ROUTE", {Number(static_cast<int>(route->size())), "0",
                                        "0"});
-                emit.addv("WAYPOINT", {"4", Number(base->x), Number(base->y), "0",
-                                       "0", "0", "LANDING", "0", "0", "0"});
+                for (std::size_t i = 0; i < route->size(); ++i) {
+                    int action = (*route)[i][3];
+                    if (!mark_target && (action == 3 || action == 4)) action = 2;
+                    emit.addv("WAYPOINT",
+                              {Number(static_cast<int>(i)), Number((*route)[i][0]),
+                               Number((*route)[i][1]), Number((*route)[i][2]), "0",
+                               "0", kRouteAction[action], "0", "0", "0"});
+                }
                 emit.addv("TARGET", {"MISSION", "0", "GROUP", "0"});
                 if ((r == "STRIKE" || r == "SEAD_STRIKE") && target_area) {
                     emit.addv("TARGET_AREA",
@@ -1207,44 +1292,53 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                         static_cast<int>(target->elements.size()), 2, 6);
                 }
 
+                // One corridor per package, shared by every flight in it.
+                std::vector<std::array<int, 4>> package_route;
+                const std::vector<std::array<int, 4>>* pkg_route = nullptr;
+                if (target != nullptr) {
+                    package_route = build_strike_route(
+                        *base, *target, tanker_bases.count(base->index) != 0, rng);
+                    pkg_route = &package_route;
+                }
+
                 const int wave = serial;
                 if (support) {
                     const char* fr = role == "AWACS_PATROL"   ? "AWACS"
                                      : role == "JSTARS_PATROL" ? "JSTAR"
                                                                : "REFUEL";
-                    emit_flight(base, type.c_str(), fr, 1, nullptr, false, wave, true, id);
-                    emit_flight(base, escort.c_str(), "ESCORT", 4, nullptr, false, wave + 2, true, id);
+                    emit_flight(base, type.c_str(), fr, 1, nullptr, nullptr, wave, true, id);
+                    emit_flight(base, escort.c_str(), "ESCORT", 4, nullptr, nullptr, wave + 2, true, id);
                     out->aircraft += 1 + 4;
                 } else if (role == "AF_KILL") {
-                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, true, wave, true, id);
+                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, pkg_route, wave, true, id);
                     out->aircraft += strike_ships;
                     if (af_ww) {
-                        emit_flight(base, type.c_str(), "WW", 2, target, true, wave + 2, true, id);
+                        emit_flight(base, type.c_str(), "WW", 2, target, pkg_route, wave + 2, true, id);
                         out->aircraft += 2;
                     } else {
-                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 2, true, id);
+                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 2, true, id);
                         out->aircraft += 4;
                     }
                     if (af_extra) {
-                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4, true, id);
+                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 4, true, id);
                         out->aircraft += 4;
                     }
                 } else if (role == "INTERD") {
-                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, true, wave, true, id);
+                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, pkg_route, wave, true, id);
                     out->aircraft += 4;
                     if (interd_escort) {
-                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 2, true, id);
+                        emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 2, true, id);
                         out->aircraft += 4;
                     }
                 } else if (role == "SEAD") {
-                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, true, wave, true, id);
-                    emit_flight(base, type.c_str(), "SEAD_STRIKE", 4, target, true, wave + 2,
+                    emit_flight(base, type.c_str(), "STRIKE", strike_ships, target, pkg_route, wave, true, id);
+                    emit_flight(base, type.c_str(), "SEAD_STRIKE", 4, target, pkg_route, wave + 2,
                                 true, id);
-                    emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4,
+                    emit_flight(base, escort.c_str(), "ESCORT", 4, target, pkg_route, wave + 4,
                                 false, id);
                     out->aircraft += 14;
                 } else {
-                    emit_flight(base, type.c_str(), "INTERCEPT", req.ships, nullptr, false,
+                    emit_flight(base, type.c_str(), "INTERCEPT", req.ships, nullptr, nullptr,
                                 wave, true, id);
                     out->aircraft += req.ships;
                 }

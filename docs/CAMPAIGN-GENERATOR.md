@@ -278,9 +278,29 @@ Mission routes are not random walks. The captured files show three shapes:
 * **AWACS and JSTARS** orbit a station about **forty units** from the base on a
   wide loop (span ~34). Altitude 250.
 * **Tankers** fly a wide racetrack (span ~39) centred on their base.
-* **Strike packages** take off, **refuel** at a tanker track behind the base,
-  ingress, strike and recover. `REFUEL` waypoints appear on the strike,
-  interdiction and anti-AWACS/tanker packages, never on CAP or INTC.
+* **Strike packages** take off, optionally **refuel** at a tanker track behind
+  the base, fly a meandering corridor to the target, strike and recover along
+  a second corridor. Every flight in a package flies the *same* geometry; the
+  strike flight alone labels the ingress and target fixes, while the escort and
+  wild-weasel flights show them as plain `NO_ACTION` fixes.
+
+`REFUEL` is present when the package's base hosts a `REFUELLER_PATROL` tanker
+and the target is more than about **100 map units** away. The refuel fix is the
+tanker orbit's far station (`base - 26, -1` on the reference base), not a
+separate target. CAP and INTC never refuel.
+
+Each corridor is a chain of random fixes along the base–target line with
+lateral jitter; the number of fixes is drawn, not derived from range. The
+captured packages carry **0–10 intermediate fixes per leg** (route lengths
+5–21). Altitude is a per-package choice of **10 or 120**, with the ingress fix
+at 5.
+
+Measured over the 29 captured strike/SEAD packages: mean route length **13.31**
+(capture) against **13.10** (generator), full range 5–21 against 7–22, altitude
+120/10 split 17/11 against 19/10. The two wild-weasel/escort flights of seven
+multi-flight packages are exact copies of their strike route in both files.
+The refuel share is 19/29 in the capture but lower in the generator because
+package-to-base assignment is still approximate (see Package composition).
 
 The generator reproduces the fighter box and the support orbits; measured
 against the capture the fighter patrol span is 5.3 units against 5.0.
