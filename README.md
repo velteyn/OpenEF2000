@@ -69,7 +69,9 @@ subsystem; it is updated as work lands.
 | Campaign and mission generation | Working: full generator, deterministic from a seed; parity work continuing |
 | Multiplayer | Not started |
 
-There is no playable game yet. The current build is a research and
+There is no playable game yet. The long-term shape of the project — the
+faithful engine first, then a standalone game built on the same mechanics — is
+in [`docs/ROADMAP.md`](docs/ROADMAP.md). The current build is a research and
 verification tool: it loads the original data, renders meshes, screens and the
 strategic map, regenerates campaigns from the shipped scenario, and exports
 PNGs and data files so results can be compared.
@@ -343,6 +345,7 @@ committed.
 | Document | Contents |
 |---|---|
 | [`docs/FILE_FORMATS.md`](docs/FILE_FORMATS.md) | Clean-room specifications for the archive, mesh, texture, terrain, mission and GUI formats |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Two products from one engine: the faithful reconstruction first, then a standalone game with invented assets and the same mechanics |
 | [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md) | Campaign generator: phases, inputs, the 543-entry base table, RNG and seed, tasking rules, output invariants and current parity status |
 | [`docs/TOOL-EVALUATION.md`](docs/TOOL-EVALUATION.md) | Tools considered for RE and verification, with decisions and the kvikdos-ng experiment plan |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Clean-room rules, what is accepted, review process |
