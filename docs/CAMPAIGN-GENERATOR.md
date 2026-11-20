@@ -285,6 +285,23 @@ Mission routes are not random walks. The captured files show three shapes:
 The generator reproduces the fighter box and the support orbits; measured
 against the capture the fighter patrol span is 5.3 units against 5.0.
 
+### 5.3b Attack patterns
+
+The attack geometry is **constant**, not generated: every captured
+`LAYDOWN_ATTACK` block is byte-identical to every other, and so are the
+`MOBILE_ATTACK` and `STAND_OFF_ATTACK` blocks. Each pattern carries six routes:
+
+| Pattern | Routes | Nodes | Used by |
+|---|---:|---:|---|
+| `LAYDOWN_ATTACK` | 6 | 4 | strike against an airfield |
+| `STAND_OFF_ATTACK` | 6 | 5 | strike against anything else, and SEAD |
+| `MOBILE_ATTACK` | 6 | 2 | wild-weasel flights |
+
+The three templates are reproduced exactly. What still differs is how many of
+each a mission set contains, because that follows the package mix (whether an
+`AF_KILL` carries a wild-weasel flight or an escort) and the target classes the
+tasking picks.
+
 ### 5.4 Victory and defeat
 
 The generator evaluates the war state before tasking and stops if the campaign

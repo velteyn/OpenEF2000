@@ -309,6 +309,43 @@ void advance_campaign_clock(std::array<int, 6>* clock) {
     minute = 0;
 }
 
+namespace {
+
+struct AttackNodeDef {
+    int x, y, z;
+    const char* action;
+};
+
+//! The three attack patterns are constant in every captured run: all 13
+//! laydown, 9 mobile and 20 stand-off blocks are byte-identical. Each has six
+//! routes.
+constexpr int kPatternRoutes = 6;
+
+const AttackNodeDef kLaydown[6][4] = {
+    {{0, -9216, 700, "PASS"}, {2048, -5120, 700, "PASS"}, {-1024, 2048, 700, "STRIKE"}, {4096, 6144, 2000, "PASS"}},
+    {{0, -9216, 700, "PASS"}, {0, -5120, 700, "PASS"}, {0, 2048, 700, "STRIKE"}, {4096, 6144, 2000, "PASS"}},
+    {{0, -9216, 700, "PASS"}, {6144, -5120, 700, "PASS"}, {-3072, 2048, 700, "STRIKE"}, {4096, 6144, 2000, "PASS"}},
+    {{0, -9216, 700, "PASS"}, {-4096, -5120, 700, "PASS"}, {2048, 2048, 700, "STRIKE"}, {4096, 6144, 2000, "PASS"}},
+    {{0, -9216, 700, "PASS"}, {8192, -5120, 700, "PASS"}, {-4096, 2048, 700, "STRIKE"}, {4096, 6144, 2000, "PASS"}},
+    {{0, -9216, 700, "PASS"}, {-10240, -5120, 700, "PASS"}, {4096, 2048, 700, "STRIKE"}, {4096, 6144, 2000, "PASS"}},
+};
+
+const AttackNodeDef kStandOff[6][5] = {
+    {{-6144, 24576, 1000, "PASS"}, {0, -10240, 2000, "PASS"}, {0, -8192, 2000, "PASS"}, {0, 2048, 2000, "STRIKE"}, {8192, 2048, 2000, "PASS"}},
+    {{-6144, 24576, 1000, "PASS"}, {0, -16384, 2000, "PASS"}, {0, -8192, 2000, "PASS"}, {0, 2048, 2000, "STRIKE"}, {8192, 2048, 2000, "PASS"}},
+    {{-6144, 24576, 1000, "PASS"}, {0, -22528, 2000, "PASS"}, {0, -8192, 2000, "PASS"}, {0, 2048, 2000, "STRIKE"}, {8192, 2048, 2000, "PASS"}},
+    {{-6144, 24576, 1000, "PASS"}, {0, -28672, 2000, "PASS"}, {0, -8192, 2000, "PASS"}, {0, 2048, 2000, "STRIKE"}, {8192, 2048, 2000, "PASS"}},
+    {{-6144, 24576, 1000, "PASS"}, {0, 30720, 2000, "PASS"}, {0, -8192, 2000, "PASS"}, {0, 2048, 2000, "STRIKE"}, {8192, 2048, 2000, "PASS"}},
+    {{-6144, 24576, 1000, "PASS"}, {0, 26624, 2000, "PASS"}, {0, -8192, 2000, "PASS"}, {0, 2048, 2000, "STRIKE"}, {8192, 2048, 2000, "PASS"}},
+};
+
+const AttackNodeDef kMobile[2] = {
+    {0, 0, 1000, "STRIKE_THEN_TURN"},
+    {1024, 0, 1000, "PASS"},
+};
+
+}  // namespace
+
 bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                        const std::vector<TargetSite>& table,
                        const GenSettings& settings, GeneratedCampaign* out,
@@ -859,12 +896,43 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                                       "0", "0", "0"});
                     emit.addv("LEAD", {"TARGET", "HANGAR8", "\"\"", "0", "0", "0",
                                        "0", "0", "0"});
-                    emit.addv("ATTACK_PATTERN", {"LAYDOWN_ATTACK", "1"});
-                    emit.addv("ATTACK_ROUTE", {"2"});
-                    emit.addv("ATTACK_NODE",
-                              {"0", "-9216", "700", "0", "0", "0", "PASS"});
-                    emit.addv("ATTACK_NODE",
-                              {"2048", "2048", "700", "0", "0", "0", "STRIKE"});
+                }
+                // The attack geometry is a fixed template per pattern type and
+                // depends only on the flight role and the target class.
+                if (r == "WW") {
+                    emit.addv("ATTACK_PATTERN", {"MOBILE_ATTACK",
+                                                 Number(kPatternRoutes)});
+                    for (int route = 0; route < kPatternRoutes; ++route) {
+                        emit.addv("ATTACK_ROUTE", {"2"});
+                        for (const auto& node : kMobile) {
+                            emit.addv("ATTACK_NODE",
+                                      {Number(node.x), Number(node.y),
+                                       Number(node.z), "0", "0", "0", node.action});
+                        }
+                    }
+                } else if (r == "SEAD_STRIKE" ||
+                           (target != nullptr && !is_airfield_type(target->type))) {
+                    emit.addv("ATTACK_PATTERN", {"STAND_OFF_ATTACK",
+                                                 Number(kPatternRoutes)});
+                    for (int route = 0; route < kPatternRoutes; ++route) {
+                        emit.addv("ATTACK_ROUTE", {"5"});
+                        for (const auto& node : kStandOff[route]) {
+                            emit.addv("ATTACK_NODE",
+                                      {Number(node.x), Number(node.y),
+                                       Number(node.z), "0", "0", "0", node.action});
+                        }
+                    }
+                } else if (r == "STRIKE") {
+                    emit.addv("ATTACK_PATTERN", {"LAYDOWN_ATTACK",
+                                                 Number(kPatternRoutes)});
+                    for (int route = 0; route < kPatternRoutes; ++route) {
+                        emit.addv("ATTACK_ROUTE", {"4"});
+                        for (const auto& node : kLaydown[route]) {
+                            emit.addv("ATTACK_NODE",
+                                      {Number(node.x), Number(node.y),
+                                       Number(node.z), "0", "0", "0", node.action});
+                        }
+                    }
                 }
             } else {
                 emit.addv("WP_ROUTE", {"8", "0", "0"});
@@ -997,7 +1065,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 } else if (role == "SEAD") {
                     emit_flight(base, type.c_str(), "STRIKE", 6, target, true, wave, true, id);
                     emit_flight(base, type.c_str(), "SEAD_STRIKE", 4, target, true, wave + 2,
-                                false, id);
+                                true, id);
                     emit_flight(base, escort.c_str(), "ESCORT", 4, target, true, wave + 4,
                                 false, id);
                     out->aircraft += 14;
