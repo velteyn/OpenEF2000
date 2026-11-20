@@ -368,30 +368,51 @@ The two 1997-era campaign files shipped in `Campaign_SourceData` (all
 difficulties) carry exactly the same 35 flips, which confirms the state is
 authored rather than generated.
 
-### 8.3 Defence slots
+### 8.3 Defence slots and the mobile link
 
-Every area carries a defence-site ring. The slot count follows the class:
+Every area carries a defence-slot list. The slot count follows the class:
 
 | Class | Slots |
 |---|---:|
-| airfields 40..47 | 4 |
-| 127, 204 | 4 |
+| airfields 40..47 | 8 |
+| 127, 204 | 8 |
 | 96..143 (except 142/143) | 3 |
-| everything else, including 142/143 and ports | 1 |
+| everything else, including ports, 63 and 142/143 | 1 |
+
+Eight slots means the four-class cycle runs twice, which is how an area can
+receive a second Patriot or SA-11 mission.
 
 The slot loop picks a weapon class by counter, not by side alone:
 
 * **Western** (NATO, Swedish, Danish, US, UK): `Rapier, Vulcan, Roland, Patriot`
 * **Eastern** (Russian, Finnish, Baltic): `ZSU-23-4, SA-6, SA-11, SA-11`
 
-Slot 0 therefore asks for a Vulcan (west) or SA-6 (east), slot 1 for Roland or
-SA-11, and so on. Roland never appears in the shipped order of battle, so that
-slot is always empty.
+Slot 0 asks for a Vulcan (west) or SA-6 (east), slot 1 for Roland or SA-11, and
+so on. Roland never appears in the shipped order of battle, so that slot is
+always empty.
 
-Each slot consumes the anti-air mobiles assigned to that area in chunks of
-eight: while more than eight remain, one mission carries eight; the tail
-mission carries the remainder. The mission count therefore follows the
-available mobiles and the slot count, which is why it varies between runs.
+A ground mobile becomes available to an area when it sits at the **area's exact
+coordinate and on the area's side** — the scenario places every ground group on
+a target coordinate, and this is the coordinate comparison the link pass
+performs. Each slot consumes the available mobiles in chunks of eight: while
+more than eight remain, one mission carries eight; the tail mission carries the
+remainder.
+
+Against a captured state this reproduces the air-defence tasking almost
+exactly:
+
+| | Captured | Generated |
+|---|---:|---:|
+| Air-defence missions | 481 | 483 |
+| Vulcan | 73 | 73 |
+| Patriot | 193 | 197 |
+| Rapier | 43 | 43 |
+| SA-6 | 232 | 232 |
+| SA-11 | 374 | 377 |
+| ZSU-23-4 | 65 | 63 |
+
+The residue is the nine virtual-port mobiles, which the captured pool gained
+after the tasking that produced that state.
 
 ### 8.4 Tasking totals
 
@@ -465,15 +486,17 @@ Verified against captured runs. Two comparisons:
 | Bases (side, type, name, position) | 77/77 | 77/77 |
 | Areas | 543, identical order | 543, identical order |
 | Target values (thousands digit) | **543/543 exact** | **543/543 exact** |
-| Air-defence missions | 448 vs 481 | 489 vs 502 |
+| Air-defence missions | 483 vs 481 | 500 vs 502 |
 | Air missions | 229 vs 229 | 229 vs 226 |
 | Sea supply | 13 vs 13 | 13 vs 13 |
 | Flights | 266 vs 265 | 266 vs 264 |
 | Role matrix | exact | exact apart from a 2-mission strike split |
 | FLAK boxes | 87 vs 82 | 90 vs 82 |
 
-Group totals are within 8 % (Patriot 177/193, Rapier 44/43, SA-6 210/232,
-ZSU 70/65, SA-11 297/374 on the scenario-seeded comparison).
+Group totals now match within four units (Vulcan 73/73, Rapier 43/43,
+SA-6 232/232, Patriot 197/193, SA-11 377/374, ZSU 63/65). The second column
+uses a state whose units had already been converted, so its larger spread is
+the missing attrition pass, not the tasking.
 
 Not yet byte-exact: the per-area order in which the value draws are taken, the
 mobile-to-area link table, the turn-to-turn production/attrition mix, patrol

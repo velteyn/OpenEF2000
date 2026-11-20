@@ -92,13 +92,14 @@ bool is_port_type(int type) {
     return (type >= 90 && type <= 95) || (type >= 205 && type <= 207);
 }
 
-//! Number of defence slots per installation class. Airfields carry the full
-//! four-slot ring, the larger installations three, and outlying sites one.
+//! Number of defence slots per installation class. Airfields and the larger
+//! naval installations carry eight (two passes of the four-class cycle); the
+//! big towns carry three; everything else one.
 int site_count_for_type(int type) {
-    if (is_airfield_type(type)) return 4;
-    if (type == 127 || type == 204) return 4;
+    if (is_airfield_type(type)) return 8;
+    if (type == 127 || type == 204) return 8;
     if (type == 142 || type == 143) return 1;
-    if (type >= 96 && type <= 143) return 3;
+    if (type >= 96) return 3;
     return 1;
 }
 
@@ -438,27 +439,21 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         campaign.mobiles.push_back(gm);
     }
 
-    // Link each ground mobile to the nearest same-side area whose defence
-    // ring covers it. The ring radius is about twelve map units, so mobiles
-    // outside every ring stay unassigned and never appear in a mission.
-    constexpr long kLinkRadius = 12;
+    // Link each ground mobile to the area at its exact position and side.
+    // The scenario places every ground group on a target coordinate, so this
+    // is the link the original's coordinate comparison performs.
+    std::map<std::tuple<std::string, int, int>, int> area_at;
+    for (std::size_t a = 0; a < campaign.areas.size(); ++a) {
+        const auto& area = campaign.areas[a];
+        if (area.sites.empty()) continue;
+        area_at.emplace(std::make_tuple(area.side, area.x, area.y),
+                        static_cast<int>(a));
+    }
     for (auto& gm : campaign.mobiles) {
         if (gm.class_id < 0) continue;
-        long best = -1;
-        int best_area = -1;
-        for (std::size_t a = 0; a < campaign.areas.size(); ++a) {
-            const auto& area = campaign.areas[a];
-            if (area.sites.empty()) continue;
-            if (side_code(area.side) != gm.side_code) continue;
-            const long dx = area.x - gm.x, dy = area.y - gm.y;
-            const long d = dx * dx + dy * dy;
-            if (d > kLinkRadius * kLinkRadius) continue;
-            if (best < 0 || d < best) {
-                best = d;
-                best_area = static_cast<int>(a);
-            }
-        }
-        gm.area = best_area;
+        const auto it = area_at.find(std::make_tuple(std::string(side_name(gm.side_code)),
+                                                     gm.x, gm.y));
+        gm.area = it == area_at.end() ? -1 : it->second;
     }
 
     Emitter emit;
