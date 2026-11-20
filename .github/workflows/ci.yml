@@ -13,6 +13,33 @@ permissions:
   contents: read
 
 jobs:
+  # Artifacts are per-run and cannot be overwritten in place, so each push to
+  # main removes the copies from older runs. The run-id filter keeps a
+  # concurrently uploading build from deleting its own output.
+  cleanup:
+    name: Replace previous artifacts
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+
+    steps:
+      - name: Delete artifacts from older runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN: ${{ github.run_id }}
+        run: |
+          for name in openef2000-linux-x86_64 openef2000-windows-x86_64; do
+            gh api --paginate "repos/$REPO/actions/artifacts?per_page=100" \
+              --jq ".artifacts[] | select(.name == \"$name\" and (.workflow_run.id|tostring) != \"$RUN\") | .id" |
+            while read -r id; do
+              [ -n "$id" ] || continue
+              gh api -X DELETE "repos/$REPO/actions/artifacts/$id" >/dev/null &&
+                echo "deleted $name ($id)"
+            done
+          done
+
   build:
     name: Build and guard
     runs-on: ubuntu-latest
@@ -57,10 +84,12 @@ jobs:
           cp build/openef2000 dist/
 
       - name: Upload
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: openef2000-linux-x86_64
           path: dist/
+          retention-days: 7
 
   windows:
     name: Build (Windows)
@@ -126,10 +155,12 @@ jobs:
           ls -l dist
 
       - name: Upload
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: openef2000-windows-x86_64
           path: dist/
+          retention-days: 7
 
   style:
     name: Source hygiene

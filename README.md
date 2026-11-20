@@ -304,9 +304,12 @@ gh run download --repo velteyn/OpenEF2000 --name openef2000-windows-x86_64
 gh run download --repo velteyn/OpenEF2000 --name openef2000-linux-x86_64
 ```
 
-Artifacts are retained for 90 days. They contain only this project's GPL build:
-no game data is included, and the engine cannot load anything until you point it
-at your own copy of the game (`--data /path/to/game-data`).
+Only pushes to `main` publish; pull requests build and test without uploading.
+Each push **replaces** the previous pair — the workflow deletes artifacts from
+older runs before uploading — and the 7-day retention is only a backstop. They
+contain only this project's GPL build: no game data is included, and the engine
+cannot load anything until you point it at your own copy of the game
+(`--data /path/to/game-data`).
 
 ## Repository layout
 
