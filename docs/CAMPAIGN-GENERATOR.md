@@ -421,6 +421,14 @@ Flight composition per mission:
 That yields 264–266 `FLIGHT` records for the 226–229 air missions, matching
 the captured range.
 
+The base timetable is built from the missions assigned to that base. Airfields
+launch four aircraft per wave at two-minute spacing; the next wave starts two
+minutes after the longest flight of the previous one is back. Flight duration
+is 252 minutes for CAP/INTC, 200 for strike packages and 460 for the support
+platforms. Convoys use 15-minute launch spacing and a 465-minute round trip.
+`TIMESLOT` rows are written in chronological order, mixing take-offs and
+landings exactly as the original does.
+
 ## 9. Implementation status
 
 The clean-room generator is in the engine:

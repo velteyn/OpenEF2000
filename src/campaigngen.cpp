@@ -536,6 +536,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     }
     const int gbased_count = mission_id;
 
+    //! Missions per base, used for the 24-hour TIMESLOT schedule.
+    std::map<int, std::vector<std::pair<int, std::string>>> schedule;
     // 7. Sea tasking: one convoy per ship group, scaled by group size.
     {
         std::map<std::pair<std::string, std::pair<int, int>>, int> groups;
@@ -548,8 +550,17 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             const int side = side_code(key.first);
             const bool east = !is_western(side);
             const char* hull = east ? "UDALOY_CLASS" : "TYPE42_CLASS";
+            int convoy_base = -1;
+            for (const auto& base : campaign.bases) {
+                if (base.x == key.second.first && base.y == key.second.second) {
+                    convoy_base = base.index;
+                    break;
+                }
+            }
             for (int i = 0; i < convoys; ++i) {
                 const int id = mission_id++;
+                if (convoy_base >= 0)
+                    schedule[convoy_base].emplace_back(id, "SEA_SUPPLY");
                 emit.addv("MISSION", {"SHIP", key.first, "SEA_SUPPLY", "OK", "0",
                                       Number(id), "3"});
                 emit.addv("GROUP", {"3", hull, "ESCORT", "OK"});
@@ -572,8 +583,6 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     const int ship_count = mission_id - gbased_count;
 
     out->aircraft = 0;
-    //! Missions per base, used for the 24-hour TIMESLOT schedule.
-    std::map<int, std::vector<std::pair<int, std::string>>> schedule;
     // 8. Air tasking. The role totals are invariant across runs; the split per
     //    side follows the side's share of the air order of battle.
     {
@@ -824,22 +833,54 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                            base.port ? "255" : "0"});
         emit.addv("3DP", {Number(base.x), Number(base.y), "0", "0", "0", "0"});
         const auto& slots = schedule[base.index];
-        emit.addv("TIMESLOTS", {Number(static_cast<int>(slots.size()) * 2)});
+        struct Slot {
+            int minute;
+            const char* action;
+            const std::string* role;
+            int id;
+            int wave;
+        };
+        std::vector<Slot> rows;
+        // Four aircraft per wave; the next wave starts two minutes after the
+        // longest flight of the previous one is back.
+        constexpr int kWave = 4;
+        int wave_start = 0;
+        int wave_duration = 0;
         for (std::size_t i = 0; i < slots.size(); ++i) {
             const int id = slots[i].first;
             const std::string& role = slots[i].second;
-            const int takeoff = static_cast<int>(i) * 2;
+            const int within = static_cast<int>(i) % kWave;
+            if (i != 0 && within == 0) {
+                wave_start += wave_duration + 2;
+                wave_duration = 0;
+            }
             int duration = 252;
-            if (role == "AWACS_PATROL" || role == "REFUELLER_PATROL" ||
-                role == "JSTARS_PATROL")
+            if (role == "SEA_SUPPLY") duration = 465;
+            else if (role == "AWACS_PATROL" || role == "REFUELLER_PATROL" ||
+                     role == "JSTARS_PATROL")
                 duration = 460;
             else if (role == "AF_KILL" || role == "INTERD" || role == "SEAD")
                 duration = 200;
+            const int spacing = role == "SEA_SUPPLY" ? 15 : 2;
+            const int takeoff = wave_start + within * spacing;
             const int landing = std::min(takeoff + duration, 24 * 60 - 1);
-            emit.addv("TIMESLOT", {"0", Number(takeoff / 60), Number(takeoff % 60),
-                                   "TAKE_OFF", role, Number(id), "0"});
-            emit.addv("TIMESLOT", {"0", Number(landing / 60), Number(landing % 60),
-                                   "LANDING", role, Number(id), "0"});
+            if (duration > wave_duration) wave_duration = duration;
+            rows.push_back({takeoff, "TAKE_OFF", &role, id, static_cast<int>(i)});
+            rows.push_back({landing, "LANDING", &role, id, static_cast<int>(i)});
+        }
+        std::stable_sort(rows.begin(), rows.end(),
+                         [](const Slot& a, const Slot& b) {
+                             return a.minute < b.minute;
+                         });
+        emit.addv("TIMESLOTS", {Number(static_cast<int>(rows.size()))});
+        for (const auto& row : rows) {
+            const char* action = row.action;
+            if (std::string(*row.role) == "SEA_SUPPLY" &&
+                std::string(action) == "TAKE_OFF")
+                action = "LAUNCH";
+            emit.addv("TIMESLOT",
+                      {"0", Number(row.minute / 60), Number(row.minute % 60),
+                       action, *row.role, Number(row.id), Number(row.wave)});
         }
         emit.blank();
     }
