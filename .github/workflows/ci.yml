@@ -51,6 +51,47 @@ jobs:
           # The engine must fail cleanly, not crash, when no game data is present.
           ./build/openef2000 --data ./does-not-exist --stats || true
 
+  windows:
+    name: Build (Windows)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # Standard GitHub-hosted runners are free for public repositories, so
+      # this job costs nothing beyond CI time.
+      - name: Set up MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-pkgconf
+            mingw-w64-x86_64-SDL2
+            mingw-w64-x86_64-SDL2_ttf
+            mingw-w64-x86_64-SDL2_image
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: GUI runtime self-test
+        run: ./build/openef2000.exe --gui-selftest
+
+      - name: Smoke test
+        run: |
+          ./build/openef2000.exe --help
+          # The engine must fail cleanly, not crash, when no game data is present.
+          ./build/openef2000.exe --data ./does-not-exist --stats || true
+
   style:
     name: Source hygiene
     runs-on: ubuntu-latest
