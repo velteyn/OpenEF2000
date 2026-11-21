@@ -91,6 +91,15 @@ table unlocks:
       Russian: the NATO areas within a 120-unit Chebyshev square of Russian
       territory, evaluated against the original sides. The set is 35/35 on
       both fixed-clock captures.
+- [ ] **Packages per base** — with the front and target blocks in place, the
+      total flight count matches the capture exactly (263/263), but packages
+      are grouped differently. Russian AF_KILL is 2 packages at Orland plus 3
+      at Vaernes in the capture, versus 6 at Orland here; NATO AF_KILL is 5 +
+      1 versus 6 + 0; AIR_DEFENSE counts are NATO 64/73 and Russian 174/156.
+      The capture flies all five Russian AF_KILL packages on SU35 and leaves
+      Orland's SU25s untouched, while ours falls through to SU25 after a few
+      packages. Next: decode the per-base package quota and the airframe
+      reservation order (likely CAP/escort reserve SU35 before strike).
 
 ## 4. GUI
 
