@@ -690,6 +690,11 @@ Murmansk, …).
 double-spaced with CR/LF; the Summary panel prints the non-empty lines. The
 campaign briefing is the loose `CAMPBRF.BRF`.
 
+The Simulator's `missions` window declares twenty `esg 1` template rows
+(`first`, `2`..`20`) with a `workysize` of 400; the table supplies the labels
+and unused rows stay hidden. Its `miss_info` window has no text widgets: the
+briefing is written into the window's text lines when the window opens.
+
 **Verification.** Level 1's `cfg\arctop01.brf` is the 80-byte entry whose text
 is "Emergency intercept. / Destroy incoming hostile bombers / and escort
 aircraft.", exactly the Summary shown by the shipped Quick Combat screen; the

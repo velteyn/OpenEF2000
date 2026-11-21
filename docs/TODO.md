@@ -94,10 +94,18 @@ table unlocks:
       and levels 02..12 are drawn and clickable like 01.
 - [x] **Hi-score panel** — raised by the arcade startup routine (now run on
       every screen entry) and read from `HISCORES.DAT`.
-- [ ] **Simulator mission list** — `simul`'s Missions window is empty. The
-      type tables (`cfg\free.txt`, `basic.txt`, `weapon.txt`, `air2air.txt`,
-      `air2grnd.txt`, `advanced.txt`) name the maps and their `.brf`/`.cfg`
-      pairs, so the list can be filled the same way as Quick Combat.
+- [x] **Simulator mission list** — `simul` fills its twenty template rows
+      from the type table (`cfg\free.txt`, `basic.txt`, `weapon.txt`,
+      `air2air.txt`, `air2grnd.txt`, `advanced.txt`), hides unused rows, and
+      shows the selected mission's `.brf` briefing in Mission Details through
+      `onopenCurrentMission`.
+- [ ] **Simulator launch** — Parameters Accept records `mission_accepted` and
+      the choices, but no flight is started. Needs a mission loader for the
+      selected `.cfg` and the chosen time/weather/difficulty.
+- [ ] **List scrollbar** — the overflow scroll works with the wheel but the
+      list has no visible thumb, because the `.gui` file does not declare
+      `yscroll`. Confirm from a runtime capture whether the original draws
+      one.
 
 ## 5. Campaign manager
 

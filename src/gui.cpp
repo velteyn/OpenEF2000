@@ -611,17 +611,21 @@ bool GuiSystem::scroll_window(const std::string& name, int dx, int dy) {
     if (w == nullptr) return false;
 
     const SDL_Rect client = client_rect(*w);
-    // A window may declare a work area larger than its client (the map
-    // windows are 400x400 inside 400x339/400x380), so the scroll extent comes
-    // from that when present.
-    int content_w = w->work_w > 0 ? w->work_w : 0;
-    int content_h = w->work_h > 0 ? w->work_h : 0;
+    // Content extent: the declared work area when the window asks to scroll
+    // (the map windows are 400x400 inside 400x339/400x380), otherwise the
+    // widgets and text lines themselves. The simulator Mission list is the
+    // latter case: twenty 220x21 template rows in a 150x200 frame, with no
+    // `yscroll` directive.
+    int content_w = w->scroll_x && w->work_w > 0 ? w->work_w : 0;
+    int content_h = w->scroll_y && w->work_h > 0 ? w->work_h : 0;
     for (const auto& icon : w->icons) {
+        if (icon.hidden) continue;
         content_w = std::max(content_w, icon.x + icon.w);
         content_h = std::max(content_h, icon.y + icon.h);
     }
-    const int max_x = w->scroll_x ? std::max(0, content_w - client.w) : 0;
-    const int max_y = w->scroll_y ? std::max(0, content_h - client.h) : 0;
+    content_h = std::max(content_h, static_cast<int>(w->lines.size()) * 12);
+    const int max_x = std::max(0, content_w - client.w);
+    const int max_y = std::max(0, content_h - client.h);
 
     const int old_x = w->scroll_x_pos, old_y = w->scroll_y_pos;
     w->scroll_x_pos = std::clamp(w->scroll_x_pos + dx, 0, max_x);
@@ -632,14 +636,16 @@ void GuiSystem::scroll_window_to(const std::string& name, int x, int y) {
     auto* w = find_window(name);
     if (w == nullptr) return;
     const SDL_Rect client = client_rect(*w);
-    int content_w = w->work_w > 0 ? w->work_w : 0;
-    int content_h = w->work_h > 0 ? w->work_h : 0;
+    int content_w = w->scroll_x && w->work_w > 0 ? w->work_w : 0;
+    int content_h = w->scroll_y && w->work_h > 0 ? w->work_h : 0;
     for (const auto& icon : w->icons) {
+        if (icon.hidden) continue;
         content_w = std::max(content_w, icon.x + icon.w);
         content_h = std::max(content_h, icon.y + icon.h);
     }
-    const int max_x = w->scroll_x ? std::max(0, content_w - client.w) : 0;
-    const int max_y = w->scroll_y ? std::max(0, content_h - client.h) : 0;
+    content_h = std::max(content_h, static_cast<int>(w->lines.size()) * 12);
+    const int max_x = std::max(0, content_w - client.w);
+    const int max_y = std::max(0, content_h - client.h);
     w->scroll_x_pos = std::clamp(x, 0, max_x);
     w->scroll_y_pos = std::clamp(y, 0, max_y);
 }
@@ -1279,6 +1285,12 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         for (const std::string& raw : split_lines(*text)) {
             std::string line = trim(raw);
             if (line.empty()) continue;
+            // The DOS bitmap font has glyphs for bytes 128..255; a TTF does
+            // not, and they show as boxes. Keep the briefing to ASCII.
+            for (char& c : line) {
+                const unsigned char u = static_cast<unsigned char>(c);
+                if (u < 32 || u > 126) c = ' ';
+            }
             // The Summary panel is 215 px wide; wrap long briefings so the
             // text stays inside the frame.
             while (line.size() > 36) {
@@ -1290,6 +1302,107 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
             if (!line.empty()) lines.push_back(line);
         }
         gui.set_window_lines("summary", std::move(lines));
+    };
+
+    // Simulator mission tables follow the same shape as the Quick Combat
+    // ones: `cfg\free.txt`, `basic.txt`, `weapon.txt`, `air2air.txt`,
+    // `air2grnd.txt` and `advanced.txt`, one `label$briefing$config` line per
+    // mission. The `missions` window has twenty template rows (`first`,
+    // `2`..`20`); unused rows are hidden.
+    struct SimMission {
+        std::string label;
+        std::string briefing;
+        std::string config;
+    };
+    auto sim = std::make_shared<std::vector<SimMission>>();
+
+    const auto load_sim_table = [sim, read_resource, split_lines, trim](int type) {
+        const char* file = type == 1   ? "basic"
+                           : type == 2 ? "weapon"
+                           : type == 3 ? "air2air"
+                           : type == 4 ? "air2grnd"
+                           : type == 5 ? "advanced"
+                                       : "free";
+        sim->clear();
+        auto text = read_resource(std::string("cfg\\") + file + ".txt");
+        if (!text) return;
+        bool first = true;
+        for (const std::string& raw : split_lines(*text)) {
+            const std::string line = trim(raw);
+            if (line.empty()) continue;
+            if (first) {
+                first = false;
+                continue;
+            }
+            SimMission mission;
+            std::size_t at = 0;
+            for (int field = 0; field < 3; ++field) {
+                const std::size_t next = line.find('$', at);
+                const std::string part = trim(line.substr(
+                    at, next == std::string::npos ? std::string::npos : next - at));
+                if (field == 0) mission.label = part;
+                else if (field == 1) mission.briefing = part;
+                else mission.config = part;
+                if (next == std::string::npos) break;
+                at = next + 1;
+            }
+            if (!mission.label.empty()) sim->push_back(std::move(mission));
+        }
+    };
+
+    const auto fill_sim_missions = [sim](GuiSystem& gui) {
+        auto* window = gui.find_window("missions");
+        if (window == nullptr) return;
+        for (std::size_t i = 0; i < window->icons.size(); ++i) {
+            GuiWidget& icon = window->icons[i];
+            if (i < sim->size()) {
+                icon.hidden = false;
+                icon.text["en"] = (*sim)[i].label;
+                icon.value = (*sim)[i].label;
+            } else {
+                icon.hidden = true;
+                icon.text.erase("en");
+                icon.value.clear();
+            }
+        }
+    };
+
+    const auto show_sim_mission = [sim, read_resource, split_lines, trim](
+                                      GuiSystem& gui) {
+        const int index = gui.sim_mission();
+        if (index < 0 || index >= static_cast<int>(sim->size())) {
+            gui.set_window_lines("miss_info", {});
+            return;
+        }
+        const SimMission& mission = (*sim)[static_cast<std::size_t>(index)];
+        std::vector<std::string> lines;
+        lines.push_back(mission.label);
+        lines.push_back("");
+        if (auto text = read_resource("cfg\\" + mission.briefing)) {
+            std::string paragraph;
+            for (const std::string& raw : split_lines(*text)) {
+                std::string line = trim(raw);
+                for (char& c : line) {
+                    const unsigned char u = static_cast<unsigned char>(c);
+                    if (u < 32 || u > 126) c = ' ';
+                }
+                if (line.empty()) {
+                    if (!paragraph.empty()) lines.push_back(paragraph);
+                    paragraph.clear();
+                    continue;
+                }
+                if (!paragraph.empty()) paragraph.push_back(' ');
+                paragraph += line;
+                while (paragraph.size() > 58) {
+                    std::size_t cut = paragraph.rfind(' ', 58);
+                    if (cut == std::string::npos) cut = 58;
+                    lines.push_back(paragraph.substr(0, cut));
+                    paragraph = trim(paragraph.substr(cut));
+                }
+            }
+            if (!paragraph.empty()) lines.push_back(paragraph);
+        }
+        gui.set_window_lines("miss_info", std::move(lines));
     };
 
     // Quit raises the `sure` dialog ("Quit EF2000 ?" with Yes/No).
@@ -1493,17 +1606,19 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
     // Simulator mission browser. `first` is entry 0 and the numbered icons
     // continue from "2", so "2" is entry 1.
     system.register_routine("gpwMissionSelected",
-                            [](GuiSystem& gui, const std::string& window,
-                               const std::string& icon) {
+                            [show_sim_mission](GuiSystem& gui,
+                                               const std::string& window,
+                                               const std::string& icon) {
         int index = -1;
         if (icon == "first") index = 0;
         else if (!icon.empty()) {
             const int n = std::atoi(icon.c_str());
-            if (n >= 2 && n <= 16) index = n - 1;
+            if (n >= 2 && n <= 20) index = n - 1;
         }
         if (index < 0) return;
         gui.select(window, icon, true);
         gui.set_sim_mission(index);
+        show_sim_mission(gui);
     });
 
     // Parameters dialog: the icons only run `select`, so Accept reads the
@@ -1546,14 +1661,27 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
         gui.select("params", gui.sim_review_weapons() ? "revweapyes" : "revweapno", true);
     });
 
-    // The mission list and details are filled from the mission data by the
-    // driver; there is nothing to initialise in the GUI model itself.
+    // Simulator entry: load the table for the type chosen on `simpick`, fill
+    // the twenty template rows, and select the first mission.
     system.register_routine("InitPickMiss",
-                            [](GuiSystem&, const std::string&,
-                               const std::string&) {});
+                            [load_sim_table, fill_sim_missions, show_sim_mission](
+                                GuiSystem& gui, const std::string&,
+                                const std::string&) {
+        load_sim_table(gui.sim_type());
+        fill_sim_missions(gui);
+        gui.set_sim_mission(0);
+        if (auto* window = gui.find_window("missions");
+            window != nullptr && !window->icons.empty()) {
+            gui.select("missions", window->icons.front().name, true);
+        }
+        show_sim_mission(gui);
+    });
+    // Mission Details is filled when it opens, from the current selection.
     system.register_routine("onopenCurrentMission",
-                            [](GuiSystem&, const std::string&,
-                               const std::string&) {});
+                            [show_sim_mission](GuiSystem& gui, const std::string&,
+                                               const std::string&) {
+        show_sim_mission(gui);
+    });
 
     system.register_routine("gpwExitSimulator",
                             [](GuiSystem& gui, const std::string&,

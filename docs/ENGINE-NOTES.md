@@ -537,6 +537,27 @@ Observed shell flow:
 - `HISCORES.DAT` is re-read and the rows are only redrawn when a value
   changes, because the panel is raised by the startup routine after the first
   fill pass.
+- The **Simulator** mission browser is data too. `simpick`'s *Free Flight* row
+  binds `gpwSimTypeSelected`; the other rows have that routine line commented
+  out in the shipped file, so the driver records the clicked row (2..6) before
+  the row's `screen simul` verb switches away. `simul`'s startup
+  (`InitPickMiss`) loads
+  `cfg\free.txt`, `basic.txt`, `weapon.txt`, `air2air.txt`, `air2grnd.txt` or
+  `advanced.txt` — the same `label$briefing$config` shape as Quick Combat. The
+  `missions` window declares twenty template rows (`first`, `2`..`20`, all
+  `esg 1` with `gpwMissionSelected`); unused rows are hidden and the rest are
+  labelled from the table. Selecting a row opens `miss_info` and its
+  `onopenCurrentMission` hook writes the label and the wrapped `.brf` briefing
+  into the window's text lines. Accept opens `params`; `onopenParams` restores
+  the current time/weather/difficulty/weapon choices and the defaults are Day,
+  Fair, Pro, default weapons on, weapons review off. Accepting the parameters
+  records `mission_accepted` but does not start a flight yet.
+- The `missions` list is 220x21 rows in a 150x200 frame. Widgets are now always
+  clipped to their window's client rect, and the wheel scrolls any window whose
+  widgets or text lines overflow it, so the rows past the frame are reachable
+  even though the `.gui` file has no `yscroll` directive.
+- Non-ASCII bytes in `.brf` text are replaced with spaces: they are glyph
+  indices for the original bitmap font and would render as boxes in a TTF.
 
 Simulator flow, from the later screen set:
 

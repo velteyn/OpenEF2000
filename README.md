@@ -178,6 +178,10 @@ recorded in [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md).
   shipped `cfg\arcroo.txt` / `arcpro.txt` / `arctop.txt` tables and the
   `.brf` briefing they name. Difficulty and level are live radio groups, the
   briefing follows both, and the hi-score panel is read from `HISCORES.DAT`.
+- **Simulator:** the mission browser lists the maps from the selected type's
+  `cfg\*.txt` table, shows each mission's `.brf` briefing in Mission Details,
+  and opens the Parameters dialog with Day, Fair, Pro and default weapons
+  preselected. Launching the flight from there is still to come.
 
 ## Architecture
 

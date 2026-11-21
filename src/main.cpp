@@ -880,6 +880,19 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                         system.focus_field(hover_window, hover_icon);
                         press_window = hover_window;
                         press_icon = hover_icon;
+                        // `simpick` binds `gpwSimTypeSelected` only on its
+                        // first row; rows 2..6 have the routine call commented
+                        // out and rely on which row was chosen. Record it
+                        // before the row's `screen simul` verb switches away.
+                        if (system.screen().name == "simpick" &&
+                            hover_window == "picksimtype") {
+                            int type = -1;
+                            if (hover_icon == "first") type = 0;
+                            else if (hover_icon.size() == 1 && hover_icon[0] >= '2' &&
+                                     hover_icon[0] <= '6')
+                                type = hover_icon[0] - '1';
+                            if (type >= 0) system.set_sim_type(type);
+                        }
                         system.fire(hover_window, hover_icon, "click");
                     } else {
                         system.focus_field(std::string(), std::string());

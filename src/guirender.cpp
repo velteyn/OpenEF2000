@@ -9,6 +9,9 @@
 
 #include <cmath>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iterator>
 
 #include "ilbm.h"
 
@@ -650,7 +653,10 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
         const SDL_Rect client = GuiSystem::client_rect(*win);
         SDL_Rect previous_clip;
         SDL_GetClipRect(surface, &previous_clip);
-        if (win->scroll_x || win->scroll_y) SDL_SetClipRect(surface, &client);
+        // Icons never draw outside their window. The mission list is wider
+        // and longer than its 150x200 frame; the original keeps it inside and
+        // scrolls the content.
+        SDL_SetClipRect(surface, &client);
 
         for (auto& icon : win->icons) {
             if (icon.disable || icon.hidden) continue;
@@ -914,7 +920,7 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
                 text(win->x + win->w - 30, win->y + 2, mode, palette[15]);
             }
         }
-        if (win->scroll_x || win->scroll_y) SDL_SetClipRect(surface, &previous_clip);
+        SDL_SetClipRect(surface, &previous_clip);
     }
 
     // ---- placeholder cursor ----------------------------------------------
@@ -980,7 +986,47 @@ bool render_gui_png(const DidArchive& archive, const std::string& screen_name,
     // raises (Network Settings, IPX Settings) never appear. The renderer does
     // not know the handlers, so it registers the same observed set as the
     // driver does.
-    ef::register_observed_routines(system, options.dataset);
+    // DID1ST.DAT carries the screens but not the `cfg\` tables, which live
+    // in the base DID.DAT.
+    std::optional<ef::DidArchive> companion;
+    if (!options.data_dir.empty()) {
+        const std::filesystem::path companion_path =
+            std::filesystem::path(options.data_dir) / "DID.DAT";
+        if (companion_path != archive.path() &&
+            std::filesystem::exists(companion_path)) {
+            try {
+                companion.emplace(companion_path);
+            } catch (const std::exception&) {
+                // Tables can still fall back to loose files.
+            }
+        }
+    }
+    const auto load_resource = [&archive, &companion, &options](
+                                   const std::string& name)
+        -> std::optional<std::string> {
+        const ef::DidArchive* archives[2] = {&archive,
+                                             companion ? &*companion : nullptr};
+        for (const ef::DidArchive* a : archives) {
+            if (a == nullptr) continue;
+            if (auto entry = a->lookup(name)) {
+                if (auto bytes = a->read(*entry)) {
+                    return std::string(bytes->begin(), bytes->end());
+                }
+            }
+        }
+        if (options.data_dir.empty()) return std::nullopt;
+        std::string relative = name;
+        for (char& c : relative) {
+            if (c == '\\') c = '/';
+        }
+        std::ifstream in(std::filesystem::path(options.data_dir) / relative,
+                         std::ios::binary);
+        if (!in) return std::nullopt;
+        return std::string((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+    };
+    ef::register_observed_routines(system, options.dataset, options.data_dir,
+                                   {}, load_resource);
     system.run_startup();
     if (options.camp_zoom >= 0) system.set_camp_zoom(options.camp_zoom);
     if (options.camp_sam) system.set_camp_sam(true);
