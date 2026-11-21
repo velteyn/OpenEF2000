@@ -136,6 +136,10 @@ specification.
 - **Route geometry:** strike packages now build one corridor per package with
   0–10 intermediate fixes per leg, a shared escort/weasel route and conditional
   refuelling; mean length 13.10 against the capture's 13.31.
+- **Timetable:** one row per flight inside the eight-hour turn, support and
+  kill packages at the top, CAP in ~252-minute waves and convoys on a 45-minute
+  cadence; 455 rows against the capture's 453, with the support, SEAD and
+  convoy rows matching exactly.
 - **In the shell:** Campaign Level → Accept runs the generator, rewrites both
   files and opens the campaign map, matching the original sequence. The
   mission list, briefing (including the sortie's own take-off time), overview

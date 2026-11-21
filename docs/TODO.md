@@ -87,10 +87,13 @@ table unlocks:
 
 ## 6. Cosmetic / smaller
 
-- [ ] **Exact timetable launch times and wave sizes** — captures write one row
-      per flight (final field = flight index), sort the base's rows
-      chronologically and launch support first, then strike packages in pairs.
-      The generator still writes one row per mission.
+- [x] **Timetable structure** — one row per flight inside the eight-hour turn,
+      flight index in the final field, support/kill packages at the top, CAP
+      waves ~252 minutes apart, convoys on a 45-minute cadence, chronological
+      per base. Measured 455 rows against the capture's 453.
+- [ ] **Exact strike wave times** — the original launches strike packages from
+      about 02:04 while CAP is still airborne; the queue-based planner starts
+      them at 04:16. The wave planner rules are not decoded yet.
 - [x] **Escort flight sizes** — escorts take the remaining airframes at their
       airfield, 1–4 ships; support escorts stay at four. The captured 18×4,
       2×2, 2×1, 1×3 mix is now representable. Which packages receive an escort

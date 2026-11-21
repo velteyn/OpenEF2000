@@ -595,25 +595,31 @@ escorts, two 2-ship, two 1-ship and one 3-ship. The remaining difference is
 *which* packages receive an escort: the capture assigns them through its own
 package plan, which is not decoded yet.
 
-### 8.5 Timetable observations
+### 8.5 Timetable
 
-The captured `TIMESLOT` rows are **per flight**, not per mission: a two-flight
-strike package has two `TAKE_OFF` rows and two `LANDING` rows, and the final
-field is the flight's index inside the package (0, 1, 2). Rows are sorted
-chronologically per base and mix take-offs and landings. On the reference
-base, CAPs launch first, then tanker/AWACS support, then strike packages in
-pairs, with the next package waiting for the previous wave's aircraft to
-recover. Our generator still writes one take-off/landing pair per mission, so
-row counts and exact launch times differ; the structural rule is recorded
-here for the next iteration.
+The captured `TIMESLOT` rows describe one **eight-hour campaign turn** (0:00 to
+7:59); anything that would land later is not written. The rules are:
 
-The base timetable is built from the missions assigned to that base. Airfields
-launch four aircraft per wave at two-minute spacing; the next wave starts two
-minutes after the longest flight of the previous one is back. Flight duration
-is 252 minutes for CAP/INTC, 200 for strike packages and 460 for the support
-platforms. Convoys use 15-minute launch spacing and a 465-minute round trip.
-`TIMESLOT` rows are written in chronological order, mixing take-offs and
-landings exactly as the original does.
+* one `TAKE_OFF` and, when it falls inside the turn, one `LANDING` per flight —
+  not per mission. The final field is the flight's index inside the package
+  (0, 1, 2);
+* support and anti-tanker/anti-AWACS packages launch at the top of the turn,
+  two minutes apart per flight;
+* CAP flights launch in waves about 252 minutes apart; strikes queue behind the
+  CAP waves;
+* convoys launch in groups of three, fifteen minutes apart, with the next
+  convoy on the same base 45 minutes later;
+* the timetable is sorted chronologically per base and mixes take-offs and
+  landings. `SEA_SUPPLY` take-offs are written as `LAUNCH`.
+
+The generator now follows this structure. Measured row counts on the reference
+capture: **453 rows against 455**, with `CAP` 162 take-offs and 102 landings
+against 162/103, all 18 support take-offs and landings exact, `SEAD` 6/6,
+`SEA_SUPPLY` 39 launches and 6 landings, and the three kill packages at the top
+of the turn. The remaining row difference is the strike flight mix (`AF_KILL`
+28 against 33, `INTERD` 19 against 17), which follows package composition;
+exact strike launch minutes still differ because the original's wave planner is
+not decoded.
 
 ## 9. Implementation status
 
