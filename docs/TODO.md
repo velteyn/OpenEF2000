@@ -111,8 +111,12 @@ table unlocks:
       * `0xbe280` sets `base+0x4e` from the site class byte (`site+0x2e`),
         with a special '1' case that becomes 2 when another matching area
         exists and 1 otherwise; `0xca990` initialises it to 2.
-      Next: read the `0x109d44` type table and the two per-type arrays, then
-      replace our per-base plan with this formula.
+      `0x109d44` builds the eligible-type list for the role: a switch on the
+      base class returns up to eight aircraft type ids terminated by `'%'`
+      (0x25), e.g. `6,3,%...` for one role and `0x0d,0x0c,%...` for another.
+      Next: map those ids to the type table, model per-type capacity minus use
+      (including CAP/escort reservations), then replace our per-base plan with
+      the formula.
 
 ## 4. GUI
 
