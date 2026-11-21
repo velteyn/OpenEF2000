@@ -472,17 +472,23 @@ Observed shell flow:
 - **Sortie recovery.** A mission route ends with a `LANDING` waypoint at its
   take-off base, and every generated/captured route repeats that base. The
   Mission Overview separately names a **Diversion Field**, the nearest other
-  friendly airfield. A player report confirms that landing at another airfield
-  did not complete the sortie: the recovery point is part of the mission, and
-  the diversion field is only an alternate. The reconstructed image names the
-  flight phases `WAITING_TO_LAND`, `LANDING`, `TAXIING`, `TAXI_BACK`,
-  `TAXI_FORWARD`, `TAXI_FROM_APRON` and `TAXI_TO_APRON`, alongside the
-  messages `RETURN TO BASE`, `RECOVERY INITIATED` and `MISSION ACCOMPLISHED`.
-  That makes a taxi/recovery step plausible rather than an instant touchdown
-  trigger, but it does not prove it; no engine-off completion string exists.
-  The exact success condition (touchdown, apron, engines off, or the explicit
-  `END MISSION` key) is unverified and must be captured at runtime. The flight
-  loop must at least not treat any friendly runway as a completed sortie.
+  friendly airfield. The **Strategy Guide** is explicit about the condition:
+  landing on an allied air base is not the end of the sortie — once you come
+  to a **complete stop with the wheel brakes on and the engines off**, the
+  aircraft is **re-armed and re-fuelled** and the campaign continues. Shutting
+  down at an **enemy** base ends the mission automatically. Ending a mission
+  without landing costs 10 % of the score, ejecting 10 %, and being killed
+  20 %. Quick Combat instead ends after a preset mission-clock duration or via
+  its end-of-mission menu.
+
+  This explains the observed case: an allied landing followed by a stop and
+  shutdown rearms the aircraft rather than finishing the sortie. The
+  reconstructed image has the matching phases (`WAITING_TO_LAND`, `LANDING`,
+  `TAXIING`, `TAXI_BACK`, `TAXI_FORWARD`, `TAXI_FROM_APRON`, `TAXI_TO_APRON`)
+  and messages (`RETURN TO BASE`, `RECOVERY INITIATED`, `MISSION
+  ACCOMPLISHED`). What still needs a runtime capture is the campaign debrief
+  trigger at the *home* base versus any allied base; the score and rearm rules
+  above are manual-confirmed.
 - The briefing **time** comes from the sortie's own timetable: the earliest
   `TAKE_OFF` `TIMESLOT` for its mission id, falling back to the campaign clock
   when the mission has no slot (intercepts are launched on demand). The

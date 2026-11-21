@@ -168,7 +168,9 @@ recorded in [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md).
   diversion airfield, role and the strike / wild-weasel / escort flight counts.
 - **Mission Debrief:** current target damage from the live campaign state,
   status and aircraft type. Combat results stay zero until the flight
-  simulation exists.
+  simulation exists. Recovery follows the manual: an allied landing only
+  rearms once stopped with brakes on and engines off; shutdown at an enemy
+  base ends the mission, and ending without landing costs score.
 
 ## Architecture
 

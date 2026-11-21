@@ -85,16 +85,17 @@ table unlocks:
 
 ## 5. Campaign manager
 
-- [ ] **Sortie completion at the designated recovery base** — a mission's
-      `LANDING` waypoint is its take-off base; the briefing's *Diversion Field*
-      is a different airfield. A player report confirms landing at another
-      friendly airfield does not finish the sortie. The image also names
-      `LANDING`, `TAXIING`, `TAXI_TO_APRON`/`TAXI_FROM_APRON`, `RECOVERY
-      INITIATED` and `MISSION ACCOMPLISHED`, so completion may require taxi or
-      recovery rather than mere touchdown; engines-off is not evidenced.
-      Verify with a runtime capture matrix: stop on the runway, taxi to the
-      apron, shut down, and the explicit `END MISSION` key. The loop must model
-      "recovered at base", "diverted" and "lost" separately.
+- [x] **Sortie recovery condition** — the Strategy Guide states that landing
+      on an allied base and coming to a complete stop with wheel brakes on and
+      engines off rearms and refuels the aircraft, so the sortie does not end
+      there; shutting down at an enemy base ends the mission automatically.
+      Ending without landing costs 10 % score, ejecting 10 %, killed 20 %.
+      Quick Combat ends on its mission clock or end-of-mission menu. This
+      explains the observed "landed but the mission did not finish" case.
+- [ ] **Campaign debrief trigger** — confirm from a runtime capture whether the
+      debrief opens on shutdown at the home base only or at any allied base.
+      The flight loop must then model "recovered at home", "rearmed at an
+      allied base", "diverted" and "lost" separately.
 
 - [ ] Victory/defeat target-count branch (the class sets are not decoded yet).
 - [ ] Attrition and production between turns. **Blocked on an oracle**: the
