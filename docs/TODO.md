@@ -98,8 +98,14 @@ table unlocks:
       1 versus 6 + 0; AIR_DEFENSE counts are NATO 64/73 and Russian 174/156.
       The capture flies all five Russian AF_KILL packages on SU35 and leaves
       Orland's SU25s untouched, while ours falls through to SU25 after a few
-      packages. Next: decode the per-base package quota and the airframe
-      reservation order (likely CAP/escort reserve SU35 before strike).
+      packages. REA located the original quota: `0xca100` dispatches to
+      `0xccdcc` / `0xce930`, and `0xccdcc` computes the package count as
+      `available / divisor`, where the divisor is 2, 1, 4 or 6 selected by the
+      mode at `base+0x4e`; the result is divided again by 8 or 4 and clamped
+      to 0..4 (or 0..8), with a special case forcing 2 packages when the class
+      byte is zero and the count exceeds 3. Next: decode `FUN_000cc8bc`
+      (available count) and the mode, then replace our per-base plan with this
+      formula.
 
 ## 4. GUI
 
