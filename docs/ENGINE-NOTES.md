@@ -474,9 +474,15 @@ Observed shell flow:
   Mission Overview separately names a **Diversion Field**, the nearest other
   friendly airfield. A player report confirms that landing at another airfield
   did not complete the sortie: the recovery point is part of the mission, and
-  the diversion field is only an alternate. The exact success/debrief rules are
-  not implemented yet; this is recorded so the flight loop does not treat any
-  friendly runway as a completed sortie.
+  the diversion field is only an alternate. The reconstructed image names the
+  flight phases `WAITING_TO_LAND`, `LANDING`, `TAXIING`, `TAXI_BACK`,
+  `TAXI_FORWARD`, `TAXI_FROM_APRON` and `TAXI_TO_APRON`, alongside the
+  messages `RETURN TO BASE`, `RECOVERY INITIATED` and `MISSION ACCOMPLISHED`.
+  That makes a taxi/recovery step plausible rather than an instant touchdown
+  trigger, but it does not prove it; no engine-off completion string exists.
+  The exact success condition (touchdown, apron, engines off, or the explicit
+  `END MISSION` key) is unverified and must be captured at runtime. The flight
+  loop must at least not treat any friendly runway as a completed sortie.
 - The briefing **time** comes from the sortie's own timetable: the earliest
   `TAKE_OFF` `TIMESLOT` for its mission id, falling back to the campaign clock
   when the mission has no slot (intercepts are launched on demand). The

@@ -88,9 +88,13 @@ table unlocks:
 - [ ] **Sortie completion at the designated recovery base** — a mission's
       `LANDING` waypoint is its take-off base; the briefing's *Diversion Field*
       is a different airfield. A player report confirms landing at another
-      friendly airfield does not finish the sortie. The flight/debrief loop must
-      model "recovered at base", "diverted" and "lost" separately. Needs a
-      runtime capture to pin the exact debrief text and campaign effect.
+      friendly airfield does not finish the sortie. The image also names
+      `LANDING`, `TAXIING`, `TAXI_TO_APRON`/`TAXI_FROM_APRON`, `RECOVERY
+      INITIATED` and `MISSION ACCOMPLISHED`, so completion may require taxi or
+      recovery rather than mere touchdown; engines-off is not evidenced.
+      Verify with a runtime capture matrix: stop on the runway, taxi to the
+      apron, shut down, and the explicit `END MISSION` key. The loop must model
+      "recovered at base", "diverted" and "lost" separately.
 
 - [ ] Victory/defeat target-count branch (the class sets are not decoded yet).
 - [ ] Attrition and production between turns. **Blocked on an oracle**: the
