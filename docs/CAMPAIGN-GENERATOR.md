@@ -269,10 +269,25 @@ ignored. Changing its element count (`31 31` to `15 15`, or `1 1`) instead:
 
 That means the low component is produced in a **later RNG-driven pass whose
 draw count depends on the element count**, after the thousands pass has
-finished (which is why the thousands digits remain aligned). The exact
-aggregation is still open; the next REA step is to trace the value at
-`area+0x32`/`base+0x23` through the passes that run between `0xcad30` and the
-final copy at `0xd8a64`, rather than reading more struct offsets.
+finished (which is why the thousands digits remain aligned).
+
+A second sweep pins the dependence down:
+
+| Vaernes element count | Thousands | Low component | Damage |
+|---:|---:|---:|---:|
+| 1 | 3 | 000 | 0 |
+| 15 | 3 | 000 | 0 |
+| 23 | 3 | 995 | 5 |
+| 31 | 3 | 987 | 13 |
+
+The thousands digit never moves. Damage grows with the **trailing** labels of
+the model: the first fifteen contribute nothing, 16..23 contribute five,
+24..31 contribute eight. That is what a count of individually damaged labels
+looks like, not a formula over the area's value. The exact health roll and
+which label kinds can be damaged are the remaining question; the next REA
+step is to trace the value at `area+0x32`/`base+0x23` through the passes
+between `0xcad30` and `0xd8a64`, and to compare the label order the parser
+stores with the `.ssd` table (`--ssd-labels`).
 
 The same value feeds the corresponding `BASE` record, so the base and its
 target area stay in sync.

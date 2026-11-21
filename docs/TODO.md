@@ -39,8 +39,12 @@ table unlocks:
       clock A/B shows the low component comes from a later RNG pass: changing
       an area's element count changes its own and its neighbours' low digits
       while all thousands stay, and changing its input value changes nothing.
-      Next: trace `area+0x32`/`base+0x23` through the passes between `0xcad30`
-      and `0xd8a64` (start with `0xd8ac0` and the callers after `0xbf0a1`).
+      Measured count dependence for Vaernes: 15 labels -> damage 0, 23 -> 5,
+      31 -> 13, with the thousands digit fixed at 3 throughout. Damage grows
+      with the trailing labels only, so it behaves like a count of damaged
+      labels rather than a formula over the value. Next: trace
+      `area+0x32`/`base+0x23` between `0xcad30` and `0xd8a64`, and compare the
+      parser's label order with `--ssd-labels`.
 
 ## 2. Strike routes
 
