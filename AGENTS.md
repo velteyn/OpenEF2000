@@ -97,6 +97,25 @@ able to read the specification and write an equivalent implementation. If the
 description only makes sense with a disassembly open next to it, it is not a
 specification yet.
 
+### Document before implementing
+
+A discovery does not exist until it is written down in this repository. Write
+it into the appropriate document — `docs/FILE_FORMATS.md` for a format,
+`docs/CAMPAIGN-GENERATOR.md` for generator behaviour, `docs/ENGINE-NOTES.md`
+for engine or shell behaviour, `docs/TODO.md` for what remains open — with the
+evidence, the method and a confidence level.
+
+Do this **before** writing the implementation, or in the same change, never
+only after it. A long agent session can be interrupted or lose its connection;
+code without the note leaves the next session guessing, while a note with an
+open implementation can always be picked up again. The note and the code
+should agree; if they diverge, the note is the record and the code is fixed to
+match it.
+
+If a finding is not yet solid, record it as an open question with what is known
+and what would settle it. An honest *todo* is useful; an undocumented
+assumption is not.
+
 ## 5. Working in this repository
 
 ### Build and test
@@ -128,12 +147,17 @@ is ever force-added.
 - C++20, no compiler extensions, match the surrounding style.
 - Keep the format layer free of engine and SDL dependencies.
 - Prefer small commits with imperative, explanatory messages.
+- Document each solid discovery in `docs/` before or with its implementation,
+  so an interrupted session cannot lose it (see [Document before
+  implementing](#document-before-implementing)).
 - Sign off every commit (`git commit -s`), as required by `CONTRIBUTING.md`.
 
 ## 6. Pre-commit check
 
 Run this before every commit. It fails on the file classes that must never be
-published.
+published. Also check that any solid discovery in the change has a matching
+`docs/` note: a change that implements a finding without recording it is not
+ready to commit.
 
 ```bash
 ./scripts/check-public-tree.sh
