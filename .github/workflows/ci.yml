@@ -134,7 +134,9 @@ jobs:
 
       # Windows needs the MinGW and SDL2 DLLs next to the executable. Pull the
       # resolved imports from ldd, then top up the codecs SDL2_image loads at
-      # run time.
+      # run time. MSYS2 now ships SDL2 as sdl2-compat, a shim that loads
+      # SDL3.dll at run time; that dependency is invisible to ldd, so name it
+      # explicitly. The closure loop then picks up anything the new DLLs need.
       - name: Package
         run: |
           mkdir -p dist
@@ -142,7 +144,7 @@ jobs:
           for dll in $(ldd build/openef2000.exe | awk '/mingw64\/bin/ {print $3}'); do
             cp "$dll" dist/ 2>/dev/null || true
           done
-          for dll in SDL2.dll SDL2_ttf.dll SDL2_image.dll \
+          for dll in SDL3.dll SDL2.dll SDL2_ttf.dll SDL2_image.dll \
                      libpng16-16.dll libjpeg-8.dll libtiff-5.dll libwebp-7.dll \
                      libwebpdemux-2.dll libwebpmux-3.dll zlib1.dll \
                      libfreetype-6.dll libharfbuzz-0.dll libgraphite2.dll \
@@ -152,7 +154,25 @@ jobs:
                      libwinpthread-1.dll; do
             cp "/mingw64/bin/$dll" dist/ 2>/dev/null || true
           done
+          # Transitive closure, twice, so a dependency of a dependency lands.
+          for pass in 1 2; do
+            for dll in dist/*.dll; do
+              for dep in $(ldd "$dll" | awk '/mingw64\/bin/ {print $3}'); do
+                [ -f "dist/$(basename "$dep")" ] || cp "$dep" dist/ 2>/dev/null || true
+              done
+            done
+          done
           ls -l dist
+
+      # The runner's PATH contains /mingw64/bin, which would hide a missing
+      # DLL. Run the package with only the system directories on PATH: the
+      # executable's own directory is searched first, so this proves the zip
+      # is self-contained (the sdl2-compat/SDL3 case broke exactly here).
+      - name: Verify the package is self-contained
+        run: |
+          cd dist
+          PATH="/c/Windows/System32:/c/Windows" ./openef2000.exe --help > /dev/null
+          PATH="/c/Windows/System32:/c/Windows" ./openef2000.exe --gui-selftest
 
       - name: Upload
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

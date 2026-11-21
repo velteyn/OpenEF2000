@@ -307,8 +307,17 @@ cmake --build build
 
 The executable is `build/openef2000.exe`. If you copy it elsewhere, keep the
 MinGW-w64 runtime (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`,
-`libwinpthread-1.dll`) and the SDL2 DLLs next to it; the packaged artifact
+`libwinpthread-1.dll`) and the SDL DLLs next to it; the packaged artifact
 below already contains all of them.
+
+MSYS2 ships SDL2 as **sdl2-compat**, a compatibility shim that forwards to the
+current SDL3. It therefore needs `SDL3.dll` beside the executable as well, even
+though the engine is built against the SDL2 API; without it the process fails
+during DLL initialisation. Running from the MSYS2 shell hides this because
+`/mingw64/bin` is on `PATH`, so copying the `.exe` out without `SDL3.dll` gives
+a "missing SDL3 library" error. If you see exactly that, add `SDL3.dll` (from
+the MSYS2 `SDL3` package, or the x64 SDL3 runtime from libsdl.org) next to
+`openef2000.exe`.
 
 Run it from **PowerShell** or **cmd** with the game data directory. Windows
 paths work either way, but quoting is simplest with forward slashes:
@@ -382,7 +391,7 @@ Every push to `main` publishes two build artifacts:
 | Artifact | Contents |
 |---|---|
 | `openef2000-linux-x86_64` | the executable; uses the system SDL2 libraries |
-| `openef2000-windows-x86_64` | the `.exe` together with the MinGW-w64 and SDL2 DLLs it needs |
+| `openef2000-windows-x86_64` | the `.exe` with the MinGW-w64, SDL2 and SDL3 runtime DLLs it needs |
 
 Download them from the **Actions** tab (open a run, then *Artifacts*), or with
 the GitHub CLI:
