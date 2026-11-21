@@ -85,6 +85,13 @@ table unlocks:
 
 ## 5. Campaign manager
 
+- [ ] **Sortie completion at the designated recovery base** — a mission's
+      `LANDING` waypoint is its take-off base; the briefing's *Diversion Field*
+      is a different airfield. A player report confirms landing at another
+      friendly airfield does not finish the sortie. The flight/debrief loop must
+      model "recovered at base", "diverted" and "lost" separately. Needs a
+      runtime capture to pin the exact debrief text and campaign effect.
+
 - [ ] Victory/defeat target-count branch (the class sets are not decoded yet).
 - [ ] Attrition and production between turns. **Blocked on an oracle**: the
       original author describes a heuristic, state-driven system; our captures

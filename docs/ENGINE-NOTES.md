@@ -469,6 +469,14 @@ Observed shell flow:
   a non-strike flight), flying base, nearest other friendly airfield as the
   diversion, role, aircraft count and the strike / wild-weasel / escort flight
   counts.
+- **Sortie recovery.** A mission route ends with a `LANDING` waypoint at its
+  take-off base, and every generated/captured route repeats that base. The
+  Mission Overview separately names a **Diversion Field**, the nearest other
+  friendly airfield. A player report confirms that landing at another airfield
+  did not complete the sortie: the recovery point is part of the mission, and
+  the diversion field is only an alternate. The exact success/debrief rules are
+  not implemented yet; this is recorded so the flight loop does not treat any
+  friendly runway as a completed sortie.
 - The briefing **time** comes from the sortie's own timetable: the earliest
   `TAKE_OFF` `TIMESLOT` for its mission id, falling back to the campaign clock
   when the mission has no slot (intercepts are launched on demand). The
