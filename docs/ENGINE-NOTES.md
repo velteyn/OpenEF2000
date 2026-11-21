@@ -512,6 +512,31 @@ Observed shell flow:
   generator against the data directory, rewrites `CAMPAIGN.CG` and
   `MISSION.CFG`, reloads the mission data and opens the campaign screen;
 - Quick Combat: `R`/`P`/`T` difficulty, `F1`..`F12` mission, `Return` accept.
+- Quick Combat's twelve levels and their **Summary** briefing are data, not
+  code: `cfg\arcroo.txt`, `cfg\arcpro.txt` and `cfg\arctop.txt` each hold a
+  count followed by one `label$briefing.brf$mission.cfg` line per level. The
+  briefing is another archive entry (`cfg\arctop01.brf` for level 1) and the
+  Summary panel shows it wrapped at 36 columns. Difficulty only changes which
+  table is loaded; the briefing files are shared. The panel opens with Pro and
+  level 01 selected, as the original does.
+- **Icon blocks are templates.** A new `icon` inherits the previous icon in
+  the same window: geometry, `box`/`bkd` (and `boxs`/`bkds`), `line`, text
+  colour, text width, `esg`, text position, `toggle` and the imported verbs.
+  Keys, `skey` and label text do not carry over. Redeclaring `select`/
+  `unselect` for an event replaces the inherited pair, and a `call <event>`
+  block replaces the inherited verbs for that event. This is why the arcade
+  grid's icons 02..12 declare only `xpos`, `text` and `skey`: they reuse 01's
+  bevel, selection group and `gpwSelectLevel` routine, and why `simulsel` does
+  not inherit the previous button's screen.
+- A screen's `startup` routine runs **every time the screen is entered**, not
+  only once. That is what raises the hi-score panel and applies the Quick
+  Combat defaults; without it the panel stayed closed and the briefing blank.
+- The `menu` title bar is the only window with `bkd 15`; the original leaves
+  the backdrop visible there (a frame and text over the artwork), so 15 means
+  transparent for a window rather than the white palette entry.
+- `HISCORES.DAT` is re-read and the rows are only redrawn when a value
+  changes, because the panel is raised by the startup routine after the first
+  fill pass.
 
 Simulator flow, from the later screen set:
 

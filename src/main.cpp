@@ -27,6 +27,8 @@
 #include <fstream>
 #include <array>
 #include <memory>
+#include <algorithm>
+#include <cctype>
 #include <optional>
 #include <string>
 #include <vector>
@@ -84,6 +86,11 @@ void usage() {
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
+        "  --gui-raw SCREEN    print the decoded .gui text of a screen\n"
+        "  --did-find TEXT     search every decoded archive entry for TEXT\n"
+        "  --did-entry N       print decoded archive entry N\n"
+        "  --did-text          list entries that hold plain text\n"
+        "  --did-name PATH     print an archive entry by canonical path\n"
         "  --gui-scale N       whole-pixel window scale (default: fit the desktop)\n"
         "  --gui-window NAME   open this window before rendering\n");
 }
@@ -504,6 +511,30 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         // The shell still works without mission data; the map stays blank.
     }
 
+    // Resources such as `cfg\arcroo.txt` and the `.brf` briefings live in
+    // the base archive even when DID1ST.DAT supplies the screens.
+    std::optional<ef::DidArchive> companion;
+    const std::filesystem::path companion_path = data_dir / "DID.DAT";
+    if (companion_path != did.path() && std::filesystem::exists(companion_path)) {
+        try {
+            companion.emplace(companion_path);
+        } catch (const std::exception&) {
+            // The screens still work without the companion archive.
+        }
+    }
+    const auto load_resource = [&did, &companion](const std::string& name)
+        -> std::optional<std::string> {
+        const ef::DidArchive* archives[2] = {&did, companion ? &*companion : nullptr};
+        for (const ef::DidArchive* a : archives) {
+            if (a == nullptr) continue;
+            if (auto entry = a->lookup(name)) {
+                if (auto bytes = a->read(*entry)) {
+                    return std::string(bytes->begin(), bytes->end());
+                }
+            }
+        }
+        return std::nullopt;
+    };
     ef::register_observed_routines(
         system, dataset ? &*dataset : nullptr, data_dir,
         [&dataset, &data_dir] {
@@ -512,7 +543,8 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
             } catch (const std::exception&) {
                 // Keep the previous data if the reload fails.
             }
-        });
+        },
+        load_resource);
     system.run_startup();
 
     std::optional<ef::IlbmImage> backdrop =
@@ -916,13 +948,19 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         }
 
         ef::fill_credits(system, did);
-        ef::fill_hiscores(system, data_dir);
+        // The hi-score panel is raised by the arcade screen's startup, after
+        // the first fill; redraw when the rows actually change.
+        if (ef::fill_hiscores(system, data_dir) > 0) dirty = true;
         if (system.quit_requested()) running = false;
 
         for (const auto& next : system.take_screen_requests()) {
             auto loaded = loader.load(next, &error);
             if (!loaded) continue;
             system.set_screen(std::move(*loaded));
+            // Each screen declares a startup routine and the original runs it
+            // on entry; skipping it left Quick Combat without its hi-score
+            // panel, defaults or briefing.
+            system.run_startup();
             backdrop = ef::load_backdrop(did, system.screen().picture);
             // The hover pair belongs to the old screen's windows.
             hover_window.clear();
@@ -1625,6 +1663,11 @@ int main(int argc, char** argv) {
     std::string dump_palette;
     std::string gui_render;
     std::string gui_lang = "en";
+    std::string gui_raw;
+    std::string did_find;
+    int did_entry = -1;
+    bool did_text = false;
+    std::string did_name;
     int gui_scale = 0;
     bool gui_list = false;
     bool gui_routines = false;
@@ -1688,6 +1731,16 @@ int main(int argc, char** argv) {
             gui_scale = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--gui-lang") == 0 && i + 1 < argc) {
             gui_lang = argv[++i];
+        } else if (std::strcmp(argv[i], "--gui-raw") == 0 && i + 1 < argc) {
+            gui_raw = argv[++i];
+        } else if (std::strcmp(argv[i], "--did-find") == 0 && i + 1 < argc) {
+            did_find = argv[++i];
+        } else if (std::strcmp(argv[i], "--did-entry") == 0 && i + 1 < argc) {
+            did_entry = std::atoi(argv[++i]);
+        } else if (std::strcmp(argv[i], "--did-text") == 0) {
+            did_text = true;
+        } else if (std::strcmp(argv[i], "--did-name") == 0 && i + 1 < argc) {
+            did_name = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-window") == 0 && i + 1 < argc) {
             gui_window = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-list") == 0) {
@@ -1789,7 +1842,9 @@ int main(int argc, char** argv) {
         stats || list || !export_path.empty() || interactive || models ||
         !mesh_name.empty() || !export_mesh.empty() || !mesh_preview.empty() ||
         !render_path.empty() || gui_list || !gui_screen.empty() ||
-        !gui_render.empty() || !dump_palette.empty() || gui_routines ||
+        !gui_render.empty() || !dump_palette.empty() || !gui_raw.empty() ||
+        !did_find.empty() || did_entry >= 0 || did_text || !did_name.empty() ||
+        gui_routines ||
         gui_dump || gui_selftest || boot || !conflict_path.empty() ||
         !conflict_out.empty() || !campaign_src.empty() || !campaign_state.empty() ||
         !campaign_out.empty() || !mission_in.empty() || !mission_out.empty() ||
@@ -2246,7 +2301,8 @@ int main(int argc, char** argv) {
         if (gui_screen.empty()) gui_screen = "mainmenu";
     }
 
-    if (gui_list || !gui_screen.empty() || !dump_palette.empty()) {
+    if (gui_list || !gui_screen.empty() || !dump_palette.empty() || !gui_raw.empty() ||
+        !did_find.empty() || did_entry >= 0 || did_text || !did_name.empty()) {
         namespace fs = std::filesystem;
         // EF2000 ships two archives. DID1ST.DAT holds the later, larger GUI
         // set (missplan, summary, custom, directp, intro) and the campaign
@@ -2262,6 +2318,108 @@ int main(int argc, char** argv) {
             return 1;
         }
         ef::DidArchive did(archive_path);
+        if (!did_name.empty()) {
+            auto entry = did.lookup(did_name);
+            if (!entry) {
+                std::fprintf(stderr, "%s: not in %s\n", did_name.c_str(),
+                             archive_path.string().c_str());
+                return 1;
+            }
+            auto bytes = did.read(*entry);
+            if (!bytes) {
+                std::fprintf(stderr, "cannot decode entry %u\n", entry->index);
+                return 1;
+            }
+            std::printf("entry %u size %zu storage %s\n", entry->index, bytes->size(),
+                        did.storage(*entry).c_str());
+            for (unsigned char c : *bytes) {
+                std::putchar(c >= 32 && c < 127 ? c : (c == 13 || c == 10 ? '\n' : '.'));
+            }
+            std::printf("\n");
+            return 0;
+        }
+        if (did_text) {
+            for (const auto& e : did.entries()) {
+                auto bytes = did.read(e);
+                if (!bytes || bytes->size() < 16) continue;
+                std::size_t text = 0;
+                for (unsigned char c : *bytes) {
+                    if ((c >= 32 && c < 127) || c == 9 || c == 10 || c == 13) ++text;
+                }
+                if (text * 100 < bytes->size() * 95) continue;
+                std::string first;
+                for (unsigned char c : *bytes) {
+                    if (c == 13 || c == 10) break;
+                    first.push_back(static_cast<char>(c));
+                    if (first.size() >= 72) break;
+                }
+                std::printf("%5u %6zu %s\n", e.index, bytes->size(), first.c_str());
+            }
+            return 0;
+        }
+        if (did_entry >= 0) {
+            if (did_entry >= static_cast<int>(did.entries().size())) {
+                std::fprintf(stderr, "entry %d out of range (%zu entries)\n", did_entry,
+                             did.entries().size());
+                return 1;
+            }
+            const auto& e = did.entries()[static_cast<std::size_t>(did_entry)];
+            auto bytes = did.read(e);
+            if (!bytes) {
+                std::fprintf(stderr, "cannot decode entry %d\n", did_entry);
+                return 1;
+            }
+            std::printf("entry %d size %zu storage %s\n", did_entry, bytes->size(),
+                        did.storage(e).c_str());
+            for (std::size_t i = 0; i < bytes->size(); ++i) {
+                const unsigned char c = (*bytes)[i];
+                std::putchar(c >= 32 && c < 127 ? c : (c == 13 || c == 10 ? '\n' : '.'));
+            }
+            std::printf("\n");
+            return 0;
+        }
+        if (!did_find.empty()) {
+            std::string needle = did_find;
+            for (char& c : needle) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            int hits = 0;
+            for (const auto& e : did.entries()) {
+                auto bytes = did.read(e);
+                if (!bytes) continue;
+                std::string hay(bytes->begin(), bytes->end());
+                for (char& c : hay) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                for (std::size_t at = hay.find(needle); at != std::string::npos;
+                     at = hay.find(needle, at + 1)) {
+                    std::printf("entry %u offset %zu size %zu\n", e.index, at, bytes->size());
+                    const std::size_t from = at > 48 ? at - 48 : 0;
+                    const std::size_t to = std::min(bytes->size(), at + needle.size() + 96);
+                    for (std::size_t i = from; i < to; ++i) {
+                        const unsigned char c = (*bytes)[i];
+                        std::putchar(c >= 32 && c < 127 ? c : '.');
+                    }
+                    std::printf("\n\n");
+                    ++hits;
+                    if (hits >= 8) break;
+                }
+                if (hits >= 8) break;
+            }
+            if (hits == 0) std::fprintf(stderr, "no entry contains %s\n", did_find.c_str());
+            return hits == 0 ? 1 : 0;
+        }
+        if (!gui_raw.empty()) {
+            auto entry = did.resolve(gui_raw, "gui\\", ".gui");
+            if (!entry) {
+                std::fprintf(stderr, "no gui\\%s.gui in %s\n", gui_raw.c_str(),
+                             archive_path.string().c_str());
+                return 1;
+            }
+            auto bytes = did.read(*entry);
+            if (!bytes) {
+                std::fprintf(stderr, "cannot decode entry %u\n", entry->index);
+                return 1;
+            }
+            std::fwrite(bytes->data(), 1, bytes->size(), stdout);
+            return 0;
+        }
         if (gui_list) {
             static const char* kScreens[] = {
                 "mainmenu", "campaign", "camp", "missplan", "summary", "weapons",

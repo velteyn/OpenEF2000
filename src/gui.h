@@ -225,6 +225,10 @@ public:
                           std::function<void(GuiSystem&, const std::string& window,
                                             const std::string& icon)> handler);
 
+    //! Replaces a window's text-resource lines (the `summary` panel's
+    //! briefing, the credits panel). Empty lines are kept as spacing.
+    void set_window_lines(const std::string& window, std::vector<std::string> lines);
+
     //! Set by the Quick Combat Accept routine. The reconstruction has no
     //! mission loader yet, so this records the decision instead.
     void set_arcade_accepted(bool on) { arcade_accepted_ = on; }
@@ -533,7 +537,9 @@ private:
 struct Dataset;
 void register_observed_routines(GuiSystem& system, const Dataset* dataset = nullptr,
                                 const std::filesystem::path& data_dir = {},
-                                std::function<void()> refresh_data = {});
+                                std::function<void()> refresh_data = {},
+                                std::function<std::optional<std::string>(
+                                    const std::string&)> load_resource = {});
 
 //! Fills the `hiscores` window from the loose `HISCORES.DAT` file: a 4-byte
 //! header then ten 25-byte records of name[16], three pad bytes, level u8 and

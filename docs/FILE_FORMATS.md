@@ -654,6 +654,47 @@ to labels is inferred from that ordering rather than stated anywhere.
 Record names across the shipped installs are developer and play-tester names,
 which confirms this is a developer-populated default table.
 
+## F10 — Quick Combat and Simulator tables (`cfg\*.txt`, `.brf`)
+
+**Purpose.** Loose text resources (also present as archive entries under
+`cfg\`) that list the Quick Combat levels and the Simulator mission types.
+The game normally extracts them; a shipped `CFG` directory may be empty.
+
+**Layout.** A leading count line, blank lines, then one record per line:
+
+```
+12
+
+ARCADE1$ARCTOP01.BRF$ARCROO01.CFG
+
+ARCADE2$ARCTOP02.BRF$ARCROO02.CFG
+```
+
+Fields are `$`-separated:
+
+| Field | Meaning |
+|---:|---|
+| 0 | label shown in the browser (`ARCADE1`) |
+| 1 | briefing file, e.g. `ARCTOP01.BRF` |
+| 2 | mission config, e.g. `ARCROO01.CFG` |
+| 3 | optional extra selector (present in `free.txt`, e.g. `$2`) |
+
+Tables: `arcroo.txt` (Rookie), `arcpro.txt` (Pro), `arctop.txt` (Topgun). Only
+the mission config differs by difficulty; the briefing is the same
+`ARCTOPnn.BRF` in all three. The Simulator uses the same shape in `free.txt`,
+`basic.txt`, `weapon.txt`, `air2air.txt`, `air2grnd.txt`, `advanced.txt`,
+`king.txt`, `testa2g.txt` and `test.txt`, keyed by map name (Helsinki,
+Murmansk, …).
+
+**Briefing files (`.brf`).** Plain text, one phrase per line, usually
+double-spaced with CR/LF; the Summary panel prints the non-empty lines. The
+campaign briefing is the loose `CAMPBRF.BRF`.
+
+**Verification.** Level 1's `cfg\arctop01.brf` is the 80-byte entry whose text
+is "Emergency intercept. / Destroy incoming hostile bombers / and escort
+aircraft.", exactly the Summary shown by the shipped Quick Combat screen; the
+other eleven lines resolve to entries with matching text.
+
 ## Unverified and open questions
 
 | Item | Status |

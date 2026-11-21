@@ -17,6 +17,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
+#include <set>
 
 namespace ef {
 namespace {
@@ -109,6 +110,10 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
     std::optional<std::size_t> wi;      // current window index
     std::optional<std::size_t> ii;      // current icon index within that window
     std::string event = "click";        // verbs before any `call` attach to click
+    // Events whose state/routine verbs this icon declares itself. Only the
+    // first declaration of an event drops the inherited block; `select reset`
+    // followed by `unselect reset` is a pair, not a replacement.
+    std::set<std::string> declared_state, declared_actions;
 
     auto current_window = [&]() -> GuiWindow* {
         return wi && *wi < screen.windows.size() ? &screen.windows[*wi] : nullptr;
@@ -166,6 +171,8 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
                 wi.reset();
             }
             ii.reset();
+            declared_state.clear();
+            declared_actions.clear();
             continue;
         }
         if (head == "icon" && words.size() > 1) {
@@ -176,15 +183,34 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
                 // icon; that is how the debrief label/value rows and the
                 // LEAD..FOUR row are formed.
                 if (!w->icons.empty()) {
+                    // A new icon starts from the previous one's template. The
+                    // shipped files rely on this for more than layout: the
+                    // arcade grid's 02..12 declare only `xpos`, `text` and
+                    // `skey` and inherit 01's box, selection group and verbs.
+                    // Keys and label text stay per icon.
                     const GuiWidget& prev = w->icons.back();
                     icon.x = prev.x;
                     icon.y = prev.y;
                     icon.w = prev.w;
                     icon.h = prev.h;
+                    icon.box = prev.box;
+                    icon.bkd = prev.bkd;
+                    icon.boxs = prev.boxs;
+                    icon.bkds = prev.bkds;
+                    icon.line = prev.line;
+                    icon.txtclr = prev.txtclr;
+                    icon.txtclrs = prev.txtclrs;
+                    icon.textlen = prev.textlen;
+                    icon.esg = prev.esg;
+                    icon.textpos = prev.textpos;
+                    icon.toggle = prev.toggle;
+                    icon.actions = prev.actions;
                 }
                 w->icons.push_back(std::move(icon));
                 ii = w->icons.size() - 1;
                 event = "click";
+                declared_state.clear();
+                declared_actions.clear();
             }
             continue;
         }
@@ -275,12 +301,36 @@ GuiScreen GuiLoader::parse(const std::string& name, const std::string& text) {
 
         // ---- events and verbs ----------------------------------------------
         if ((head == "select" || head == "unselect") && icon != nullptr && words.size() > 1) {
-            // `select entering` reads "select on entering".
-            icon->actions.push_back(GuiAction{lower(words[1]), head, ""});
+            // `select entering` reads "select on entering". Redeclaring the
+            // state verbs for an event replaces the inherited pair.
+            const std::string ev = lower(words[1]);
+            auto& acts = icon->actions;
+            if (declared_state.insert(ev).second) {
+                for (auto it = acts.begin(); it != acts.end();) {
+                    if (it->event == ev &&
+                        (it->verb == "select" || it->verb == "unselect"))
+                        it = acts.erase(it);
+                    else
+                        ++it;
+                }
+            }
+            acts.push_back(GuiAction{ev, head, ""});
             continue;
         }
         if (head == "call" && words.size() > 1) {
+            // A `call` block replaces the inherited verbs for that event, so
+            // `simulsel` does not also inherit the previous button's screen.
             event = lower(words[1]);
+            if (icon != nullptr && declared_actions.insert(event).second) {
+                auto& acts = icon->actions;
+                for (auto it = acts.begin(); it != acts.end();) {
+                    if (it->event == event && it->verb != "select" &&
+                        it->verb != "unselect")
+                        it = acts.erase(it);
+                    else
+                        ++it;
+                }
+            }
             continue;
         }
         if (is_action_verb(head)) {
@@ -1110,11 +1160,137 @@ void select_campaign_mission(GuiSystem& system, const Dataset& dataset, int inde
     fill_mission_debrief(system, dataset);
 }
 
+void GuiSystem::set_window_lines(const std::string& window,
+                                 std::vector<std::string> lines) {
+    auto* w = find_window(window);
+    if (w == nullptr) return;
+    w->lines = std::move(lines);
+}
+
 void register_observed_routines(GuiSystem& system, const Dataset* dataset,
                                 const std::filesystem::path& data_dir,
-                                std::function<void()> refresh_data) {
+                                std::function<void()> refresh_data,
+                                std::function<std::optional<std::string>(
+                                    const std::string&)> load_resource) {
     // Each entry below was established by running the shipped software and
     // observing the result, with the `.gui` data corroborating it.
+
+    // Quick Combat reads its level table from `cfg\arcroo.txt`,
+    // `arcpro.txt` or `arctop.txt`: a count, then one line per level of
+    // `name$briefing.brf$mission.cfg`. The briefing file is the Summary text.
+    // The archive is consulted first because the shipped CFG directory is
+    // normally empty (the game extracts these resources itself).
+    const auto read_resource = [load_resource, data_dir](const std::string& name)
+        -> std::optional<std::string> {
+        if (load_resource) {
+            if (auto text = load_resource(name)) return text;
+        }
+        if (data_dir.empty()) return std::nullopt;
+        std::string relative = name;
+        for (char& c : relative) {
+            if (c == '\\') c = '/';
+        }
+        std::ifstream in(data_dir / relative, std::ios::binary);
+        if (!in) return std::nullopt;
+        std::string text((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+        return text;
+    };
+    struct ArcadeLevel {
+        std::string name;
+        std::string briefing;
+        std::string config;
+    };
+    struct ArcadeState {
+        std::vector<ArcadeLevel> levels;
+        std::string difficulty = "pro";
+        std::string selected = "01";
+    };
+    auto arcade = std::make_shared<ArcadeState>();
+
+    const auto split_lines = [](const std::string& text) {
+        std::vector<std::string> out;
+        std::string line;
+        for (char c : text) {
+            if (c == '\r') continue;
+            if (c == '\n') {
+                out.push_back(line);
+                line.clear();
+            } else {
+                line.push_back(c);
+            }
+        }
+        if (!line.empty()) out.push_back(line);
+        return out;
+    };
+    const auto trim = [](std::string s) {
+        const auto first = s.find_first_not_of(" \t");
+        if (first == std::string::npos) return std::string{};
+        const auto last = s.find_last_not_of(" \t");
+        return s.substr(first, last - first + 1);
+    };
+
+    const auto load_arcade_table = [arcade, read_resource, split_lines, trim](
+                                       const std::string& difficulty) {
+        const char* table = difficulty == "rookie"   ? "arcroo"
+                            : difficulty == "topgun" ? "arctop"
+                                                     : "arcpro";
+        arcade->difficulty = difficulty;
+        arcade->levels.clear();
+        auto text = read_resource(std::string("cfg\\") + table + ".txt");
+        if (!text) return;
+        bool first = true;
+        for (const std::string& raw : split_lines(*text)) {
+            const std::string line = trim(raw);
+            if (line.empty()) continue;
+            if (first) {
+                first = false;
+                continue;  // the leading count
+            }
+            ArcadeLevel level;
+            std::size_t at = 0;
+            for (int field = 0; field < 3; ++field) {
+                const std::size_t next = line.find('$', at);
+                const std::string part = trim(line.substr(
+                    at, next == std::string::npos ? std::string::npos : next - at));
+                if (field == 0) level.name = part;
+                else if (field == 1) level.briefing = part;
+                else level.config = part;
+                if (next == std::string::npos) break;
+                at = next + 1;
+            }
+            if (!level.name.empty()) arcade->levels.push_back(std::move(level));
+        }
+    };
+
+    const auto show_arcade_summary = [arcade, read_resource, split_lines, trim](
+                                         GuiSystem& gui) {
+        int index = -1;
+        if (arcade->selected.size() == 2 && std::isdigit(static_cast<unsigned char>(
+                                                arcade->selected[0])) &&
+            std::isdigit(static_cast<unsigned char>(arcade->selected[1]))) {
+            index = (arcade->selected[0] - '0') * 10 + (arcade->selected[1] - '0') - 1;
+        }
+        if (index < 0 || index >= static_cast<int>(arcade->levels.size())) return;
+        const auto& level = arcade->levels[static_cast<std::size_t>(index)];
+        auto text = read_resource("cfg\\" + level.briefing);
+        if (!text) return;
+        std::vector<std::string> lines;
+        for (const std::string& raw : split_lines(*text)) {
+            std::string line = trim(raw);
+            if (line.empty()) continue;
+            // The Summary panel is 215 px wide; wrap long briefings so the
+            // text stays inside the frame.
+            while (line.size() > 36) {
+                std::size_t cut = line.rfind(' ', 36);
+                if (cut == std::string::npos) cut = 36;
+                lines.push_back(line.substr(0, cut));
+                line = trim(line.substr(cut));
+            }
+            if (!line.empty()) lines.push_back(line);
+        }
+        gui.set_window_lines("summary", std::move(lines));
+    };
 
     // Quit raises the `sure` dialog ("Quit EF2000 ?" with Yes/No).
     system.register_routine("QuitEF2000", [](GuiSystem& gui, const std::string&,
@@ -1146,31 +1322,45 @@ void register_observed_routines(GuiSystem& system, const Dataset* dataset,
 
     // Quick Combat: the included hi-score panel is not marked `open`, so the
     // screen's startup routine raises it.
-    system.register_routine("InitArcade", [](GuiSystem& gui, const std::string&,
-                                              const std::string&) {
+    system.register_routine("InitArcade",
+                            [load_arcade_table, show_arcade_summary, arcade](
+                                GuiSystem& gui, const std::string&,
+                                const std::string&) {
         gui.open_window("hiscores");
+        // The shipped screen opens with Pro and level 01 selected.
+        gui.select("difficulty", "pro", true);
+        load_arcade_table("pro");
+        arcade->selected = "01";
+        gui.select("miss_sel", "01", true);
+        show_arcade_summary(gui);
     });
 
     // Quick Combat: Rookie/Pro/Topgun share `esg 1`, so selecting one clears
     // the others and the indicator follows the selection.
     system.register_routine("gpwChangeDifficulty",
-                            [](GuiSystem& gui, const std::string& window,
-                               const std::string& icon) {
+                            [load_arcade_table, show_arcade_summary](
+                                GuiSystem& gui, const std::string& window,
+                                const std::string& icon) {
         if (window != "difficulty") return;
         if (icon != "rookie" && icon != "pro" && icon != "topgun") return;
         gui.select(window, icon, true);
+        load_arcade_table(icon);
+        show_arcade_summary(gui);
     });
 
     // Quick Combat: mission grid 01..12 shares `esg 2`. Selecting a cell moves
     // the highlight; the Summary text is mission data and is not wired yet.
     system.register_routine("gpwSelectLevel",
-                            [](GuiSystem& gui, const std::string& window,
-                               const std::string& icon) {
+                            [show_arcade_summary, arcade](
+                                GuiSystem& gui, const std::string& window,
+                                const std::string& icon) {
         if (window != "miss_sel") return;
         if (icon.size() != 2) return;
         if (icon[0] < '0' || icon[0] > '9') return;
         if (icon[1] < '0' || icon[1] > '9') return;
         gui.select(window, icon, true);
+        arcade->selected = icon;
+        show_arcade_summary(gui);
     });
 
     // Quick Combat: Accept starts the chosen mission. The reconstruction has
@@ -2174,7 +2364,14 @@ int fill_hiscores(GuiSystem& system, const std::filesystem::path& data_dir) {
 
     // Level indices follow the Difficulty panel's order: Rookie, Pro, Topgun.
     static const char* kLevels[] = {"Rookie", "Pro", "Topgun"};
-    int filled = 0;
+    int changed = 0;
+    const auto set_text = [&](GuiWidget* widget, const std::string& value) {
+        if (widget == nullptr) return;
+        if (widget->text["en"] == value && widget->value == value) return;
+        widget->text["en"] = value;
+        widget->value = value;
+        ++changed;
+    };
     for (int row = 1; row <= 10; ++row) {
         const std::size_t off = 4 + static_cast<std::size_t>(row - 1) * 25;
         std::string name(reinterpret_cast<const char*>(bytes.data() + off), 16);
@@ -2187,21 +2384,13 @@ int fill_hiscores(GuiSystem& system, const std::filesystem::path& data_dir) {
                                     (static_cast<std::uint32_t>(bytes[off + 24]) << 24);
 
         const std::string suffix = std::to_string(row);
-        if (auto* w = system.find_widget("hiscores", "name" + suffix); w != nullptr) {
-            w->text["en"] = name;
-            w->value = name;
-        }
-        if (auto* w = system.find_widget("hiscores", "level" + suffix); w != nullptr) {
-            w->text["en"] = level >= 1 && level <= 3 ? kLevels[level - 1] : "";
-            w->value = w->text["en"];
-        }
-        if (auto* w = system.find_widget("hiscores", "score" + suffix); w != nullptr) {
-            w->text["en"] = std::to_string(score);
-            w->value = w->text["en"];
-        }
-        ++filled;
+        set_text(system.find_widget("hiscores", "name" + suffix), name);
+        set_text(system.find_widget("hiscores", "level" + suffix),
+                 level >= 1 && level <= 3 ? kLevels[level - 1] : "");
+        set_text(system.find_widget("hiscores", "score" + suffix),
+                 std::to_string(score));
     }
-    return filled;
+    return changed;
 }
 
 void fill_credits(GuiSystem& system, const DidArchive& archive) {

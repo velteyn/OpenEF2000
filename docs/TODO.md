@@ -85,6 +85,19 @@ table unlocks:
 - [x] **Briefing time** — taken from the sortie's earliest `TAKE_OFF`
       `TIMESLOT`, with the campaign clock as the fallback for on-demand
       intercepts.
+- [x] **Quick Combat Summary** — the level table (`cfg\arcroo/arcpro/arctop.txt`)
+      names a `.brf` briefing per level; the panel now shows it, wraps it, and
+      follows both the level and the difficulty selection. Pro and level 01
+      open selected, as shipped.
+- [x] **Difficulty and mission selection** — icon templates now inherit the
+      bevel, `esg` group and verbs from the previous icon, so Rookie/Pro/Topgun
+      and levels 02..12 are drawn and clickable like 01.
+- [x] **Hi-score panel** — raised by the arcade startup routine (now run on
+      every screen entry) and read from `HISCORES.DAT`.
+- [ ] **Simulator mission list** — `simul`'s Missions window is empty. The
+      type tables (`cfg\free.txt`, `basic.txt`, `weapon.txt`, `air2air.txt`,
+      `air2grnd.txt`, `advanced.txt`) name the maps and their `.brf`/`.cfg`
+      pairs, so the list can be filled the same way as Quick Combat.
 
 ## 5. Campaign manager
 

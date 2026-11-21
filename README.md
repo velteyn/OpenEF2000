@@ -174,6 +174,10 @@ recorded in [`docs/CAMPAIGN-GENERATOR.md`](docs/CAMPAIGN-GENERATOR.md).
   simulation exists. Recovery follows the manual: an allied landing only
   rearms once stopped with brakes on and engines off; shutdown at an enemy
   base ends the mission, and ending without landing costs score.
+- **Quick Combat:** the twelve levels and their Summary text come from the
+  shipped `cfg\arcroo.txt` / `arcpro.txt` / `arctop.txt` tables and the
+  `.brf` briefing they name. Difficulty and level are live radio groups, the
+  briefing follows both, and the hi-score panel is read from `HISCORES.DAT`.
 
 ## Architecture
 
@@ -392,6 +396,12 @@ Examples:
 # Read and rewrite a mission file, and run the generator checks
 ./build/openef2000 --mission-roundtrip "/path/to/game-data/MISSION.CFG"
 ./build/openef2000 --data "/path/to/game-data" --campaign-selftest
+
+# Inspect the shipped GUI data and locate archive resources
+./build/openef2000 --data "/path/to/game-data" --gui-raw arcade
+./build/openef2000 --data "/path/to/game-data" --did-text
+./build/openef2000 --data "/path/to/game-data" --did-name "cfg\arcpro.txt"
+./build/openef2000 --data "/path/to/game-data" --did-find "Emergency intercept"
 ```
 
 ### Tests

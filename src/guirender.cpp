@@ -483,10 +483,17 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
 
     for (GuiWindow* win : order) {
         const bool hovered = options.hover_window == win->name;
-        // Background: `bkd` if given, else the standard panel fill.
+        // Background: `bkd` if given, else the standard panel fill. The
+        // title bar window in `menu.gui` is the only one that uses `bkd 15`;
+        // the original leaves the backdrop visible there (the bar is drawn as
+        // a frame with the artwork showing through), so 15 means transparent
+        // for a window.
         const int fill_index = win->bkd > 0 ? win->bkd : 10;
-        fill_rect(surface, win->x + 2, win->y + 2, win->w - 4, win->h - 4,
-                  map_rgb(fmt, palette[static_cast<std::size_t>(fill_index) & 0xFF]));
+        if (win->bkd != 15) {
+            fill_rect(surface, win->x + 2, win->y + 2, win->w - 4, win->h - 4,
+                      map_rgb(fmt,
+                              palette[static_cast<std::size_t>(fill_index) & 0xFF]));
+        }
         frame(surface, win->x, win->y, win->w, win->h, palette, false);
 
         std::string title = win->title_text(options.language);
