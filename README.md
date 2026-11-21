@@ -331,6 +331,11 @@ Run with just `--data` to open the campaign shell; `--stats` prints the archive
 counts and exits, and `--interactive` opens the strategic map. If you start the
 `.exe` from Explorer without arguments, it looks for `game-data` beside it.
 
+Labels and menus use a font the host already has — Segoe UI or Arial on
+Windows, DejaVu or Liberation on Linux, Arial or Helvetica on macOS. No font is
+bundled. Set `OPENEF2000_FONT` to a `.ttf` path to use a specific one; without
+any usable font the screens still draw their geometry but no text.
+
 Windows is case-insensitive about the archive names, so the uppercase data
 files (`DID.DAT`, `CONFLICT.CG`, `MISSION.CFG`, …) load unchanged; no
 conversion step is involved.

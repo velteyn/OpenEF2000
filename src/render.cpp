@@ -3,6 +3,7 @@
 
 #include "render.h"
 
+#include "fonts.h"
 #include "stats.h"
 
 #include <set>
@@ -22,8 +23,6 @@
 namespace ef {
 namespace {
 
-constexpr const char* kFontPath =
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 constexpr double kPi = 3.14159265358979323846;
 
 struct Canvas {
@@ -596,7 +595,8 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     // original does. Relief modes stay unlabelled.
     if (opt.labels && political) {
         if (TTF_WasInit() == 0) TTF_Init();
-        TTF_Font* label_font = TTF_OpenFont(kFontPath, 10);
+        const char* label_path = ui_font_path();
+        TTF_Font* label_font = label_path ? TTF_OpenFont(label_path, 10) : nullptr;
         if (label_font != nullptr) {
             const auto unquote = [](std::string t) {
                 if (!t.empty() && t.front() == '"') t.erase(t.begin());
@@ -645,8 +645,9 @@ SDL_Surface* render_map(const Dataset& ds, const RenderOptions& opt) {
     }
 
     if (TTF_WasInit() == 0) TTF_Init();
-    TTF_Font* f_big = TTF_OpenFont(kFontPath, 22);
-    TTF_Font* f_small = TTF_OpenFont(kFontPath, 14);
+    const char* font_path = ui_font_path();
+    TTF_Font* f_big = font_path ? TTF_OpenFont(font_path, 22) : nullptr;
+    TTF_Font* f_small = font_path ? TTF_OpenFont(font_path, 14) : nullptr;
     SDL_Color white{235, 240, 248, 255};
     SDL_Color dim{150, 165, 185, 255};
     SDL_Color gold{255, 220, 90, 255};

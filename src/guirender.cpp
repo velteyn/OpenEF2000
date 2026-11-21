@@ -3,6 +3,7 @@
 
 #include "guirender.h"
 
+#include "fonts.h"
 #include "render.h"
 #include "stats.h"
 
@@ -21,7 +22,6 @@
 namespace ef {
 namespace {
 
-const char* kFontPath = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
 constexpr int kScreenW = 640;
 constexpr int kScreenH = 400;
 
@@ -455,7 +455,8 @@ void draw_gui(SDL_Surface* surface, GuiSystem& system, const Palette& palette,
 
     TTF_Font* font = nullptr;
     if (TTF_WasInit() == 0) TTF_Init();
-    font = TTF_OpenFont(kFontPath, 11);
+    const char* font_path = ui_font_path();
+    font = font_path ? TTF_OpenFont(font_path, 11) : nullptr;
 
     auto text = [&](int x, int y, const std::string& s, std::uint32_t rgb) {
         if (s.empty()) return;
