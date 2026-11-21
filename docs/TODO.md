@@ -46,11 +46,14 @@ table unlocks:
       with the outbound route's last point used as `INGRESS` and the egress
       route reversed. Format and examples are in `FILE_FORMATS.md` §F9 and
       `CAMPAIGN-GENERATOR.md` §5.3b.
-- [ ] **Corridor selection** — which navigation entry, corridor and route a
-      package receives is not decoded. Nearest-end selection matches only
-      2/29 captured outbound corridors, so the generator still synthesises the
-      corridor and snaps its points to the nearest navigation waypoint
-      (500/508 fixes exact, 98.4%).
+- [x] **Corridor entry** — the navigation entry is the target's map cell:
+      `(x/40) + 10*(9 - (y-1)/40)`. All 19 distinct captured pairs match.
+- [x] **Corridor mechanism** — the outbound and egress routes are two uniform
+      draws from that entry's route list, matching the capture's non-nearest,
+      non-shortest choices.
+- [ ] **Exact corridor parity** — the two draws fall at a different point in
+      our RNG stream, so the chosen corridor matches only by chance (5/15
+      outbound, 1/15 egress). Candidate set and geometry are exact.
 
 ## 3. Package composition
 

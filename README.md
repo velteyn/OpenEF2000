@@ -139,9 +139,12 @@ specification.
   capture's 13.31. The corridor
   coordinates come from the game's own `NAVIG.NAV` network — 571 of 598
   captured strike fixes (95.5%) are exactly navigation waypoints, and the
-  outbound route's last point is the captured `INGRESS` fix. Generated fixes
-  are snapped onto the same network (500/508, 98.4% exact, mean length 12.88
-  against 13.36); the exact corridor selection rule is still being decoded.
+  outbound route's last point is the captured `INGRESS` fix. The navigation
+  entry is the target's map cell (`(x/40) + 10*(9 - (y-1)/40)`, all 19 captured
+  pairs match), and the outbound/egress corridors are two uniform draws from
+  that entry. Generated strike routes are 400/400 exact navigation waypoints
+  with a mean length of 13.22 against 13.36; exact corridor identity still
+  depends on reproducing the original RNG stream.
 - **Timetable:** one row per flight inside the eight-hour turn, support and
   kill packages at the top, CAP in ~252-minute waves and convoys on a 45-minute
   cadence; 455 rows against the capture's 453, with the support, SEAD and

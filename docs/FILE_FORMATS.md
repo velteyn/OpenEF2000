@@ -510,7 +510,11 @@ WAYPOINT <index> <x> <y> <z> <a> <b> <action> <c> <d> <e>
 
 - `BASE_NAVIGATION` opens one entry. The position that follows is the
   airfield's map coordinate; the same position appears in many entries because
-  each entry carries a different corridor set.
+  each entry carries a different corridor set. The entry id is the **target map
+  cell** it serves:
+  `id = (x / 40) + 10 * (9 - (y - 1) / 40)`, using integer division. A target
+  at (121,154) is cell 63; at (103,159) cell 62; at (158,234) cell 43. This
+  holds for all 19 distinct (base, target) pairs in the reference capture.
 - `NAVIG_CORRIDOR` groups routes that leave the airfield in the same
   direction.
 - `NAVIG_ROUTE <count>` declares the number of waypoints that follow.

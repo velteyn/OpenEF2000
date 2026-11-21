@@ -334,15 +334,23 @@ Examples on the reference base (Rygge, 118/42):
 | 697 | Orland | entry 62, corridor 0, route 3 | entry 62, corridor 3, route 5 reversed |
 | 712 | Steinkjer Tn | entry 63, corridor 5, route 9 | entry 63, corridor 3, route 6 reversed |
 
-The **selection rule** (which entry, corridor and route a package receives) is
-still open. Choosing the route whose far end is nearest the target reproduces
-only 2 of 29 captured outbound corridors; the original evidently uses a
-different plan. The generator therefore keeps its length-controlled corridor
-and snaps each intermediate point to the nearest navigation waypoint (within
-10 map units), dropping a point if it would duplicate its neighbour. Measured
-over the generated strike flights: **500 of 508 intermediate fixes (98.4%) are
-exact navigation waypoints**, against 97.5% in the capture, and the mean route
-length is **12.88** against 13.36.
+The **entry selection is now decoded**: the entry id is the target's map cell,
+`id = (x / 40) + 10 * (9 - (y - 1) / 40)`. All 19 distinct captured
+(base, target) pairs land on the captured entry under this formula.
+
+Within that entry the package takes two **uniform random draws** from the
+entry's route list: one for the outbound corridor and one for the egress
+corridor. The capture's corridor choice is consistent with uniform draws (the
+chosen route is not the nearest, shortest or longest; over 28 packages the
+identity of the outbound corridor is effectively chance-level when the random
+stream differs). The generator uses the same two-draw mechanism.
+
+Measured over the generated strike flights: **400 of 400 intermediate fixes
+(100%) are exact navigation waypoints**, against 99.4% in the capture, and the
+mean route length is **13.22** against 13.36. Exact corridor identity still
+matches only the chance level (5/15 outbound, 1/15 egress) because the two
+draws sit at a different point in our RNG stream; the candidate set is now
+exact.
 
 ### 5.3b Route geometry
 

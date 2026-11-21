@@ -59,22 +59,71 @@ const char* element_name(int kind) {
     return kind >= 0 && kind < kCount ? kElementNames[kind] : "TARGET";
 }
 
-//! Navigation waypoints from NAVIG.NAV. The original's strike corridors are
-//! routes through this network, so generated fixes are snapped onto it.
-std::set<std::pair<int, int>> load_nav_points(const std::string& data_dir) {
-    std::set<std::pair<int, int>> out;
+//! One navigation corridor route and the catalog keyed by airfield position
+//! and target map cell (the BASE_NAVIGATION id).
+struct NavCatalog {
+    std::set<std::pair<int, int>> points;
+    std::map<std::pair<int, int>,
+             std::map<int, std::vector<std::vector<std::pair<int, int>>>>>
+        routes;
+};
+
+std::pair<int, int> nav_cell(int x, int y) {
+    const int column = x / 40;
+    const int row = 9 - (y - 1) / 40;
+    return {column, row};
+}
+
+NavCatalog load_nav_catalog(const std::string& data_dir) {
+    NavCatalog out;
     if (data_dir.empty()) return out;
     std::ifstream in(std::filesystem::path(data_dir) / "NAVIG.NAV",
                      std::ios::binary);
     if (!in) return out;
     std::string line;
+    std::pair<int, int> base{-1, -1};
+    int cell = -1;
+    bool in_route = false;
+    std::vector<std::pair<int, int>> route;
+    const auto flush = [&] {
+        if (in_route && !route.empty() && base.first >= 0 && cell >= 0)
+            out.routes[base][cell].push_back(route);
+        route.clear();
+        in_route = false;
+    };
     while (std::getline(in, line)) {
-        if (line.rfind("WAYPOINT", 0) != 0) continue;
-        std::istringstream is(line);
-        std::string kind;
-        int index = 0, x = 0, y = 0;
-        if (!(is >> kind >> index >> x >> y)) continue;
-        out.emplace(x, y);
+        if (line.rfind("BASE_NAVIGATION", 0) == 0) {
+            flush();
+            std::istringstream is(line);
+            std::string kind, type;
+            int id = -1, flags = 0, base_id = 0;
+            if (is >> kind >> type >> id >> flags >> base_id) cell = id;
+            base = {-1, -1};
+        } else if (line.rfind("3D_POSITION", 0) == 0) {
+            flush();
+            std::istringstream is(line);
+            std::string kind;
+            int x = 0, y = 0, z = 0;
+            if (is >> kind >> x >> y >> z) base = {x, y};
+        } else if (line.rfind("NAVIG_ROUTE", 0) == 0) {
+            flush();
+            in_route = true;
+        } else if (line.rfind("WAYPOINT", 0) == 0 && in_route) {
+            std::istringstream is(line);
+            std::string kind;
+            int index = 0, x = 0, y = 0, z = 0;
+            if (is >> kind >> index >> x >> y >> z) route.emplace_back(x, y);
+        }
+    }
+    flush();
+    for (const auto& [pos, cells] : out.routes) {
+        (void)pos;
+        for (const auto& [id, list] : cells) {
+            (void)id;
+            for (const auto& r : list) {
+                for (const auto& p : r) out.points.insert(p);
+            }
+        }
     }
     return out;
 }
@@ -104,7 +153,7 @@ bool snap_to_nav(const std::set<std::pair<int, int>>& nav,
 //! the strike flight marks the ingress and target waypoints.
 std::vector<std::array<int, 4>> build_strike_route(
     const GenBase& base, const GenArea& target, bool tanker_at_base,
-    const std::set<std::pair<int, int>>& nav_points, CampaignRng& rng) {
+    const NavCatalog& nav, CampaignRng& rng) {
     std::vector<std::array<int, 4>> route;  // x, y, z, action
     std::set<std::pair<int, int>> used;
     used.emplace(base.x, base.y);
@@ -113,7 +162,7 @@ std::vector<std::array<int, 4>> build_strike_route(
         if (!route.empty()) {
             const int px = route.back()[0];
             const int py = route.back()[1];
-            snap_to_nav(nav_points, used, &x, &y);
+            snap_to_nav(nav.points, used, &x, &y);
             if (x == px && y == py) return;
         }
         used.emplace(x, y);
@@ -133,6 +182,33 @@ std::vector<std::array<int, 4>> build_strike_route(
         route.push_back({base.x - 26, base.y - 1, 250, 1});  // REFUEL
         origin_x = base.x - 26;
         origin_y = base.y - 1;
+    }
+
+    // The navigation entry for a package is the target's map cell; the
+    // outbound and egress corridors are drawn from that entry.
+    const auto node = nav_cell(target.x, target.y);
+    const int cell_id = node.first + node.second * 10;
+    const auto base_it = nav.routes.find({base.x, base.y});
+    if (base_it != nav.routes.end()) {
+        const auto cell_it = base_it->second.find(cell_id);
+        if (cell_it != base_it->second.end() && !cell_it->second.empty()) {
+            const auto& corridors = cell_it->second;
+            const auto& outbound = corridors[static_cast<std::size_t>(
+                rng.range(static_cast<int>(corridors.size())))];
+            const auto& egress = corridors[static_cast<std::size_t>(
+                rng.range(static_cast<int>(corridors.size())))];
+            if (!outbound.empty() && !egress.empty()) {
+                for (std::size_t i = 0; i + 1 < outbound.size(); ++i)
+                    push_nav(outbound[i].first, outbound[i].second, 120, 2);
+                push_nav(outbound.back().first, outbound.back().second, 5, 3);
+                route.push_back({target.x, target.y, 0, 4});
+                used.emplace(target.x, target.y);
+                for (std::size_t i = egress.size(); i-- > 0;)
+                    push_nav(egress[i].first, egress[i].second, 120, 2);
+                route.push_back({base.x, base.y, 0, 5});
+                return route;
+            }
+        }
     }
 
     // Captured packages carry anywhere from zero to ten intermediate fixes
@@ -824,8 +900,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         gm.area = it == area_at.end() ? -1 : it->second;
     }
 
-    const std::set<std::pair<int, int>> nav_points =
-        load_nav_points(settings.data_dir);
+    const NavCatalog nav = load_nav_catalog(settings.data_dir);
 
     Emitter emit;
     emit.doc = &campaign.missions;
@@ -1717,7 +1792,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 if (target != nullptr) {
                     package_route = build_strike_route(
                         *base, *target, tanker_bases.count(base->index) != 0,
-                        nav_points, rng);
+                        nav, rng);
                     pkg_route = &package_route;
                 }
 
