@@ -327,6 +327,10 @@ paths work either way, but quoting is simplest with forward slashes:
 .\openef2000.exe --data "C:/Games/EF2000" --interactive
 ```
 
+Run with just `--data` to open the campaign shell; `--stats` prints the archive
+counts and exits, and `--interactive` opens the strategic map. If you start the
+`.exe` from Explorer without arguments, it looks for `game-data` beside it.
+
 Windows is case-insensitive about the archive names, so the uppercase data
 files (`DID.DAT`, `CONFLICT.CG`, `MISSION.CFG`, …) load unchanged; no
 conversion step is involved.
@@ -342,6 +346,10 @@ installation at run time — only the unzipped DLLs beside it.
 ```bash
 ./build/openef2000 --data "/path/to/game-data"
 ```
+
+With no action option the engine opens the **campaign shell** — the title
+splash, then the main menu — which is what a plain launch does on every
+platform. Headless reporting is still available through the examples below.
 
 Examples:
 

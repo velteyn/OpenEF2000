@@ -47,6 +47,7 @@ void usage() {
         "  --bounds X0,Y0,X1,Y1  frame the map explicitly (world units)\n"
         "  --export FILE.png   render the selected mission to PNG\n"
         "  --interactive       open the SDL window\n"
+        "  (no action)         open the campaign shell, title splash first\n"
         "  --models            list the 3D shape entries of DID.DAT\n"
         "  --mesh NAME         load one shape (e.g. efa, f22) from DID.DAT\n"
         "  --lod N             level of detail for --mesh (default: 0)\n"
@@ -1722,6 +1723,21 @@ int main(int argc, char** argv) {
             return 2;
         }
     }
+
+    const bool action =
+        stats || list || !export_path.empty() || interactive || models ||
+        !mesh_name.empty() || !export_mesh.empty() || !mesh_preview.empty() ||
+        !render_path.empty() || gui_list || !gui_screen.empty() ||
+        !gui_render.empty() || !dump_palette.empty() || gui_routines ||
+        gui_dump || gui_selftest || boot || !conflict_path.empty() ||
+        !conflict_out.empty() || !campaign_src.empty() || !campaign_state.empty() ||
+        !campaign_out.empty() || !mission_in.empty() || !mission_out.empty() ||
+        campaign_selftest || campaign_status || campaign_brief ||
+        !ssd_name.empty() || campaign_advance > 0 || campaign_offset != 0;
+    // A plain `openef2000 --data DIR` is the documented entry point, so open
+    // the campaign shell instead of silently printing statistics (and exiting
+    // before the user can see them when started from Explorer).
+    if (!action) boot = true;
 
     if (gui_selftest) return run_gui_selftest();
 
