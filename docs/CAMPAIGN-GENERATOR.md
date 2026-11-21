@@ -234,12 +234,45 @@ Three routines bracket the value chain:
   value at `+0x32` and setting `+0x25` to half the thousands digit.
 
 So the low digits are already present in the site/mobile value when the area
-copies it; they are not recomputed by the value loop. The aggregation that
-turns element health into that value is the part still open. Empirical check:
+copies it; they are not recomputed by the value loop. Empirical check:
 the damage does not correlate with any bit or modulus of the value draw over
 the 72 valued areas of the fresh capture, which rules out a second use of the
 same random number. Set `OPENEF2000_DUMP_DRAWS=1` to print the value-pass RNG
 state per valued area for that kind of comparison.
+
+#### The two trailing SSNAME numbers are one element count
+
+Decompiling the SSNAME parser (`0x1f83c`) shows the record layout is not
+`value, airfield1, airfield2`:
+
+1. name, side;
+2. value into `area+0x32`;
+3. a short **read and discarded** (it is the count used for the element bytes
+   that may follow, and for the `ALL` branch that fills health 100);
+4. a short stored at `area+0x2a`, which is the element count used by the
+   value, element and writer passes.
+
+The writer prints `area+0x2a` twice, which is why captured lines always have
+equal trailing numbers (`31 31`, `32 32`). The two input numbers are not
+independent fields; our `ScenarioArea::airfield1/airfield2` names are a
+misnomer for what is really one element count.
+
+#### A/B evidence: the low component is a later, element-dependent pass
+
+The fixed-clock harness allows one-input experiments. Changing Vaernes' input
+value (`2000` to `4000`) produced a **zero diff**, so the input value is
+ignored. Changing its element count (`31 31` to `15 15`, or `1 1`) instead:
+
+* kept every area's *thousands* digit unchanged;
+* set Vaernes' low component to `000` (value `3000`, round);
+* shifted the low components of neighbouring areas by a few units.
+
+That means the low component is produced in a **later RNG-driven pass whose
+draw count depends on the element count**, after the thousands pass has
+finished (which is why the thousands digits remain aligned). The exact
+aggregation is still open; the next REA step is to trace the value at
+`area+0x32`/`base+0x23` through the passes that run between `0xcad30` and the
+final copy at `0xd8a64`, rather than reading more struct offsets.
 
 The same value feeds the corresponding `BASE` record, so the base and its
 target area stay in sync.
