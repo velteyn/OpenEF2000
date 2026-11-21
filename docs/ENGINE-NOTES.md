@@ -249,6 +249,28 @@ Reproducing the look therefore needs the original widget drawing code, and a
 closer approximation means drawing a gradient between two entries rather than
 a flat fill. Recorded so the palette hunt is not repeated.
 
+### Visual comparison and known deviations
+
+Every GUI screen is checked against a DOSBox-X capture of the original at
+640x400, using `scripts/gui-compare.sh` (the original and our render stay in
+the ignored `images/` directory; only the factual differences are recorded
+here). Compare at the native size, not the shell's scaled window.
+
+| Area | Original | Reconstruction |
+|---|---|---|
+| Panel body | dithered grey gradient (body ~(77,77,77), title ~(85,85,85)), see above | flat `gui.col` fill (index 10 for bodies, 11 for title strips) |
+| Window frame | 2–3 px bevel drawn by the widget renderer | approximation from palette 14/8 |
+| Text | the game's bitmap font; tight metrics | host TTF via SDL_ttf; wider and differently spaced |
+| Briefing glyphs | bytes 128..255 index extra bitmap glyphs | replaced with spaces (no TTF glyph) |
+| Menu bar | backdrop visible through a frame | matches since `bkd 15` is treated as transparent |
+| Simulator list | 20 template rows in a 150x200 frame | rows filled and clipped; wheel scrolls, but no scrollbar thumb because the file has no `yscroll` |
+| Window scale | 640x400 full screen | shell opens at a whole-pixel multiple (2x on 1080p), nearest-neighbour |
+
+Content-level checks: Quick Combat's level names, difficulty selection,
+hi-score table and Summary briefing now match the captured screen; the
+Simulator type tables, mission rows, Mission Details briefing and Parameters
+defaults match their data. What remains is rendering style, not missing data.
+
 ### Behaviours confirmed by play
 
 Reported from a play session and corroborated against the `.gui` files:

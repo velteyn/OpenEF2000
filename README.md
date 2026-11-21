@@ -414,6 +414,19 @@ Examples:
 ctest --test-dir build --output-on-failure
 ```
 
+GUI screens are also checked visually against a capture of the original
+running in DOSBox-X:
+
+```bash
+./scripts/gui-compare.sh --data "/path/to/game-data" \
+  --screen arcade --reference /path/to/arcade-capture.png
+```
+
+It renders the screen at 640x400 and writes a side-by-side image under
+`images/`, which is ignored. Captures of the original contain its artwork, so
+they are never committed; only the observed differences are documented, in
+[`docs/ENGINE-NOTES.md`](docs/ENGINE-NOTES.md).
+
 CI runs the repository guard, the build, the GUI selftest and the smoke test on
 **Linux** and **Windows** (MSYS2/MinGW-w64). Standard GitHub-hosted runners are
 free for public repositories, so the Windows job adds no cost.

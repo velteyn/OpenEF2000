@@ -129,6 +129,12 @@ table unlocks:
 
 ## 6. Cosmetic / smaller
 
+- [ ] **Widget shading and font** — the original fills panels with a dithered
+      grey gradient and draws text with its own bitmap font; the reconstruction
+      uses flat `gui.col` fills and a host TTF. Compared side by side with a
+      DOSBox-X capture via `scripts/gui-compare.sh`; see the deviation table in
+      `docs/ENGINE-NOTES.md`. Reproducing it needs the original drawing rules
+      or the shade/fade table, not a different palette.
 - [x] **Timetable structure** — one row per flight inside the eight-hour turn,
       flight index in the final field, support/kill packages at the top, CAP
       waves ~252 minutes apart, convoys on a 45-minute cadence, chronological

@@ -142,6 +142,32 @@ Never place that directory inside the tree. `game-data/` is ignored as a
 safety net, not as an invitation: a copied directory is still a breach if it
 is ever force-added.
 
+### Visual checks against the running original
+
+GUI work is verified by eye as well as by data, because the `.gui` files
+describe layout and colour *indices*, not the final pixels. For every screen
+you change:
+
+1. Capture the same screen from the original running in DOSBox-X, at the
+   native 640x400 mode. Keep the capture in the private workspace.
+2. Render ours at the same size:
+   ```bash
+   ./scripts/gui-compare.sh --data /path/outside/this/repo \
+       --screen arcade --reference /private/captures/arcade.png
+   ```
+   It writes `images/ours-<screen>.png` and a labelled side-by-side
+   `images/compare-<screen>.png`. `images/` is ignored, so both stay untracked.
+3. Compare layout, widget bevels and selection state, text position and
+   wrapping, and colours. Write the differences you find — and the parts that
+   now match — into `docs/ENGINE-NOTES.md`.
+4. Never commit either image. A screenshot of the original is original
+   artwork; a render of it is a derivative. Record facts, not pictures.
+
+A GUI change that has not been compared this way is unverified: say so in the
+commit message instead of claiming parity. Known deviations (dithered panel
+fills, bitmap font, frame shading) are listed in `docs/ENGINE-NOTES.md`; check
+them before reporting a new one.
+
 ### Code
 
 - C++20, no compiler extensions, match the surrounding style.
