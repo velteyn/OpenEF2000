@@ -84,6 +84,7 @@ void usage() {
         "  --gui-selftest      run deterministic GUI runtime checks\n"
         "  --boot              show the title splash, then the main menu\n"
         "  --gui-lang LANG     en|fr|de (default en)\n"
+        "  --gui-scale N       whole-pixel window scale (default: fit the desktop)\n"
         "  --gui-window NAME   open this window before rendering\n");
 }
 
@@ -430,6 +431,34 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
     return 0;
 }
 
+//! The pointer bitmap the software cursor draws, handed to the OS as a real
+//! cursor. A software cursor lives in the frame buffer and therefore trails the
+//! physical mouse by a frame; the OS cursor cannot.
+SDL_Cursor* make_pointer_cursor(int scale) {
+    const int unit = std::max(scale, 1);
+    const int size = 12 * unit;
+    SDL_Surface* surface =
+        SDL_CreateRGBSurfaceWithFormat(0, size, size, 32, SDL_PIXELFORMAT_RGBA32);
+    if (surface == nullptr) return nullptr;
+    SDL_FillRect(surface, nullptr, SDL_MapRGBA(surface->format, 0, 0, 0, 0));
+    const Uint32 black = SDL_MapRGBA(surface->format, 0, 0, 0, 255);
+    const Uint32 white = SDL_MapRGBA(surface->format, 255, 255, 255, 255);
+    const auto rect = [&](int x, int y, int w, int h, Uint32 colour) {
+        SDL_Rect r{x * unit, y * unit, w * unit, h * unit};
+        SDL_FillRect(surface, &r, colour);
+    };
+    for (int i = 0; i < 10; ++i) {
+        rect(i, i, 2, 1, black);
+        rect(i, i, 1, 2, black);
+    }
+    for (int i = 0; i < 8; ++i) rect(i, i, 1, 1, white);
+    rect(2, 7, 4, 1, black);
+    rect(3, 8, 3, 3, black);
+    SDL_Cursor* cursor = SDL_CreateColorCursor(surface, 0, 0);
+    SDL_FreeSurface(surface);
+    return cursor;
+}
+
 }  // namespace
 
 
@@ -438,7 +467,7 @@ int run_model_viewer(ModelSet& models, const ef::TextureBank& textures, int star
 // approximated.
 int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
                    const std::string& lang, const std::filesystem::path& data_dir,
-                   bool boot) {
+                   bool boot, int requested_scale) {
     ef::GuiLoader loader(did);
     std::string error;
     auto screen = loader.load(start_screen, &error);
@@ -493,14 +522,42 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
         std::fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+    // The shell art is 640x400. Pick the largest whole multiple that fits the
+    // usable desktop, so the window is crisp instead of a 1.5x blur.
+    int scale = 2;
+    int win_w = 1280, win_h = 800;
+    {
+        SDL_Rect usable{0, 0, 1280, 800};
+        const bool known = SDL_GetDisplayUsableBounds(0, &usable) == 0;
+        if (known) scale = std::min(usable.w / 640, usable.h / 400);
+        scale = std::clamp(scale, 1, 4);
+        if (requested_scale > 0) scale = std::clamp(requested_scale, 1, 8);
+        win_w = 640 * scale;
+        win_h = 400 * scale;
+        // A 1366x768 desktop cannot hold the 2x window; 1x would be tiny, so
+        // fall back to the 1.5x size. Nearest-neighbour keeps even that crisp
+        // enough instead of the old linear blur.
+        if (requested_scale <= 0 && scale == 1 && known &&
+            usable.w >= 960 + 32 && usable.h >= 600 + 64) {
+            win_w = 960;
+            win_h = 600;
+        }
+    }
+    // Nearest-neighbour: the source is indexed VGA art, not a photograph.
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
     SDL_Window* window = SDL_CreateWindow("OpenEF2000 GUI", SDL_WINDOWPOS_CENTERED,
-                                          SDL_WINDOWPOS_CENTERED, 960, 600, SDL_WINDOW_SHOWN);
+                                          SDL_WINDOWPOS_CENTERED, win_w, win_h,
+                                          SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE);
     SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
     if (window == nullptr || renderer == nullptr) {
         std::fprintf(stderr, "SDL window: %s\n", SDL_GetError());
         return 1;
     }
     SDL_RenderSetLogicalSize(renderer, 640, 400);
+    // Let the OS own the pointer. The software cursor stays as a fallback for
+    // hosts that refuse a colour cursor, and for headless captures.
+    SDL_Cursor* pointer = make_pointer_cursor(std::max(1, win_w / 640));
+    if (pointer != nullptr) SDL_SetCursor(pointer);
 
     // The boot script holds a splash for 200 ticks before the main menu
     // (`STAT didlog 200` in supergui\gui.txt). `didlog` is not in the archive;
@@ -877,7 +934,7 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
             SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, 640, 400, 32,
                                                                   SDL_PIXELFORMAT_RGBA32);
             if (surface != nullptr) {
-                options.cursor = true;
+                options.cursor = pointer == nullptr;
                 options.dataset = dataset ? &*dataset : nullptr;
                 options.band = band_active;
                 options.band_x0 = band_x0;
@@ -907,6 +964,7 @@ int run_gui_viewer(const ef::DidArchive& did, const std::string& start_screen,
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
+    if (pointer != nullptr) SDL_FreeCursor(pointer);
     SDL_Quit();
     return 0;
 }
@@ -1567,6 +1625,7 @@ int main(int argc, char** argv) {
     std::string dump_palette;
     std::string gui_render;
     std::string gui_lang = "en";
+    int gui_scale = 0;
     bool gui_list = false;
     bool gui_routines = false;
     bool gui_dump = false;
@@ -1625,6 +1684,8 @@ int main(int argc, char** argv) {
             gui_screen = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-render") == 0 && i + 1 < argc) {
             gui_render = argv[++i];
+        } else if (std::strcmp(argv[i], "--gui-scale") == 0 && i + 1 < argc) {
+            gui_scale = std::atoi(argv[++i]);
         } else if (std::strcmp(argv[i], "--gui-lang") == 0 && i + 1 < argc) {
             gui_lang = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-window") == 0 && i + 1 < argc) {
@@ -2341,7 +2402,7 @@ int main(int argc, char** argv) {
             std::printf("wrote %s\n", gui_render.c_str());
             return 0;
         }
-        return run_gui_viewer(did, gui_screen, gui_lang, data, boot);
+        return run_gui_viewer(did, gui_screen, gui_lang, data, boot, gui_scale);
     }
 
     if (models || !mesh_name.empty()) {

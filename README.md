@@ -354,7 +354,11 @@ installation at run time — only the unzipped DLLs beside it.
 
 With no action option the engine opens the **campaign shell** — the title
 splash, then the main menu — which is what a plain launch does on every
-platform. Headless reporting is still available through the examples below.
+platform. The window uses the largest whole multiple of 640x400 that fits the
+desktop (2x on a 1080p screen, 1.5x on a 768p laptop) with nearest-neighbour
+scaling, so the VGA art stays crisp; `--gui-scale N` overrides it. The pointer
+is an OS cursor, so it does not trail the physical mouse. Headless reporting
+is still available through the examples below.
 
 Examples:
 
@@ -367,6 +371,9 @@ Examples:
 
 # Render a GUI screen headlessly
 ./build/openef2000 --data "/path/to/game-data" --gui mainmenu --gui-render menu.png
+
+# Open the shell at a fixed 3x window
+./build/openef2000 --data "/path/to/game-data" --boot --gui-scale 3
 
 # Render a 3D model headlessly
 ./build/openef2000 --data "/path/to/game-data" --mesh efa1 --render efa.png
