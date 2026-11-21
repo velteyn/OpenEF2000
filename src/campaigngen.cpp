@@ -925,6 +925,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     std::map<int, std::vector<std::pair<int, std::string>>> schedule;
     std::map<int, int> mission_flights;   //!< flights (or ship groups) per id
     std::map<int, int> mission_route_len;  //!< rounded route length per id
+    //! Tanker orbit fix per base position, used by strike REFUEL waypoints.
+    std::map<std::pair<int, int>, std::pair<int, int>> tanker_fix;
     // 7. Sea tasking: one convoy per ship group, scaled by group size.
     {
         std::map<std::pair<std::string, std::pair<int, int>>, int> groups;
@@ -1011,22 +1013,9 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         std::map<std::string, std::size_t> next_base;
 
         // Strike packages refuel only when their base hosts a tanker and the
-        // target is beyond a hundred cells. The tanker bases are deterministic
-        // for the package table, so work them out before emitting anything.
+        // target is beyond a hundred cells. Filled from the type inventory
+        // below, once the support bases are known.
         std::set<int> tanker_bases;
-        {
-            std::map<std::string, std::size_t> cursor;
-            for (const auto& req : kRoles) {
-                auto it = bases_by_side.find(req.side);
-                if (it == bases_by_side.end() || it->second.empty()) continue;
-                const auto& list = it->second;
-                for (int n = 0; n < req.count; ++n) {
-                    const GenBase* base = list[cursor[req.side]++ % list.size()];
-                    if (std::string(req.role) == "REFUELLER_PATROL")
-                        tanker_bases.insert(base->index);
-                }
-            }
-        }
 
         // Which aircraft types are based where. Used to pick a base for the
         // support flights and to keep CAP at the airfields that hold fighters.
@@ -1051,6 +1040,21 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                           [](const GenBase* a, const GenBase* b) {
                               return a->index < b->index;
                           });
+            }
+        }
+        // The three tanker patrols on each side use the first three airfields
+        // that hold that side's tanker type, exactly as the support tasking
+        // below does.
+        for (const char* side : {"NATO", "RUSSIAN"}) {
+            const std::string want =
+                std::string(side) == "RUSSIAN" ? "IL78M" : "R767";
+            const auto it = type_base_list.find(want);
+            if (it == type_base_list.end()) continue;
+            int taken = 0;
+            for (const GenBase* base : it->second) {
+                if (base->side != side) continue;
+                tanker_bases.insert(base->index);
+                if (++taken >= 3) break;
             }
         }
 
@@ -1493,8 +1497,10 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     cx += static_cast<int>(std::lround(std::cos(angle) * 42.0));
                     cy += static_cast<int>(std::lround(std::sin(angle) * 42.0));
                 } else if (r == "REFUEL") {
-                    cx += rng.between(-4, 4);
-                    cy += rng.between(-4, 4);
+                    // The tanker track sits behind the base; its far station is
+                    // the refuelling fix used by strike packages.
+                    cx += -12 + rng.between(-4, 4);
+                    cy += 3 + rng.between(-4, 4);
                 } else {
                     cx += rng.between(-18, 18);
                     cy += rng.between(-18, 18);
@@ -1513,6 +1519,11 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                                Number(rng.between(0, 2047)),
                                Number(rng.between(0, 2047)), "PATROL", "0", "0",
                                "0"});
+                }
+                if (r == "REFUEL") {
+                    // The far station, about fourteen cells behind the orbit
+                    // centre, is what strike packages refuel at.
+                    tanker_fix[{base->x, base->y}] = {cx - 14, cy - 4};
                 }
                 emit.addv("WAYPOINT", {"6", Number(loop_x), Number(loop_y),
                                        Number(alt), "0", "0", "PATROL_LOOP", "7",
@@ -1753,6 +1764,36 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     emit_flight(base, type.c_str(), "INTERCEPT", req.ships, nullptr, nullptr,
                                 wave, true, id);
                     out->aircraft += req.ships;
+                }
+            }
+        }
+    }
+
+    // The captured strike REFUEL fix is the tanker orbit's far station, not a
+    // fixed offset from the base. Patch it once all tanker orbits exist.
+    {
+        std::string flight_role;
+        std::pair<int, int> flight_base{-1, -1};
+        bool have_base = false;
+        for (auto& line : campaign.missions.lines) {
+            if (line.keyword == "FLIGHT" && line.args.size() >= 3) {
+                flight_role = line.args[2];
+                have_base = false;
+            } else if (line.keyword == "3DP" && !have_base &&
+                       line.args.size() >= 2) {
+                try {
+                    flight_base = {std::stoi(line.args[0]),
+                                   std::stoi(line.args[1])};
+                    have_base = true;
+                } catch (const std::exception&) {
+                    have_base = false;
+                }
+            } else if (line.keyword == "WAYPOINT" && line.args.size() >= 7 &&
+                       line.args[6] == "REFUEL" && have_base) {
+                const auto it = tanker_fix.find(flight_base);
+                if (it != tanker_fix.end()) {
+                    line.args[1] = Number(it->second.first);
+                    line.args[2] = Number(it->second.second);
                 }
             }
         }

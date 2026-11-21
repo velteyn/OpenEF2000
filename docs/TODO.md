@@ -115,5 +115,8 @@ table unlocks:
       airfield, 1–4 ships; support escorts stay at four. The captured 18×4,
       2×2, 2×1, 1×3 mix is now representable. Which packages receive an escort
       is still approximate.
-- [ ] `Refuel` flag position of the tanker track per side (the captured refuel
-      fix is the tanker orbit's far station, which differs per base).
+- [x] **Refuel fix** — the strike `REFUEL` waypoint follows the tanker orbit's
+      far station, recorded per airfield when the tanker patrol is emitted and
+      patched into the strike route afterwards. Refuelling is now limited to
+      the six tanker airfields; offsets are within ~8 cells of the capture.
+      The exact tanker orbit geometry is still approximate.

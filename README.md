@@ -135,7 +135,8 @@ specification.
   captured size mix, and all seven support escorts are four-ship.
 - **Route geometry:** strike packages build one corridor per package with
   0–10 intermediate fixes per leg, a shared escort/weasel route and conditional
-  refuelling; mean length 13.10 against the capture's 13.31. The corridor
+  refuelling at the tanker orbit's far station; mean length 13.10 against the
+  capture's 13.31. The corridor
   coordinates come from the game's own `NAVIG.NAV` network — 571 of 598
   captured strike fixes (95.5%) are exactly navigation waypoints, and the
   outbound route's last point is the captured `INGRESS` fix. Generated fixes

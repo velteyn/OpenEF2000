@@ -362,8 +362,15 @@ Mission routes are not random walks. The captured files show three shapes:
 
 `REFUEL` is present when the package's base hosts a `REFUELLER_PATROL` tanker
 and the target is more than about **100 map units** away. The refuel fix is the
-tanker orbit's far station (`base - 26, -1` on the reference base), not a
-separate target. CAP and INTC never refuel.
+tanker orbit's far station — roughly fourteen cells behind the orbit centre,
+which itself sits about twelve cells behind the base. The generator records
+that station per airfield when it emits the tanker patrol and patches the
+strike `REFUEL` waypoints from it afterwards, so the fix follows the same
+tanker the package would meet. The measured offsets are within about eight
+cells of the capture's `(-26,-1)`, `(-19,-10)`, `(-30,-6)`, `(-27,-4)` and
+`(-14,-7)`. CAP and INTC never refuel. The tanker bases are taken from the
+airfields that actually hold `R767`/`IL78M`, not from a cursor over the base
+list, so a package at a non-tanker airfield cannot receive a `REFUEL` fix.
 
 Each corridor is a chain of random fixes along the base–target line with
 lateral jitter; the number of fixes is drawn, not derived from range. The
