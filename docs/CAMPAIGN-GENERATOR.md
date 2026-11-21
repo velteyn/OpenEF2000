@@ -205,9 +205,17 @@ replay parameter (`--campaign-offset`), not a generator rule.
 
 Verification: replaying a captured run's timestamp as the seed reproduces the
 **thousands digit of all 543 areas with zero mismatches**, for all four
-captures, and the area order is identical. The remaining difference is the low
-`site` component (982..1000), which drifts by 0..3 per turn and comes from the
-installation's sub-target list.
+captures, and the area order is identical. A fresh first-campaign capture
+(TACTCOM, header `1795287949`) confirms the rule again: at offset 3 the draw
+digit matches **542 of 543** areas, the single exception being the area whose
+`site` is exactly 1000 and therefore makes the digit ambiguous.
+
+The remaining difference is the low `site` component. It is `1000 - damage`,
+and the damage is not drawn in the value loop. In the fresh capture it depends
+on the installation class: airfields 9..18, bridges 0..5, supply/oil/power/
+political towns 0..4, early-warning sites 0..2, rigs, ports, docks, dams and
+tunnels 0. The exact counter behind those ranges (sub-target list, defence
+ring, or a site-health pass) is still open.
 
 The same value feeds the corresponding `BASE` record, so the base and its
 target area stay in sync.

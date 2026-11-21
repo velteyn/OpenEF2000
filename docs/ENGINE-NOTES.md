@@ -330,6 +330,32 @@ series against DOSBox-X, not part of this repository.
 Neither tool contains game data, and neither is needed to build or run
 OpenEF2000.
 
+### Capturing a fresh campaign
+
+A capture of the original generator is the oracle for every campaign-parity
+claim, so it is worth being able to make one from scratch. The private
+workspace keeps the outputs under `re/out/evidence/campaign-captures/` with a
+seed/provenance note; the files never enter this repository.
+
+1. Run DOSBox-X against an install directory with a **sound card configured**
+   (`sbtype=sb16`). Without one the game prints `No Soundcard found` and
+   returns to DOS before the GUI starts.
+2. Start the game (`_ef2000.exe gui` with `DID` set, or `EF2000.EXE` in the
+   first-release install).
+3. Main menu: **C** for Campaign, then **Return** on the Campaign Level
+   Setting dialog with Pro highlighted. The game writes `CAMPAIGN.CG`,
+   `MISSION.CFG` and `CAMPBRF.BRF` when it returns to the main menu.
+4. Record the Unix timestamp in the `CAMPAIGN.CG` header: that is the
+   generator seed, and the last two `WORLD_STATUS` words are the final RNG
+   state. Replay with `--campaign-seed <timestamp> --campaign-offset N`; the
+   shell's startup draws mean the offset has to be found per run (3 for the
+   fresh TACTCOM capture below).
+
+Two environment details cost time otherwise: the DOSBox window must have
+keyboard focus (run a window manager under Xvfb, or click inside the window
+first), and the difficulty row is activated on *release*, so Enter on the
+focused dialog is what starts generation.
+
 ### Spice86: launches, but DOS4GW aborts
 
 Spice86 (source checkout at `~/projects/Spice86`, MCP on port 8081) starts the

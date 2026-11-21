@@ -30,8 +30,13 @@ table unlocks:
       capture rather than identical (the exact shuffle order is still open).
 - [x] **Strike flight size** — the strike flight is sized by the number of
       elements the target area exposes (2–6), as in the capture.
-- [ ] **Low target-value component (982–1000)** — likely derived from the same
-      table; confirm once the reader exists.
+- [ ] **Low target-value component (982–1000)** — it is `1000 - damage`, and
+      the damage is not drawn in the value loop. A fresh first-campaign
+      capture shows class-dependent ranges: airfields 9–18, bridges 0–5,
+      towns 0–4, early-warning 0–2, rigs/ports/dams/tunnels 0. Correlating
+      with the `.ssd` label counts did not produce an exact match; the source
+      is either a per-element health roll or the site-health pass, and needs
+      the routine at `0xd8a64`/`0xd88b4` read.
 
 ## 2. Strike routes
 

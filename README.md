@@ -402,6 +402,7 @@ Examples:
 ./build/openef2000 --data "/path/to/game-data" --campaign-selftest
 
 # Inspect the shipped GUI data and locate archive resources
+./build/openef2000 --data "/path/to/game-data" --targets
 ./build/openef2000 --data "/path/to/game-data" --gui-raw arcade
 ./build/openef2000 --data "/path/to/game-data" --did-text
 ./build/openef2000 --data "/path/to/game-data" --did-name "cfg\arcpro.txt"

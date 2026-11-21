@@ -41,6 +41,7 @@ void usage() {
         "  --data DIR          game data directory (default: ./game-data)\n"
         "  --mission N         mission index (default: 0)\n"
         "  --stats             print dataset counts\n"
+        "  --targets           print the target/base table (name, model, type)\n"
         "  --list              list missions\n"
         "  --focus             fit the map to the selected mission\n"
         "  --sam-coverage      draw SAM engagement rings (radius is assumed)\n"
@@ -1701,6 +1702,7 @@ int main(int argc, char** argv) {
     int mission = 0;
     int lod = 0;
     bool stats = false, list = false, interactive = false, focus = false;
+    bool targets = false;
     bool models = false;
 
     for (int i = 1; i < argc; ++i) {
@@ -1712,6 +1714,8 @@ int main(int argc, char** argv) {
             export_path = argv[++i];
         } else if (std::strcmp(argv[i], "--stats") == 0) {
             stats = true;
+        } else if (std::strcmp(argv[i], "--targets") == 0) {
+            targets = true;
         } else if (std::strcmp(argv[i], "--list") == 0) {
             list = true;
         } else if (std::strcmp(argv[i], "--models") == 0) {
@@ -1852,7 +1856,7 @@ int main(int argc, char** argv) {
     }
 
     const bool action =
-        stats || list || !export_path.empty() || interactive || models ||
+        stats || list || targets || !export_path.empty() || interactive || models ||
         !mesh_name.empty() || !export_mesh.empty() || !mesh_preview.empty() ||
         !render_path.empty() || gui_list || !gui_screen.empty() ||
         !gui_render.empty() || !dump_palette.empty() || !gui_raw.empty() ||
@@ -1867,6 +1871,22 @@ int main(int argc, char** argv) {
     // the campaign shell instead of silently printing statistics (and exiting
     // before the user can see them when started from Explorer).
     if (!action) boot = true;
+
+    if (targets) {
+        std::vector<ef::TargetSite> table;
+        std::string error;
+        if (!ef::load_target_table(data, &table, &error)) {
+            std::fprintf(stderr, "%s\n", error.c_str());
+            return 1;
+        }
+        std::printf("%zu targets\n", table.size());
+        for (const auto& site : table) {
+            std::printf("%-24s %-14s %3d %4d %4d %4d\n", site.name.c_str(),
+                        site.model.c_str(), site.type, site.x, site.y,
+                        site.altitude);
+        }
+        return 0;
+    }
 
     if (gui_selftest) return run_gui_selftest();
 
