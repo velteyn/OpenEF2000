@@ -98,14 +98,21 @@ table unlocks:
       1 versus 6 + 0; AIR_DEFENSE counts are NATO 64/73 and Russian 174/156.
       The capture flies all five Russian AF_KILL packages on SU35 and leaves
       Orland's SU25s untouched, while ours falls through to SU25 after a few
-      packages. REA located the original quota: `0xca100` dispatches to
-      `0xccdcc` / `0xce930`, and `0xccdcc` computes the package count as
-      `available / divisor`, where the divisor is 2, 1, 4 or 6 selected by the
-      mode at `base+0x4e`; the result is divided again by 8 or 4 and clamped
-      to 0..4 (or 0..8), with a special case forcing 2 packages when the class
-      byte is zero and the count exceeds 3. Next: decode `FUN_000cc8bc`
-      (available count) and the mode, then replace our per-base plan with this
-      formula.
+      packages. REA decoded the quota chain:
+      * `0xccdcc` computes the package count as `available / divisor`, where
+        the divisor is 2, 1, 4 or 6 selected by `base+0x4e`; the result is
+        divided again by 8 or 4 and clamped to 0..4 (or 0..8), with a special
+        case forcing 2 packages when the class byte is zero and the count
+        exceeds 3;
+      * `0xcc8bc` defines `available` as the sum over up to eight type slots
+        of `[base+0x33][type] - [base+0x37][type]` (capacity minus already
+        used), with the type list from `0x109d44` terminated by `'%'` — not
+        the base's total airframes;
+      * `0xbe280` sets `base+0x4e` from the site class byte (`site+0x2e`),
+        with a special '1' case that becomes 2 when another matching area
+        exists and 1 otherwise; `0xca990` initialises it to 2.
+      Next: read the `0x109d44` type table and the two per-type arrays, then
+      replace our per-base plan with this formula.
 
 ## 4. GUI
 
