@@ -356,8 +356,18 @@ all airfields:
 * **Targets** are the other side's installations, kept in campaign (area)
   order. Airfield denial uses the first three enemy airfields; interdiction
   uses ports, oil rigs, bridges, tunnels and supply towns (types 79, 91, 95,
-  96, 127, 142, 143, 204); SEAD uses early-warning sites (type 63). A target
-  must lie within 191 grid steps (Manhattan) of the attacking airfield.
+  96, 127, 142, 143, 204); SEAD uses early-warning sites (type 63).
+  Interdiction and SEAD targets must lie within 191 grid steps (Manhattan) of
+  the attacking airfield.
+* **Airfield denial assignment** is a block schedule, not a per-base cycle.
+  Each side takes the first three enemy airfields in campaign order; one
+  airfield serves a block of **three packages**, then the next. A block target
+  farther than 150 units (Chebyshev) from the package's base is replaced by
+  the previous target in the list (or the nearest one). This reproduces the
+  captured NATO sequence exactly: Rygge 3 × Vaernes, then 2 × Orland continued
+  by Gardemoen 1 × Orland, then Molde 3 × Bodo. The captured Russian sequence
+  is the same shape (2 × Kristiansand, 3 × Rygge); our package count is one
+  higher there, so it emits three Kristiansand packages.
 * **Strike airfields** form role-specific blocks. Airfields are ranked by the
   suitability of their aircraft type — `TORNADO` then `HARRIER_GR6` for
   airfield denial, `F117A` then `F111R` for interdiction, `SU25` then `SU34`
@@ -386,9 +396,10 @@ all airfields:
 Measured against the capture: all 26 CAP airfields and all 8 support bases
 match; the flyable airframe types used are 638 against 612, and the per-type
 flight counts agree within a few sorties (`SU35` 119/119, `JAS39` 27/27,
-`F18` 27/27, `SU27` 9/9, `SU33` 6/6, `TORNADO` 4/4). The remaining difference
-is the exact target-to-airfield pairing (`SU25`/`SU34` usage and the order of
-the blocks), which is still open.
+`F18` 27/27, `SU27` 9/9, `SU33` 6/6, `TORNADO` 4/4). The airfield-denial
+target sequence now matches the captured NATO block exactly (3-3-3 across
+Vaernes, Orland, Bodo); the remaining difference is the number of packages
+each base contributes, not which target a package receives.
 
 ### 5.3b Corridor source: `NAVIG.NAV`
 
@@ -628,8 +639,14 @@ unchanged, and the `BASE` blocks take the side of their area. Editing
 `CONFLICT.CG` alone therefore does not reset the front.
 
 The two 1997-era campaign files shipped in `Campaign_SourceData` (all
-difficulties) carry exactly the same 35 flips, which confirms the state is
-authored rather than generated.
+difficulties) carry exactly the same 35 flips. A **fresh** campaign generated
+from `CONFLICT.CG` alone reproduces them as well: both fixed-clock captures
+flip exactly 35 NATO areas, and the set is the NATO areas within a
+**120-unit Chebyshev square** of the original Russian territory (all flipped
+areas are at distance ≤115, all kept areas ≥124). The generator now applies
+that advance once, against the original sides, before basing and tasking.
+Whether the shipped game computes this front or loads an authored mask is not
+settled; the measured rule matches both fresh captures exactly (35/35).
 
 ### 8.3 Defence slots and the mobile link
 

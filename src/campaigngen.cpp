@@ -725,6 +725,27 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
     }
 
+    // Initial Russian advance: before the first turn, every NATO area within
+    // a 120-unit Chebyshev square of a Russian-held area changes hands. The
+    // captured campaigns flip exactly this block (all 35 NATO areas with a
+    // distance of at most 115, none at 124 or more); the rule is evaluated
+    // against the original sides, so the advance does not cascade.
+    {
+        std::vector<std::pair<int, int>> russian;
+        for (const auto& area : campaign.areas) {
+            if (area.side == "RUSSIAN") russian.emplace_back(area.x, area.y);
+        }
+        for (auto& area : campaign.areas) {
+            if (area.side != "NATO") continue;
+            for (const auto& [rx, ry] : russian) {
+                if (std::max(std::abs(area.x - rx), std::abs(area.y - ry)) <= 120) {
+                    area.side = "RUSSIAN";
+                    break;
+                }
+            }
+        }
+    }
+
     // (Target values are assigned after the areas are put in output order:
     //  the generator draws exactly one value per area, in that order.)
 
@@ -1301,6 +1322,9 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             if (list.size() > 3) list.resize(3);
         }
         std::map<std::string, std::size_t> target_index;
+        // Airfield denial assigns one enemy airfield to a block of three
+        // packages per side (the captured NATO sequence is 3 + 3 + 3).
+        std::map<std::string, std::size_t> afkill_packages;
 
         auto loadout_for = [](const char* type, const char* flight_role) {
             std::vector<std::string> out(20, "NO_WEAPON");
@@ -1704,6 +1728,40 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                         role == "AF_KILL"
                             ? airfields_of[enemy]
                             : (role == "SEAD" ? ewr_of[enemy] : interd_of[enemy]);
+                    // Airfield denial draws from the side's first three enemy
+                    // airfields in campaign order, one airfield per block of
+                    // three packages. A target farther than 150 units
+                    // (Chebyshev) is skipped in favour of the previous one,
+                    // which is how the captured Gardemoen package stays on
+                    // Orland instead of jumping to Bodo.
+                    if (role == "AF_KILL" && !list.empty()) {
+                        const std::size_t block =
+                            afkill_packages[req.side]++ / 3;
+                        const std::size_t wanted = block % list.size();
+                        const auto reachable = [&](const GenArea* area) {
+                            return std::max(std::abs(base->x - area->x),
+                                            std::abs(base->y - area->y)) <= 150;
+                        };
+                        std::size_t chosen = list.size();
+                        for (std::size_t k = wanted + 1; k-- > 0;) {
+                            if (reachable(list[k])) {
+                                chosen = k;
+                                break;
+                            }
+                        }
+                        if (chosen == list.size()) {
+                            long best_d = -1;
+                            for (std::size_t i = 0; i < list.size(); ++i) {
+                                const long d = std::abs(base->x - list[i]->x) +
+                                               std::abs(base->y - list[i]->y);
+                                if (best_d < 0 || d < best_d) {
+                                    best_d = d;
+                                    chosen = i;
+                                }
+                            }
+                        }
+                        target = list[chosen];
+                    }
                     // The planned targets for an airfield are the ones within
                     // reach of that airfield, in campaign order. The captured
                     // packages never cross the whole map to a target.
@@ -1715,7 +1773,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                             local.push_back(area);
                     }
                     if (local.empty()) local = list;
-                    if (!local.empty()) {
+                    if (!local.empty() && role != "AF_KILL") {
                         std::size_t& index =
                             target_index[std::to_string(base->index) + "/" + role];
                         if (index >= local.size()) {

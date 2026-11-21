@@ -81,10 +81,16 @@ table unlocks:
       draw the appropriate type instead of the side's default fighter.
 - [x] **Availability-based extra flights** — wild-weasel/escort/SEAD elements
       are only added when the airfield still holds the aircraft.
-- [ ] **Exact target-to-airfield pairing** — the captured blocks assign
-      particular targets to particular airfields; the generator still cycles
-      within a reachable list. This is why `SU25` is used and `SU34` is not,
-      and why the block split is 5/4 rather than 6/3 in places.
+- [x] **Target-to-airfield pairing** — airfield denial uses the first three
+      enemy airfields in campaign order, one per block of three packages, with
+      a previous-target fallback when the block target is beyond 150 units
+      (Chebyshev). The captured NATO block (Rygge 3 Vaernes, Rygge 2 +
+      Gardemoen 1 Orland, Molde 3 Bodo) now matches exactly. The Russian side
+      emits one extra Kristiansand package because its package count differs.
+- [x] **Initial front** — a fresh campaign flips exactly 35 NATO areas to
+      Russian: the NATO areas within a 120-unit Chebyshev square of Russian
+      territory, evaluated against the original sides. The set is 35/35 on
+      both fixed-clock captures.
 
 ## 4. GUI
 
