@@ -490,6 +490,54 @@ lines are a banner and may be ignored.
 **Units.** Coordinates are grid cells for waypoints. Vertical values and
 timing units differ between releases; see Appendix B.
 
+## F9 — Base navigation (`NAVIG.NAV`)
+
+**Purpose.** Per-airfield departure/arrival corridors and patrol routes. The
+campaign generator draws its strike corridors from this file; generation never
+modifies it.
+
+**Encoding.** Line-oriented ASCII/Latin-1 with CRLF endings. The first line is
+a comment; the rest is a sequence of records.
+
+```
+NUM_BASE_NAVIGATIONS <count>
+BASE_NAVIGATION <type> <id> <a> <b>
+3D_POSITION <x> <y> <z> <a> <b> <c>
+NAVIG_CORRIDOR <id> <a> <b> <c>
+NAVIG_ROUTE <count>
+WAYPOINT <index> <x> <y> <z> <a> <b> <action> <c> <d> <e>
+```
+
+- `BASE_NAVIGATION` opens one entry. The position that follows is the
+  airfield's map coordinate; the same position appears in many entries because
+  each entry carries a different corridor set.
+- `NAVIG_CORRIDOR` groups routes that leave the airfield in the same
+  direction.
+- `NAVIG_ROUTE <count>` declares the number of waypoints that follow.
+- `WAYPOINT` fields are the same shape as mission waypoints; `z` is 12000 in
+  the shipped file and renders as altitude 120 in a mission.
+
+The reference file has **1,118** entries, **18,424** distinct waypoint
+coordinates and 543 target areas' worth of corridor variants.
+
+**Use by the mission generator.** A strike package's intermediate fixes are
+one corridor route from the attacking airfield, forward for the outbound leg
+and reversed for the egress leg. On the outbound leg the route's final point
+becomes the `INGRESS` fix; the `STRIKE_TARGET` is the target coordinate.
+Example from the reference capture (base Rygge, 118/42):
+
+| Package | Outbound | Egress |
+|---|---|---|
+| 694 → Vaernes | entry 63, corridor 4, route 7 | entry 63, corridor 5, route 6 reversed |
+| 695 → Vaernes | entry 63, corridor 5, route 6 | entry 63, corridor 5, route 6 reversed |
+| 697 → Orland | entry 62, corridor 0, route 3 | entry 62, corridor 3, route 5 reversed |
+| 721 → Blaho (SEAD) | entry 62, corridor 0, route 2 | entry 62, corridor 6, route 9 reversed |
+
+The rule that chooses the entry, corridor and route is not decoded yet. The
+generator currently synthesises jittered corridors and snaps their points to
+the nearest navigation waypoint, so the fixes are valid network coordinates
+but the corridor selection is approximate.
+
 ## F8 — GUI description language (`.gui`)
 
 **Purpose.** Declarative definition of every menu and in-flight panel.

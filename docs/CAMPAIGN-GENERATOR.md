@@ -310,6 +310,40 @@ flight counts agree within a few sorties (`SU35` 119/119, `JAS39` 27/27,
 is the exact target-to-airfield pairing (`SU25`/`SU34` usage and the order of
 the blocks), which is still open.
 
+### 5.3b Corridor source: `NAVIG.NAV`
+
+Strike corridors are not invented geometry. Every intermediate fix in the
+captured strike routes is a waypoint of the base-navigation file: **571 of 598**
+captured strike fixes (95.5%) match a `NAVIG.NAV` waypoint exactly, and the
+routes are complete corridor routes from that file.
+
+The captured package selects one route for the outbound leg and one for the
+egress leg:
+
+* the outbound route is taken forward; its final point is written as the
+  `INGRESS` fix (altitude 5), followed by the target;
+* the egress route is taken reversed, so it starts near the target and ends
+  near the base.
+
+Examples on the reference base (Rygge, 118/42):
+
+| Package | Target | Outbound | Egress |
+|---|---|---|---|
+| 694 | Vaernes | entry 63, corridor 4, route 7 `(92,71)…(120,133)` | entry 63, corridor 5, route 6 reversed `(135,159)…(83,81)` |
+| 695 | Vaernes | entry 63, corridor 5, route 6 | the same route reversed |
+| 697 | Orland | entry 62, corridor 0, route 3 | entry 62, corridor 3, route 5 reversed |
+| 712 | Steinkjer Tn | entry 63, corridor 5, route 9 | entry 63, corridor 3, route 6 reversed |
+
+The **selection rule** (which entry, corridor and route a package receives) is
+still open. Choosing the route whose far end is nearest the target reproduces
+only 2 of 29 captured outbound corridors; the original evidently uses a
+different plan. The generator therefore keeps its length-controlled corridor
+and snaps each intermediate point to the nearest navigation waypoint (within
+10 map units), dropping a point if it would duplicate its neighbour. Measured
+over the generated strike flights: **500 of 508 intermediate fixes (98.4%) are
+exact navigation waypoints**, against 97.5% in the capture, and the mean route
+length is **12.88** against 13.36.
+
 ### 5.3b Route geometry
 
 Mission routes are not random walks. The captured files show three shapes:

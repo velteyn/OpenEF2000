@@ -59,15 +59,66 @@ const char* element_name(int kind) {
     return kind >= 0 && kind < kCount ? kElementNames[kind] : "TARGET";
 }
 
+//! Navigation waypoints from NAVIG.NAV. The original's strike corridors are
+//! routes through this network, so generated fixes are snapped onto it.
+std::set<std::pair<int, int>> load_nav_points(const std::string& data_dir) {
+    std::set<std::pair<int, int>> out;
+    if (data_dir.empty()) return out;
+    std::ifstream in(std::filesystem::path(data_dir) / "NAVIG.NAV",
+                     std::ios::binary);
+    if (!in) return out;
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.rfind("WAYPOINT", 0) != 0) continue;
+        std::istringstream is(line);
+        std::string kind;
+        int index = 0, x = 0, y = 0;
+        if (!(is >> kind >> index >> x >> y)) continue;
+        out.emplace(x, y);
+    }
+    return out;
+}
+
+//! Nearest navigation waypoint within ten map units, skipping points already
+//! used by this leg.
+bool snap_to_nav(const std::set<std::pair<int, int>>& nav,
+                 const std::set<std::pair<int, int>>& used, int* x, int* y) {
+    for (int r = 0; r <= 10; ++r) {
+        for (int dx = -r; dx <= r; ++dx) {
+            for (int dy = -r; dy <= r; ++dy) {
+                if (std::max(std::abs(dx), std::abs(dy)) != r) continue;
+                const std::pair<int, int> p{*x + dx, *y + dy};
+                if (!nav.count(p) || used.count(p)) continue;
+                *x = p.first;
+                *y = p.second;
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 //! Builds one strike package's route: a tanker track behind the base, a
 //! meandering outbound corridor, an ingress fix, the target and a separate
 //! corridor home. Every flight of the package flies the same geometry; only
 //! the strike flight marks the ingress and target waypoints.
-std::vector<std::array<int, 4>> build_strike_route(const GenBase& base,
-                                                   const GenArea& target,
-                                                   bool tanker_at_base,
-                                                   CampaignRng& rng) {
+std::vector<std::array<int, 4>> build_strike_route(
+    const GenBase& base, const GenArea& target, bool tanker_at_base,
+    const std::set<std::pair<int, int>>& nav_points, CampaignRng& rng) {
     std::vector<std::array<int, 4>> route;  // x, y, z, action
+    std::set<std::pair<int, int>> used;
+    used.emplace(base.x, base.y);
+    used.emplace(target.x, target.y);
+    const auto push_nav = [&](int x, int y, int z, int action) {
+        if (!route.empty()) {
+            const int px = route.back()[0];
+            const int py = route.back()[1];
+            snap_to_nav(nav_points, used, &x, &y);
+            if (x == px && y == py) return;
+        }
+        used.emplace(x, y);
+        route.push_back({x, y, z, action});
+    };
     const double dx = target.x - base.x;
     const double dy = target.y - base.y;
     const double distance = std::sqrt(dx * dx + dy * dy);
@@ -99,15 +150,16 @@ std::vector<std::array<int, 4>> build_strike_route(const GenBase& base,
     std::sort(fractions.begin(), fractions.end());
     for (double t : fractions) {
         const int jitter = rng.between(-18, 18);
-        route.push_back({static_cast<int>(std::lround(origin_x + dx * t - uy * jitter)),
-                         static_cast<int>(std::lround(origin_y + dy * t + ux * jitter)),
-                         altitude, 2});  // NO_ACTION
+        push_nav(static_cast<int>(std::lround(origin_x + dx * t - uy * jitter)),
+                 static_cast<int>(std::lround(origin_y + dy * t + ux * jitter)),
+                 altitude, 2);  // NO_ACTION
     }
 
-    route.push_back({target.x - static_cast<int>(std::lround(ux * 9.0)),
-                     target.y - static_cast<int>(std::lround(uy * 9.0)), 5,
-                     3});  // INGRESS
+    push_nav(target.x - static_cast<int>(std::lround(ux * 9.0)),
+             target.y - static_cast<int>(std::lround(uy * 9.0)), 5,
+             3);  // INGRESS
     route.push_back({target.x, target.y, 0, 4});  // STRIKE_TARGET
+    used.emplace(target.x, target.y);
 
     fractions.clear();
     for (int i = 0; i < back_fixes; ++i)
@@ -115,9 +167,9 @@ std::vector<std::array<int, 4>> build_strike_route(const GenBase& base,
     std::sort(fractions.begin(), fractions.end(), std::greater<double>());
     for (double t : fractions) {
         const int jitter = rng.between(-24, 24);
-        route.push_back({static_cast<int>(std::lround(origin_x + dx * t - uy * jitter)),
-                         static_cast<int>(std::lround(origin_y + dy * t + ux * jitter)),
-                         altitude, 2});  // NO_ACTION
+        push_nav(static_cast<int>(std::lround(origin_x + dx * t - uy * jitter)),
+                 static_cast<int>(std::lround(origin_y + dy * t + ux * jitter)),
+                 altitude, 2);  // NO_ACTION
     }
     route.push_back({base.x, base.y, 0, 5});  // LANDING
     return route;
@@ -771,6 +823,9 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                                                      gm.x, gm.y));
         gm.area = it == area_at.end() ? -1 : it->second;
     }
+
+    const std::set<std::pair<int, int>> nav_points =
+        load_nav_points(settings.data_dir);
 
     Emitter emit;
     emit.doc = &campaign.missions;
@@ -1650,7 +1705,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 const std::vector<std::array<int, 4>>* pkg_route = nullptr;
                 if (target != nullptr) {
                     package_route = build_strike_route(
-                        *base, *target, tanker_bases.count(base->index) != 0, rng);
+                        *base, *target, tanker_bases.count(base->index) != 0,
+                        nav_points, rng);
                     pkg_route = &package_route;
                 }
 

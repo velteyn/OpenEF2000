@@ -133,9 +133,14 @@ specification.
   the flyable airframe types used are 617 against the capture's 612. Escorts
   now take the remaining airframes at their airfield (1–4 ships), matching the
   captured size mix, and all seven support escorts are four-ship.
-- **Route geometry:** strike packages now build one corridor per package with
+- **Route geometry:** strike packages build one corridor per package with
   0–10 intermediate fixes per leg, a shared escort/weasel route and conditional
-  refuelling; mean length 13.10 against the capture's 13.31.
+  refuelling; mean length 13.10 against the capture's 13.31. The corridor
+  coordinates come from the game's own `NAVIG.NAV` network — 571 of 598
+  captured strike fixes (95.5%) are exactly navigation waypoints, and the
+  outbound route's last point is the captured `INGRESS` fix. Generated fixes
+  are snapped onto the same network (500/508, 98.4% exact, mean length 12.88
+  against 13.36); the exact corridor selection rule is still being decoded.
 - **Timetable:** one row per flight inside the eight-hour turn, support and
   kill packages at the top, CAP in ~252-minute waves and convoys on a 45-minute
   cadence; 455 rows against the capture's 453, with the support, SEAD and

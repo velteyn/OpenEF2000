@@ -41,10 +41,16 @@ table unlocks:
       13.31 over 29 packages.
 - [x] **Conditional refuelling** — only packages based where a tanker patrol
       flies and with a target beyond ~100 map units.
-- [ ] **Exact corridor fixes** — the original picks its intermediate fixes from
-      a network that is not the area table; the generator uses jittered points
-      along the base–target line. Length and altitude distributions match, the
-      individual fixes do not.
+- [x] **Corridor source** — the captured intermediate fixes are exact
+      `NAVIG.NAV` corridor routes: 571/598 (95.5%) match a navigation waypoint,
+      with the outbound route's last point used as `INGRESS` and the egress
+      route reversed. Format and examples are in `FILE_FORMATS.md` §F9 and
+      `CAMPAIGN-GENERATOR.md` §5.3b.
+- [ ] **Corridor selection** — which navigation entry, corridor and route a
+      package receives is not decoded. Nearest-end selection matches only
+      2/29 captured outbound corridors, so the generator still synthesises the
+      corridor and snaps its points to the nearest navigation waypoint
+      (500/508 fixes exact, 98.4%).
 
 ## 3. Package composition
 
