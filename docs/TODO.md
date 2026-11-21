@@ -116,6 +116,16 @@ table unlocks:
       `yscroll`. Confirm from a runtime capture whether the original draws
       one.
 
+### Reproducible capture harness
+
+- [x] **Fixed clock** — `tools/fixedclock` pins DOS `INT 21h` date/time, so
+      two original-generator runs with the same input are byte-identical and
+      an A/B change produces only the diff it should. Replay of the fixed-seed
+      capture matches 543/543 value draws at offset 3.
+- [ ] **A/B matrix** — use the harness for the value damage, target-to-
+      airfield pairing, element shuffle and strike wave times; each needs one
+      input change and one capture.
+
 ## 5. Campaign manager
 
 - [x] **Sortie recovery condition** — the Strategy Guide states that landing

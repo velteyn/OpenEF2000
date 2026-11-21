@@ -474,7 +474,8 @@ src/                  engine and format layer (C++20)
   render, meshview   strategic map and mesh export
   modelview          orbit-camera 3D viewer
 docs/                 published specifications and engine notes
-scripts/              repository guard (see AGENTS.md)
+scripts/              repository guard and GUI comparison helper
+tools/                DOSBox-X control server and the fixed-clock TSR
 AGENTS.md             working rules: the private/public boundary
 CONTRIBUTING.md       contribution and clean-room policy
 ```
@@ -496,6 +497,7 @@ committed.
 | [`docs/ENGINE-NOTES.md`](docs/ENGINE-NOTES.md) | Module map, build targets, viewer controls, limitations |
 | [`AGENTS.md`](AGENTS.md) | Working rules for automated agents: the private/public boundary and pre-commit checks |
 | [`tools/dosbox-x-mcp`](tools/dosbox-x-mcp/README.md) | MCP server for driving a DOSBox-X session |
+| [`tools/fixedclock`](tools/fixedclock/README.md) | DOS TSR that pins the clock, so original-generator captures are reproducible |
 
 The specifications are written for interoperability. They describe byte
 layouts, field meanings, compression schemes and state machines — facts about

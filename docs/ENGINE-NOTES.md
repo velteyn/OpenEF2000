@@ -345,16 +345,30 @@ seed/provenance note; the files never enter this repository.
 3. Main menu: **C** for Campaign, then **Return** on the Campaign Level
    Setting dialog with Pro highlighted. The game writes `CAMPAIGN.CG`,
    `MISSION.CFG` and `CAMPBRF.BRF` when it returns to the main menu.
-4. Record the Unix timestamp in the `CAMPAIGN.CG` header: that is the
+4. For a **reproducible** capture, run `FIXEDCLK.COM` (built from
+   `tools/fixedclock/fixedclock.asm`) before the game. It hooks DOS
+   `INT 21h` date/time and pins the clock, so every run uses the same seed
+   (1996-04-19 12:00:00 produced header `829929601`).
+   Two runs with the same input then produce **byte-identical**
+   `CAMPAIGN.CG` and `MISSION.CFG`; changing an input that the generator
+   ignores produces zero diff, which is how the A/B method was validated
+   (changing a non-valued area's `SSNAME` value from 1000 to 4000 changed
+   nothing).
+5. Record the Unix timestamp in the `CAMPAIGN.CG` header: that is the
    generator seed, and the last two `WORLD_STATUS` words are the final RNG
    state. Replay with `--campaign-seed <timestamp> --campaign-offset N`; the
-   shell's startup draws mean the offset has to be found per run (3 for the
-   fresh TACTCOM capture below).
+   shell's startup draws mean the offset has to be found per run (3 for both
+   the fresh and the fixed-clock TACTCOM captures; the fixed-clock one matches
+   him **543/543 value draws**).
 
 Two environment details cost time otherwise: the DOSBox window must have
 keyboard focus (run a window manager under Xvfb, or click inside the window
 first), and the difficulty row is activated on *release*, so Enter on the
-focused dialog is what starts generation.
+focused dialog is what starts generation. Keep the TSR's filename in 8.3
+upper case (`FIXEDCLK.COM`): a lower-case name on a Linux-mounted directory
+is reported as `Bad command or filename`. The header timestamp is the
+authority — DOSBox's `mktime` timezone can differ from the host `date` command
+by hours, which is harmless as long as the same clock is used.
 
 ### Spice86: launches, but DOS4GW aborts
 
