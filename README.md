@@ -255,9 +255,10 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) for the full policy.
 
 ### Prerequisites
 
-- A C++20 compiler (GCC 11+, Clang 14+, MSVC 19.30+)
+- A C++20 compiler (GCC 11+, Clang 14+; on Windows the MSYS2/MinGW-w64
+  toolchain, see [Windows](#windows))
 - CMake 3.20 or newer
-- SDL2, SDL2_ttf and SDL2_image development packages
+- `pkg-config`, and SDL2, SDL2_ttf and SDL2_image development packages
 - Python 3.10+ (optional, for the research tooling)
 
 Install the dependencies:
@@ -279,6 +280,53 @@ brew install cmake sdl2 sdl2_ttf sdl2_image
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 ```
+
+### Windows
+
+The supported Windows toolchain is **MSYS2 with MinGW-w64**, the same one CI
+uses: the build discovers SDL2 through `pkg-config`, which MSYS2 provides.
+A standalone MSVC build needs `pkg-config` and the SDL2 development packages
+supplied separately (for example through vcpkg) and is not covered by CI.
+
+Open the **MSYS2 MINGW64** shell and install the toolchain:
+
+```bash
+pacman -S --needed \
+  mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-ninja \
+  mingw-w64-x86_64-pkgconf \
+  mingw-w64-x86_64-SDL2 mingw-w64-x86_64-SDL2_ttf mingw-w64-x86_64-SDL2_image
+```
+
+Then build inside the shell, from the source directory:
+
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+./build/openef2000.exe --help
+```
+
+The executable is `build/openef2000.exe`. If you copy it elsewhere, keep the
+MinGW-w64 runtime (`libgcc_s_seh-1.dll`, `libstdc++-6.dll`,
+`libwinpthread-1.dll`) and the SDL2 DLLs next to it; the packaged artifact
+below already contains all of them.
+
+Run it from **PowerShell** or **cmd** with the game data directory. Windows
+paths work either way, but quoting is simplest with forward slashes:
+
+```powershell
+.\openef2000.exe --data "C:/Games/EF2000" --stats
+.\openef2000.exe --data "C:/Games/EF2000" --interactive
+```
+
+Windows is case-insensitive about the archive names, so the uppercase data
+files (`DID.DAT`, `CONFLICT.CG`, `MISSION.CFG`, …) load unchanged; no
+conversion step is involved.
+
+If you would rather not build, take the `openef2000-windows-x86_64` artifact
+described under [Prebuilt binaries](#prebuilt-binaries): unzip it anywhere and
+run `openef2000.exe` from that folder. It was verified to start, read the
+game data and pass the GUI self-test under Wine, so it needs no MSYS2
+installation at run time — only the unzipped DLLs beside it.
 
 ### Run
 
