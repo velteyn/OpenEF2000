@@ -33,10 +33,14 @@ table unlocks:
 - [ ] **Low target-value component (982–1000)** — it is `1000 - damage`, and
       the damage is not drawn in the value loop. A fresh first-campaign
       capture shows class-dependent ranges: airfields 9–18, bridges 0–5,
-      towns 0–4, early-warning 0–2, rigs/ports/dams/tunnels 0. Correlating
-      with the `.ssd` label counts did not produce an exact match; the source
-      is either a per-element health roll or the site-health pass, and needs
-      the routine at `0xd8a64`/`0xd88b4` read.
+      towns 0–4, early-warning 0–2, rigs/ports/dams/tunnels 0. Three routines
+      are now mapped (see §5.1): `0xd88b4` (value draw), `0xd8ac0`
+      (element-health rolls: +rand%35 for kinds 53–55, +rand%10 for the
+      `0xca5cc` class, else +rand%5, capped at 100) and `0xd8a64` (area copies
+      the site value `+0x23`, +1000 when below 1000). Next: decode how the
+      site/mobile value is aggregated from element health — the writers at
+      `0xca990`, `0xca7e4`/`0xda70c`, or the tables at `0x204478` with
+      0xca-byte stride.
 
 ## 2. Strike routes
 

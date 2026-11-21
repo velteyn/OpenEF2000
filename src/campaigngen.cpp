@@ -703,10 +703,15 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         if (!valued) {
             area.value = 1000 - damage_for(area.type, area.side);
         } else {
-            const int draw = static_cast<int>((rng.next() >> 16) & 0xFFFFu);
+            const std::uint32_t state = rng.next();
+            const int draw = static_cast<int>((state >> 16) & 0xFFFFu);
             const int thousands = (draw % 5) * 1000;
             const int site = 1000 - damage_for(area.type, area.side);
             area.value = thousands + site;
+            if (std::getenv("OPENEF2000_DUMP_DRAWS") != nullptr) {
+                std::fprintf(stderr, "DRAW\t%s\t%u\t%d\n", area.name.c_str(),
+                             state, thousands);
+            }
         }
         area.map_cell = area.x / 40 + (area.y / 40) * 10;
     }

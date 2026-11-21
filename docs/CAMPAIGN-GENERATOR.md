@@ -214,8 +214,32 @@ The remaining difference is the low `site` component. It is `1000 - damage`,
 and the damage is not drawn in the value loop. In the fresh capture it depends
 on the installation class: airfields 9..18, bridges 0..5, supply/oil/power/
 political towns 0..4, early-warning sites 0..2, rigs, ports, docks, dams and
-tunnels 0. The exact counter behind those ranges (sub-target list, defence
-ring, or a site-health pass) is still open.
+tunnels 0.
+
+Three routines bracket the value chain:
+
+* `0xd88b4` is the value-randomisation pass. For records whose class byte is
+  `'1'`, `'I'`, `0x0b` or `'V'` it draws once, takes the remainder modulo 5,
+  adds one and multiplies by 1000, storing the result in the area record;
+  everything else gets 1000. The same routine derives the map-cell index and
+  then walks the area's element array, calling `0xd9bd0` per element type.
+* `0xd8ac0` is the element-health pass. Each element carries a health byte at
+  `+0x5`; when it is below 100 the routine adds a random amount: modulo 35 for
+  element kinds 53–55 (control tower, apron, runway), modulo 10 when the
+  `0xca5cc` predicate holds, otherwise modulo 5. The result is capped at 100.
+* `0xd8a64` copies values from a matching *site* record into the target area
+  when their positions agree: the area value becomes `site+0x23`, plus 1000
+  when that is below 1000, and the area's companion word becomes `site+0x25`.
+  `0xca990` builds such site records from a mobile/target record, copying its
+  value at `+0x32` and setting `+0x25` to half the thousands digit.
+
+So the low digits are already present in the site/mobile value when the area
+copies it; they are not recomputed by the value loop. The aggregation that
+turns element health into that value is the part still open. Empirical check:
+the damage does not correlate with any bit or modulus of the value draw over
+the 72 valued areas of the fresh capture, which rules out a second use of the
+same random number. Set `OPENEF2000_DUMP_DRAWS=1` to print the value-pass RNG
+state per valued area for that kind of comparison.
 
 The same value feeds the corresponding `BASE` record, so the base and its
 target area stay in sync.
