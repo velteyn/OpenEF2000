@@ -129,9 +129,13 @@ table unlocks:
       package counts (Rygge 5, Gardemoen 1, Molde 3, Vaernes 3, Orland 2).
       The quota must sum a per-base subset of types; the Russian /16 fit
       (48 -> 3, 36 -> 2) is only valid once that subset is known. The decisive
-      input is mapping the type ids from `0x109d44` (e.g. `6,3,%...`) to
-      aircraft types, then testing `clamp(sum(eligible)/16, 0, 8)` per base.
-      The `+0x2e` byte (binary target block) selects the list.
+      input is the eligibility list. The type ids are now mapped (see
+      FILE_FORMATS §F11: 0 EFA, 3 F16, 6 JAS39, 11 SU35, 13 MIG27, 17 F111R,
+      18 TORNADO, 21 SU34, 23 SU25, ...). `0x109d44` selects the list from two
+      bytes (a class 0..5 and a mission code), e.g. `{6,3}`, `{13,12}`,
+      `{3,5,9,17}`, `{0,1,17,17}`, `{12,11,17,17}`. Next: identify the two
+      selector bytes at the `0xcc8bc` call site, then test
+      `clamp(sum(eligible)/16, 0, 8)` per base.
 
 ## 4. GUI
 

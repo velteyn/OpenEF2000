@@ -700,6 +700,38 @@ is "Emergency intercept. / Destroy incoming hostile bombers / and escort
 aircraft.", exactly the Summary shown by the shipped Quick Combat screen; the
 other eleven lines resolve to entries with matching text.
 
+## F11 — Aircraft type ids
+
+The campaign generator refers to aircraft by a numeric id, not by name. The id
+table is a 4-byte pointer array at file offset `0x18baf0` in the reconstructed
+v2.0 image (image base `0x10000`), pointing at the name strings:
+
+| Id | Type | Id | Type | Id | Type |
+|---:|---|---:|---|---:|---|
+| 0 | EFA | 13 | MIG27 | 26 | ANTONOV |
+| 1 | F14 | 14 | MIG29 | 27 | IL76 |
+| 2 | F15 | 15 | MIG31 | 28 | COBRA |
+| 3 | F16 | 16 | F117A | 29 | CHINOOK |
+| 4 | F18 | 17 | F111R | 30 | MI26 |
+| 5 | F22 | 18 | TORNADO | 31 | MI24 |
+| 6 | JAS39 | 19 | TU16 | 32 | R767 |
+| 7 | HARRIER_GR6 | 20 | TU26 | 33 | IL78M |
+| 8 | SEA_HARRIER | 21 | SU34 | 34 | J767 |
+| 9 | SU27 | 22 | A10 | 35 | E767 |
+| 10 | SU33 | 23 | SU25 | 36 | A50 |
+| 11 | SU35 | 24 | HERCULES | 37 | (empty) |
+| 12 | MIG21 | 25 | C17 | 38 | CRUISE_MISSILE |
+
+`FUN_00109d44` builds a small array of these ids for a mission, selected by
+two bytes: a class (0..5) and a mission/category code. Examples from the
+binary: `{6,3}`, `{4}`, `{13,12}`, `{32}`, `{35}`, `{34}`, `{25,24,29}`,
+`{3,5,9,17}`, `{6,4,7,8}`, `{0,1,17,17}`, `{12,11,17,17}`. The array is
+`'%'`-terminated and is what `0xcc8bc` sums capacity over when it computes
+the package quota.
+
+The id table also matches the `MOB`/`FLIGHT` type names one-for-one, so a
+consumer can translate both ways without guessing.
+
 ## Unverified and open questions
 
 | Item | Status |
