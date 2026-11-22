@@ -52,8 +52,8 @@ table unlocks:
 - [x] **Ground roster is regenerated, not carried.** A fresh campaign discards
       `CONFLICT.CG`'s ground mobiles and `0xbd96c` creates one group per
       defence site. Later turns carry the previous roster. With generated
-      units the total is 2526 against the capture's 2519 and the type mix is
-      50% trucks with 50/30/20 SAM weights on each side.
+      units the total is 2519, exactly the capture, and the type mix is 50%
+      trucks with 50/30/20 SAM weights on each side.
 - [x] **Group and unit counts.** `0xda678` counts the `0xFF`/`0xFE` site
       records; `0xda6c0` returns the class's units per group (3 for `1`, `2`,
       `H`, `I`; 2 for `V`, `0x0b`; otherwise `rng % 2 + 1`). Airfields
@@ -70,12 +70,21 @@ table unlocks:
 - [x] **Missing supershapes.** The static town/tunnel models are not in either
       archive. A measured per-class offset table reproduces the captured town
       and bridge rings, rotated by heading.
-- [ ] **Ground RNG alignment.** The unit-size draws per area do not yet track
-      the capture's stream: fixed-size classes match 100%, random-size classes
-      match at chance level. The value and clock phases are exact, so one
-      draw-consuming phase between `0xbeabc` and `0xbd96c` is still unknown.
-      Until it lands, per-area 3-vs-6 and the resulting air-defence mission
-      count vary by a few percent (476 captured vs 494 generated).
+- [x] **Ground RNG alignment (pre-ground draw phase).** `0xbd96c` is called
+      twice (`0xbee2f`, `0xbf1e8`). The first roster is discarded; between the
+      calls the side/victory evaluation consumes one draw per side (nine in
+      the shipped campaign); the second roster is written. With the first pass
+      in the stream the second pass starts at draw 4458 of the fixed-clock
+      capture and reproduces **2519/2519 units** and **510/543 area
+      compositions**. Set `OPENEF2000_DUMP_GROUND=1` to print the three RNG
+      states.
+- [ ] **Remaining ground edge cases.** Class 63 (EWR, 29 of 31) has the right
+      unit totals but a different type/order; the special stations 192, 194
+      and 195 (one each) and one class-101 town also differ. Fixing these
+      shifts the stream, so each needs its own draw structure. Current
+      air-defence result: 479 missions against 476, with unit totals
+      Vulcan 75/73, Patriot 191/193, Rapier 59/59, SA-6 236/236,
+      SA-11 337/337, ZSU 91/89.
 
 ## 2. Strike routes
 

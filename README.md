@@ -129,8 +129,9 @@ specification.
 - **Verified:** the 77-base table matches the original on side, type, name and
   position; the area order is identical; replaying a captured timestamp
   reproduces the three start-clock draws (`WORLD_STATUS 0 0 0 2 16 336`) and
-  the thousand digit of all 72 valued targets; the ground roster regenerates
-  to 2526 units against the capture's 2519; 26/26 CAP airfields and 8/8
+  the thousand digit of all 72 valued targets; the two-pass ground roster
+  reproduces 2519 units exactly and 510 of 543 area compositions; 26/26 CAP
+  airfields and 8/8
   support airfields match the captured basing; and
   the flyable airframe types used are 617 against the capture's 612. Escorts
   now take the remaining airframes at their airfield (1–4 ships), matching the

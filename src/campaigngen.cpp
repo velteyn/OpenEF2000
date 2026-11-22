@@ -985,64 +985,82 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                                                             : scenario.mobiles;
     // Ground order of battle. A fresh campaign regenerates every ground unit
     // from the area's defence groups; later turns carry the previous roster
-    // forward. Each group draws one type selector and places one to three
-    // units; a unit is a SAM of that type or a BEDFORD truck.
+    // forward. The original calls 0xbd96c twice: the first roster is built and
+    // discarded, the side/victory evaluation runs, and the second roster is
+    // the one written. The first pass therefore belongs to the RNG stream.
     if (previous == nullptr) {
         auto low16 = [](CampaignRng& r) {
             return static_cast<int>((r.next() >> 16) & 0xFFFFu);
         };
         std::map<int, ScenarioMobile> templates;
-        int next_id = 0;
+        int first_id = 0;
         for (const auto& m : state_mobiles) {
             if (m.kind != "GB") continue;
             const int t = ground_type_index(m.type);
             if (t >= 0 && templates.count(t) == 0) templates.emplace(t, m);
-            next_id = std::max(next_id, m.fields[0] + 1);
+            first_id = std::max(first_id, m.fields[0] + 1);
         }
-        std::vector<ScenarioMobile> rebuilt;
-        rebuilt.reserve(state_mobiles.size() + 4096);
+        std::vector<ScenarioMobile> base;
+        base.reserve(state_mobiles.size());
         for (const auto& m : state_mobiles) {
-            if (m.kind != "GB") rebuilt.push_back(m);
+            if (m.kind != "GB") base.push_back(m);
         }
-        for (const auto& area : campaign.areas) {
-            if (area.sites.empty()) continue;
-            const int side = side_code(area.side);
-            if (side < 0) continue;
-            const int groups = static_cast<int>(area.sites.size());
-            const int units = units_per_group(area.type, rng);
-            for (int g = 0; g < groups; ++g) {
-                const int pick = low16(rng) % 10;
-                for (int u = 0; u < units; ++u) {
-                    int type = 0;
-                    if ((low16(rng) & 1) != 0) {
-                        if (side == 0 || side == 2) {
-                            type = pick < 5 ? 14 : (pick < 8 ? 17 : 8);
-                        } else if (side == 1 || side == 3 || side == 4) {
-                            type = pick < 5 ? 23 : (pick < 8 ? 22 : 26);
+        auto build_roster = [&]() {
+            std::vector<ScenarioMobile> rebuilt = base;
+            int next_id = first_id;
+            for (const auto& area : campaign.areas) {
+                if (area.sites.empty()) continue;
+                const int side = side_code(area.side);
+                if (side < 0) continue;
+                const int groups = static_cast<int>(area.sites.size());
+                const int units = units_per_group(area.type, rng);
+                for (int g = 0; g < groups; ++g) {
+                    const int pick = low16(rng) % 10;
+                    for (int u = 0; u < units; ++u) {
+                        int type = 0;
+                        if ((low16(rng) & 1) != 0) {
+                            if (side == 0 || side == 2) {
+                                type = pick < 5 ? 14 : (pick < 8 ? 17 : 8);
+                            } else if (side == 1 || side == 3 || side == 4) {
+                                type = pick < 5 ? 23 : (pick < 8 ? 22 : 26);
+                            }
                         }
+                        ScenarioMobile unit;
+                        const auto it = templates.find(type);
+                        if (it != templates.end()) unit = it->second;
+                        else {
+                            unit.fields = {0, 100, 0, 0, -1, -1, 0, 0, -1, -1,
+                                           0, 0, -1, -1, 0, 0, -1, 0};
+                            unit.has_pilot = true;
+                            unit.pilot.name = "biggles";
+                        }
+                        unit.kind = "GB";
+                        unit.type = kGroundTypes[type];
+                        unit.status = "OK";
+                        unit.side = area.side;
+                        unit.name = "";
+                        unit.fields[0] = next_id++;
+                        unit.pos = Vec3{area.x, area.y, 0};
+                        if (unit.has_pilot) unit.pilot.pos = Vec3{area.x, area.y, 0};
+                        rebuilt.push_back(std::move(unit));
                     }
-                    ScenarioMobile unit;
-                    const auto it = templates.find(type);
-                    if (it != templates.end()) unit = it->second;
-                    else {
-                        unit.fields = {0, 100, 0, 0, -1, -1, 0, 0, -1, -1,
-                                       0, 0, -1, -1, 0, 0, -1, 0};
-                        unit.has_pilot = true;
-                        unit.pilot.name = "biggles";
-                    }
-                    unit.kind = "GB";
-                    unit.type = kGroundTypes[type];
-                    unit.status = "OK";
-                    unit.side = area.side;
-                    unit.name = "";
-                    unit.fields[0] = next_id++;
-                    unit.pos = Vec3{area.x, area.y, 0};
-                    if (unit.has_pilot) unit.pilot.pos = Vec3{area.x, area.y, 0};
-                    rebuilt.push_back(std::move(unit));
                 }
             }
-        }
-        state_mobiles = std::move(rebuilt);
+            return rebuilt;
+        };
+        if (std::getenv("OPENEF2000_DUMP_GROUND") != nullptr)
+            std::fprintf(stderr, "GROUND\tpre\t%08x\n", rng.state());
+        state_mobiles = build_roster();  // first pass, discarded
+        if (std::getenv("OPENEF2000_DUMP_GROUND") != nullptr)
+            std::fprintf(stderr, "GROUND\tpass1\t%08x\n", rng.state());
+        // Between the two calls the side/victory evaluation consumes one draw
+        // per side (nine side codes in the shipped campaign).
+        for (int i = 0; i < 9; ++i) rng.next();
+        if (std::getenv("OPENEF2000_DUMP_GROUND") != nullptr)
+            std::fprintf(stderr, "GROUND\tbetween\t%08x\n", rng.state());
+        state_mobiles = build_roster();  // authoritative second pass
+        if (std::getenv("OPENEF2000_DUMP_GROUND") != nullptr)
+            std::fprintf(stderr, "GROUND\tpass2\t%08x\n", rng.state());
     }
 
     campaign.state_mobiles = state_mobiles;

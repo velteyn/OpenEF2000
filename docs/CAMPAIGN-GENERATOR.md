@@ -701,8 +701,12 @@ comparison, and every generated ground unit is placed on its area.
 
 A fresh campaign **regenerates the whole ground roster** from the target areas
 (`0xbd96c`); `CONFLICT.CG` ground mobiles are discarded. Later turns carry the
-previous roster in `CAMPAIGN.CG`. The generator allocates one group per
-defence site:
+previous roster in `CAMPAIGN.CG`. The routine is called **twice**
+(`0xbee2f` and `0xbf1e8`): the first roster is built and discarded, the
+side/victory evaluation consumes one draw per side (nine in the shipped
+campaign), and the second roster is the one written. The first pass therefore
+belongs to the shared RNG stream and cannot be skipped. The generator
+allocates one group per defence site:
 
 1. `groups` = sites whose kind byte is `0xFF`, plus `0xFE` entries when the
    area class is not `'I'`/`'O'` (`0xda678`).
@@ -719,7 +723,12 @@ defence site:
 
 This yields the captured totals: ~50% trucks, 50/30/20 type weights by side,
 24 units at an airfield (8 groups × 3), 3 or 6 at a town (3 groups × 1..2),
-4 or 8 at a bridge (4 groups × 1..2), 1 or 2 at a tunnel or EWR site.
+4 or 8 at a bridge (4 groups × 1..2), 1 or 2 at a tunnel or EWR site. The
+double pass reproduces **2519 ground units exactly** and the **composition of
+510 of 543 areas**; the 33 residuals are class 63 (29 EWR sites) and the four
+special stations 192/194/195 plus one class-101 town. Set
+`OPENEF2000_DUMP_GROUND=1` to print the RNG state before, between and after
+the two passes.
 
 The supershapes of the static town models (`v_*`, `f_*`, `ctydoc_i`,
 `tun_*`, `s_*`) are not shipped in either archive. The generator falls back to
@@ -744,28 +753,34 @@ of the format:
 3. **Difficulty marker (`0xbeabc`).** Draws `AX >> 1` until
    `DIFFICULTY + d % 3 - 1` is outside `{3, 5, 6}`. The rejected draws still
    advance the stream.
-4. **Ground roster (`0xbd96c`).** One unit-size draw per area (for random
-   classes), then one type draw and one per-unit draw per group.
-5. **Tasking and routes.** The remaining draws build CAP boxes, corridors and
+4. **First ground roster (`0xbd96c`).** One unit-size draw per area (for
+   random classes), then one type draw and one per-unit draw per group. Its
+   output is discarded but its draws advance the stream.
+5. **Side/victory evaluation (`0xbe900`/`0xbe968`/`0xbe7c4`).** One draw per
+   side — nine in the shipped campaign.
+6. **Second ground roster (`0xbd96c`).** The same sequence again; this is the
+   roster that is written.
+7. **Tasking and routes.** The remaining draws build CAP boxes, corridors and
    flight details.
 
-The clock and value phases are now exact. The ground roster's **unit counts
-per area do not yet track the same stream** (fixed-size classes such as
-airfields match 100%, random-size classes match at chance level), so one
-draw-consuming phase between `0xbeabc` and `0xbd96c` is still unaccounted for.
+The clock, value and ground phases are now exact. With the seed
+`829929601` the first pass starts after 76 draws, ends at 4449, the nine
+inter-pass draws land on 4458, and the second pass starts there. Its unit
+types match the capture in 510 of 543 areas.
 
 ### 8.3c Air-defence measurements
 
 | | Captured | Generated |
 |---|---:|---:|
-| Air-defence missions | 476 | 494 |
-| Vulcan units | 73 | 94 |
-| Patriot units | 193 | 198 |
-| Rapier units | 59 | 51 |
-| SA-6 units | 236 | 225 |
-| SA-11 units | 337 | 342 |
-| ZSU-23-4 units | 89 | 80 |
-| Ground units, all types | 2519 | ~2540 |
+| Air-defence missions | 476 | 479 |
+| Vulcan units | 73 | 75 |
+| Patriot units | 193 | 191 |
+| Rapier units | 59 | 59 |
+| SA-6 units | 236 | 236 |
+| SA-11 units | 337 | 337 |
+| ZSU-23-4 units | 89 | 91 |
+| Ground units, all types | 2519 | **2519** |
+| Ground compositions exact | — | **510 / 543 areas** |
 
 ### 8.4 Tasking totals
 
@@ -864,15 +879,15 @@ Verified against captured runs. Two comparisons:
 | Target values (thousands digit) | **72/72 valued draws** | carried forward |
 | Replay parameter | `--campaign-seed <header>` `--campaign-offset 0` | same |
 | World status | **0 0 0 2 16 336 exact** | carried forward |
-| Ground units | 2526 vs 2519 | carried forward |
-| Air-defence missions | 494 vs 476 | 476 vs 476 |
+| Ground units | **2519 vs 2519** | carried forward |
+| Air-defence missions | 479 vs 476 | 476 vs 476 |
 | Air missions | 229 vs 226 | 229 vs 226 |
 | Sea supply | 13 vs 13 | 13 vs 13 |
 | Flights | 265 vs 263 | 265 vs 263 |
 | FLAK boxes | 99 vs 83 | 99 vs 83 |
 
-Group totals now match within four units (Vulcan 73/73, Rapier 43/43,
-SA-6 232/232, Patriot 197/193, SA-11 377/374, ZSU 63/65). The second column
+Group totals now match within two units (Vulcan 75/73, Rapier 59/59,
+SA-6 236/236, Patriot 191/193, SA-11 337/337, ZSU 91/89). The second column
 uses a state whose units had already been converted, so its larger spread is
 the missing attrition pass, not the tasking.
 
