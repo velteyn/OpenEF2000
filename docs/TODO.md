@@ -124,14 +124,14 @@ table unlocks:
       36 SU35 + 12 SU25 OK). So the difference is in the two internal
       capacity arrays (`base+0x33`/`+0x37`), not in which aircraft are based.
       The site class byte `+0x2e` is parsed from the binary target block, not
-      `CONFLICT.CG` text, so it still needs a format reader. A useful fit:
-      counting **total OK** aircraft of the eligible types (not subtractive
-      "unused") gives Vaernes 36 SU35 + 12 SU34 = 48 -> 3, and Orland 36 SU35
-      (SU25 excluded) -> 2, exactly the capture. NATO does not fit /16 — Rygge
-      (type 47) has five packages — so the divisor/eligibility list does vary
-      by site type, which is what the `+0x2e` byte selects. Next: read that
-      byte per type from the binary target block, then apply the matching
-      divisor.
+      `CONFLICT.CG` text, so it still needs a format reader. Every airfield
+      holds exactly 49 OK aircraft, so *total* capacity cannot explain the
+      package counts (Rygge 5, Gardemoen 1, Molde 3, Vaernes 3, Orland 2).
+      The quota must sum a per-base subset of types; the Russian /16 fit
+      (48 -> 3, 36 -> 2) is only valid once that subset is known. The decisive
+      input is mapping the type ids from `0x109d44` (e.g. `6,3,%...`) to
+      aircraft types, then testing `clamp(sum(eligible)/16, 0, 8)` per base.
+      The `+0x2e` byte (binary target block) selects the list.
 
 ## 4. GUI
 
