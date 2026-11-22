@@ -92,6 +92,7 @@ void usage() {
         "  --did-entry N       print decoded archive entry N\n"
         "  --did-text          list entries that hold plain text\n"
         "  --did-name PATH     print an archive entry by canonical path\n"
+        "  --did-write N FILE  write decoded archive entry N to FILE\n"
         "  --gui-scale N       whole-pixel window scale (default: fit the desktop)\n"
         "  --gui-window NAME   open this window before rendering\n");
 }
@@ -1682,6 +1683,7 @@ int main(int argc, char** argv) {
     int did_entry = -1;
     bool did_text = false;
     std::string did_name;
+    std::string did_write;
     int gui_scale = 0;
     bool gui_list = false;
     bool gui_routines = false;
@@ -1758,6 +1760,10 @@ int main(int argc, char** argv) {
             did_text = true;
         } else if (std::strcmp(argv[i], "--did-name") == 0 && i + 1 < argc) {
             did_name = argv[++i];
+        } else if (std::strcmp(argv[i], "--did-write") == 0 && i + 2 < argc) {
+            did_write = argv[++i];
+            did_write += "\n";
+            did_write += argv[++i];
         } else if (std::strcmp(argv[i], "--gui-window") == 0 && i + 1 < argc) {
             gui_window = argv[++i];
         } else if (std::strcmp(argv[i], "--gui-list") == 0) {
@@ -1861,7 +1867,7 @@ int main(int argc, char** argv) {
         !render_path.empty() || gui_list || !gui_screen.empty() ||
         !gui_render.empty() || !dump_palette.empty() || !gui_raw.empty() ||
         !did_find.empty() || did_entry >= 0 || did_text || !did_name.empty() ||
-        gui_routines ||
+        !did_write.empty() || gui_routines ||
         gui_dump || gui_selftest || boot || !conflict_path.empty() ||
         !conflict_out.empty() || !campaign_src.empty() || !campaign_state.empty() ||
         !campaign_out.empty() || !mission_in.empty() || !mission_out.empty() ||
@@ -2335,7 +2341,8 @@ int main(int argc, char** argv) {
     }
 
     if (gui_list || !gui_screen.empty() || !dump_palette.empty() || !gui_raw.empty() ||
-        !did_find.empty() || did_entry >= 0 || did_text || !did_name.empty()) {
+        !did_find.empty() || did_entry >= 0 || did_text || !did_name.empty() ||
+        !did_write.empty()) {
         namespace fs = std::filesystem;
         // EF2000 ships two archives. DID1ST.DAT holds the later, larger GUI
         // set (missplan, summary, custom, directp, intro) and the campaign
@@ -2351,6 +2358,25 @@ int main(int argc, char** argv) {
             return 1;
         }
         ef::DidArchive did(archive_path);
+        if (!did_write.empty()) {
+            const auto nl = did_write.find('\n');
+            const int index = std::atoi(did_write.substr(0, nl).c_str());
+            const std::string path = did_write.substr(nl + 1);
+            if (index < 0 || index >= static_cast<int>(did.entries().size())) {
+                std::fprintf(stderr, "entry %d out of range\n", index);
+                return 1;
+            }
+            auto bytes = did.read(did.entries()[static_cast<std::size_t>(index)]);
+            if (!bytes) {
+                std::fprintf(stderr, "cannot decode entry %d\n", index);
+                return 1;
+            }
+            std::ofstream out(path, std::ios::binary);
+            out.write(reinterpret_cast<const char*>(bytes->data()),
+                      static_cast<std::streamsize>(bytes->size()));
+            std::printf("wrote %s (%zu bytes)\n", path.c_str(), bytes->size());
+            return 0;
+        }
         if (!did_name.empty()) {
             auto entry = did.lookup(did_name);
             if (!entry) {
