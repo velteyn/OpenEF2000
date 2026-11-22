@@ -832,11 +832,11 @@ tasking RNG order, not just the formula.
 The generator now builds this timetable: two-minute rows over the eight-hour
 turn, takeoff and landing rows reserved, CAP sorties alternating between the
 two 252-minute waves, and rows beyond the window omitted except for a takeoff
-whose landing falls outside it. It writes 425 rows against the capture's 450.
+whose landing falls outside it. It writes 424 rows against the capture's 450.
 All 162 CAP takeoffs land at the right hour (81 at 0:00, 81 at 4:xx) and
-116/162 at the exact minute; the minute offsets come from the CAP sortie
-duration, which the capture varies per base (252/254/256/258 minutes) while
-we still use a flat 252. Strike and interdiction preferred times remain
+**150/162 at the exact minute**; each successive CAP sortie is one slot longer
+(252/254/256/258 minutes for a two-minute base), which spaces the landings
+and leaves the intermediate slots free for the second wave. Strike and interdiction preferred times remain
 approximate: they use our wave offset instead of the decoded target-arrival
 formula.
 

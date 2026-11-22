@@ -2252,6 +2252,11 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 } else {
                     preferred = wave_start + within * spacing + f * 2;
                 }
+                // The capture lengthens each successive CAP sortie by one
+                // slot, which spaces the landings and leaves room for the
+                // second wave.
+                if (role == "CAP")
+                    duration = 252 + kSlotMinutes * (cap_sortie / 2);
                 const int takeoff = reserve(preferred, duration);
                 if (takeoff < 0) continue;
                 const int landing = align_slot(takeoff + duration);

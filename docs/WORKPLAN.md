@@ -21,10 +21,10 @@ long-term gaps; this file is updated as each step lands, in the spirit of the
       constants and RNG jitter (`0xc3bd4`, `0xc45cc`).
 - [x] Implement the per-base timetable and reservation: 2-minute rows, 8-hour
       window, CAP alternating waves, takeoff/landing rows reserved.
-- [x] CAP parity: 162/162 takeoffs at the right hour, 116/162 at the exact
-      minute, 425 rows against 450.
-- [ ] Vary the CAP sortie duration per base (capture 252/254/256/258 instead
-      of a flat 252), then decode the strike target-arrival preferred time.
+- [x] CAP parity: 162/162 takeoffs at the right hour, 150/162 at the exact
+      minute, 424 rows against 450.
+- [ ] Decode the strike target-arrival preferred time; the remaining 12 CAP
+      minute offsets are base-specific (the 1-minute Russian base).
 - [ ] Determine the timetable window (24 hours?) and its tie to the campaign
       clock (`0 0 0 2 16 336`).
 - [ ] Implement the scheduler in `src/campaigngen.cpp`.
