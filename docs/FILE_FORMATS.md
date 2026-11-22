@@ -732,6 +732,19 @@ the package quota.
 The id table also matches the `MOB`/`FLIGHT` type names one-for-one, so a
 consumer can translate both ways without guessing.
 
+For the mission code `3` used by the quota call (`0xcc8bc` is invoked with
+`DL=3`, `AX=2`), `0x109d44` selects the list by the base's side byte
+(`base+0xb`):
+
+| Side class | List |
+|---:|---|
+| 0 NATO | `1,5,4,8,2,3,4,0` = F14, F22, F18, SEA_HARRIER, F15, F16, F18, EFA |
+| 1 RUSSIAN | `11,10,9,20,21,13,14,12` = SU35, SU33, SU27, TU26, SU34, MIG27, MIG29, MIG21 |
+
+Both arrays fill all eight slots (no `'%'`), so all eight types count. SU25 is
+**not** in the Russian list, which is why Orland's twelve SU25s never enter the
+airfield-denial quota.
+
 ## Unverified and open questions
 
 | Item | Status |

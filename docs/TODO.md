@@ -133,9 +133,15 @@ table unlocks:
       FILE_FORMATS §F11: 0 EFA, 3 F16, 6 JAS39, 11 SU35, 13 MIG27, 17 F111R,
       18 TORNADO, 21 SU34, 23 SU25, ...). `0x109d44` selects the list from two
       bytes (a class 0..5 and a mission code), e.g. `{6,3}`, `{13,12}`,
-      `{3,5,9,17}`, `{0,1,17,17}`, `{12,11,17,17}`. Next: identify the two
-      selector bytes at the `0xcc8bc` call site, then test
-      `clamp(sum(eligible)/16, 0, 8)` per base.
+      `{3,5,9,17}`, `{0,1,17,17}`, `{12,11,17,17}`. The selector bytes are now
+      identified: `0xcc8bc` is called with mission code `DL=3` and side byte
+      `base+0xb`. The Russian list for that code is SU35, SU33, SU27, TU26,
+      SU34, MIG27, MIG29, MIG21 — SU25 is absent, so Orland's SU25s do not
+      count and 36 -> 2 while Vaernes 48 -> 3 under /16, exactly the capture.
+      The NATO list is F14, F22, F18, SEA_HARRIER, F15, F16, F18, EFA; Rygge
+      still needs five packages from 49 aircraft, so its divisor differs from
+      /16. Next: read `base+0x4e` per base type to get the divisor (the
+      Russian airfields use mode 2).
 
 ## 4. GUI
 
