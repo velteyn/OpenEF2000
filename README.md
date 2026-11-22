@@ -128,8 +128,10 @@ specification.
   also writes into the file header, so a captured run can be replayed offline.
 - **Verified:** the 77-base table matches the original on side, type, name and
   position; the area order is identical; replaying a captured timestamp
-  reproduces the thousands digit of all 543 target values with zero mismatches;
-  26/26 CAP airfields and 8/8 support airfields match the captured basing; and
+  reproduces the three start-clock draws (`WORLD_STATUS 0 0 0 2 16 336`) and
+  the thousand digit of all 72 valued targets; the ground roster regenerates
+  to 2526 units against the capture's 2519; 26/26 CAP airfields and 8/8
+  support airfields match the captured basing; and
   the flyable airframe types used are 617 against the capture's 612. Escorts
   now take the remaining airframes at their airfield (1–4 ships), matching the
   captured size mix, and all seven support escorts are four-ship.
@@ -407,6 +409,8 @@ Examples:
 ./build/openef2000 --data "/path/to/game-data" --did-text
 ./build/openef2000 --data "/path/to/game-data" --did-name "cfg\arcpro.txt"
 ./build/openef2000 --data "/path/to/game-data" --did-write 57 /tmp/target-table.bin
+./build/openef2000 --data "/path/to/game-data" --did-scan v_amytwn
+./build/openef2000 --data "/path/to/game-data" --ssd-find 145,-305
 ./build/openef2000 --data "/path/to/game-data" --did-find "Emergency intercept"
 ```
 

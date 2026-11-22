@@ -331,15 +331,97 @@ bool is_port_type(int type) {
     return (type >= 90 && type <= 95) || (type >= 205 && type <= 207);
 }
 
-//! Number of defence slots per installation class. Airfields and the larger
-//! naval installations carry eight (two passes of the four-class cycle); the
-//! big towns carry three; everything else one.
+//! Number of defence slots per installation class. The value is the number of
+//! site records in the installation's supershape whose kind is a defence
+//! point; the generator makes one ground group per such record.
 int site_count_for_type(int type) {
     if (is_airfield_type(type)) return 8;
-    if (type == 127 || type == 204) return 8;
-    if (type == 142 || type == 143) return 1;
-    if (type >= 96) return 3;
+    switch (type) {
+        case 63: return 1;                       // early-warning site
+        case 91: return 2;                       // supply dock
+        case 127: return 4;                      // bridge
+        case 142: case 143: return 1;            // road/rail tunnel
+        case 192: return 1;                      // minor air station
+        case 193: return 3;                      // Stockholm-type station
+        case 194: return 1;
+        case 195: return 4;                      // Helsinki-type station
+        case 204: return 5;                      // city documentation
+        // No supershape sites: oil platforms and the political targets.
+        case 79: case 159: case 207: return 0;
+        default: break;
+    }
+    if (type >= 96 && type <= 111) return 3;     // towns
     return 1;
+}
+
+//! Model-space defence offsets for the installation classes whose supershape
+//! is not shipped in the archives. The order is the slot order used by the
+//! air-defence loop (slot 0, 1, 2, ...). Measured from a fixed-clock capture,
+//! normalised back to heading zero; the caller rotates them per area.
+const std::vector<std::pair<int, int>>* fallback_sites_for_type(int type) {
+    static const std::vector<std::pair<int, int>> kEarly{{-206, -251}};
+    static const std::vector<std::pair<int, int>> kPort90{{199, 836}};
+    static const std::vector<std::pair<int, int>> kPort91{{-194, 423}, {-119, 547}};
+    static const std::vector<std::pair<int, int>> kPort92{{196, 664}};
+    static const std::vector<std::pair<int, int>> kPort93{{241, 663}};
+    static const std::vector<std::pair<int, int>> kPort94{{177, 828}};
+    static const std::vector<std::pair<int, int>> kPort95{{-419, 269}};
+    static const std::vector<std::pair<int, int>> kSuptwn{{-162, 177}, {-193, 556}, {58, 686}};
+    static const std::vector<std::pair<int, int>> kOiltwn{{-6, 463}, {16, -29}, {-94, 46}};
+    static const std::vector<std::pair<int, int>> kPwrtwn{{9, -580}, {130, -1010}, {-52, -982}};
+    static const std::vector<std::pair<int, int>> kPoltwn{{-121, 638}, {-106, -81}, {-236, -77}};
+    static const std::vector<std::pair<int, int>> kC4twn{{-142, -181}, {-253, -623}, {-150, -571}};
+    static const std::vector<std::pair<int, int>> kAmytwn{{38, 489}, {130, 870}, {-19, 881}};
+    static const std::vector<std::pair<int, int>> kBridge{
+        {145, -305}, {-502, -231}, {448, 211}, {-609, 214}};
+    static const std::vector<std::pair<int, int>> kTunnel{{0, 0}};
+    static const std::vector<std::pair<int, int>> kStpete{{384, 799}};
+    static const std::vector<std::pair<int, int>> kStock{
+        {1658, 739}, {1658, 739}, {-104, 511}};
+    static const std::vector<std::pair<int, int>> kHelsin{
+        {414, 881}, {761, -294}, {761, -294}, {414, 881}};
+    static const std::vector<std::pair<int, int>> kCtydoc{
+        {248, 723}, {-688, -428}, {-595, 521}, {427, -747}, {248, 723}};
+    switch (type) {
+        case 63: return &kEarly;
+        case 90: return &kPort90;
+        case 91: return &kPort91;
+        case 92: return &kPort92;
+        case 93: return &kPort93;
+        case 94: return &kPort94;
+        case 95: return &kPort95;
+        case 96: case 106: return &kSuptwn;
+        case 97: case 107: return &kOiltwn;
+        case 98: case 108: return &kPwrtwn;
+        case 99: case 109: return &kPoltwn;
+        case 100: case 110: return &kC4twn;
+        case 101: case 111: return &kAmytwn;
+        case 127: return &kBridge;
+        case 142: case 143: return &kTunnel;
+        case 192: return &kStpete;
+        case 193: return &kStock;
+        case 194: return &kTunnel;
+        case 195: return &kHelsin;
+        case 204: return &kCtydoc;
+        default: return nullptr;
+    }
+}
+
+//! Units the generator places in one defence group. The installation class
+//! byte decides: `1`, `2`, `H` and `I` give three, `V` gives two, and the rest
+//! draw one or two. Only the classes observed in the shipped scenario are
+//! represented here by their numeric target code.
+int units_per_group(int type, CampaignRng& rng) {
+    if (is_airfield_type(type)) return 3;
+    switch (type) {
+        case 90: case 91: case 92: case 93: case 94: case 95:
+        case 205: case 206: case 207:
+            return 3;
+        case 192: case 193: case 195: case 204:
+            return 2;
+        default:
+            return 1 + static_cast<int>((rng.next() >> 16) & 1u);
+    }
 }
 
 const char* const kStampFormat = "%a %b %e %H:%M:%S %Y";
@@ -625,6 +707,14 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         campaign.world_status = {settings.world_status[0], settings.world_status[1],
                                  settings.world_status[2], settings.world_status[3],
                                  settings.clock[0], settings.clock[1]};
+        // A fresh campaign draws the clock from the same generator: day phase
+        // (`% 3`), minute of day (`% 360`) and day (`% 46`), in that order.
+        auto aa900 = [&]() {
+            return static_cast<int>(((rng.next() >> 16) & 0xFFFFu) >> 1);
+        };
+        campaign.world_status[3] = aa900() % 3;
+        campaign.world_status[5] = aa900() % 360;
+        campaign.world_status[4] = aa900() % 46;
     }
     for (int i = 0; i < settings.advance_steps; ++i) {
         advance_campaign_clock(&campaign.world_status);
@@ -715,6 +805,21 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
         area.map_cell = area.x / 40 + (area.y / 40) * 10;
     }
+    // The generator then draws a first-turn marker until it lands outside
+    // {3,5,6}; the rejected draws still advance the shared stream.
+    {
+        auto aa900 = [&]() {
+            return static_cast<int>(((rng.next() >> 16) & 0xFFFFu) >> 1);
+        };
+        int marker = 0;
+        do {
+            int value = settings.difficulty + (aa900() % 3) - 1;
+            if (value > 9) value = 9;
+            if (value < 0) value = marker;
+            marker = value;
+        } while (marker == 3 || marker == 5 || marker == 6);
+    }
+
     for (auto& area : campaign.areas) {
         if (area.side.empty()) {
             area.side = inherit_side(area.name, area.x, area.y, campaign.areas);
@@ -798,14 +903,10 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             if (label.kind < 106 && label.kind != 56) candidates.push_back(&label);
         }
         if (candidates.empty()) continue;
-        // The original shuffles the element list before taking the first few,
-        // which is why neighbouring installations expose different subsets.
-        for (std::size_t i = candidates.size(); i > 1; --i) {
-            const std::size_t j =
-                static_cast<std::size_t>(rng.range(static_cast<int>(i)));
-            std::swap(candidates[i - 1], candidates[j]);
-        }
-        const int want = 2 * (1 + rng.range(3));
+        // The element subset is a stable property of the installation, so it
+        // must not consume random numbers: the campaign RNG stream is shared
+        // with every later phase.
+        const int want = 2 * (1 + static_cast<int>((area.x + area.y) % 3));
         const int n = std::min<int>(want, static_cast<int>(candidates.size()));
         for (int i = 0; i < n; ++i) {
             AreaElement element;
@@ -823,6 +924,27 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         // full four-slot ring (Vulcan, Roland, Patriot, Rapier -- or SA-6,
         // SA-11, SA-11, ZSU), larger installations three, outlying sites one.
         const int count = site_count_for_type(area.type);
+        // Installations whose supershape is not in the archives still carry a
+        // fixed set of defence offsets; the measured per-class table stands in
+        // for the supershape labels.
+        if (!is_airfield_type(area.type)) {
+            const auto* fallback = fallback_sites_for_type(area.type);
+            if (fallback != nullptr && !fallback->empty()) {
+                for (int i = 0; i < count; ++i) {
+                    const auto& base_off =
+                        (*fallback)[static_cast<std::size_t>(i) % fallback->size()];
+                    DefenceSite site;
+                    int ox = base_off.first;
+                    int oy = base_off.second;
+                    rotate_by_heading(area.heading, &ox, &oy);
+                    site.off_x = ox;
+                    site.off_y = oy;
+                    site.health = 100;
+                    area.sites.push_back(site);
+                }
+                continue;
+            }
+        }
         std::vector<const SsLabel*> ring;
         if (const auto it = model_labels.find(area.model); it != model_labels.end()) {
             for (const auto& label : it->second) {
@@ -839,24 +961,17 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 site.off_x = ox;
                 site.off_y = oy;
                 site.health = 100;
-                site.a = rng.between(0, 2047);
-                site.b = rng.between(0, 2047);
                 area.sites.push_back(site);
             }
             continue;
         }
-        const double base_angle = static_cast<double>(rng.between(0, 359));
         for (int i = 0; i < count; ++i) {
             DefenceSite site;
-            const double angle = base_angle + 90.0 * i +
-                                 static_cast<double>(rng.between(-20, 20));
-            const double radius = static_cast<double>(rng.between(8, 12));
-            const double radians = angle * 3.14159265358979323846 / 180.0;
-            site.off_x = static_cast<int>(std::lround(std::cos(radians) * radius * 64.0));
-            site.off_y = static_cast<int>(std::lround(std::sin(radians) * radius * 64.0));
+            const double radians =
+                (90.0 * static_cast<double>(i) + 45.0) * 3.14159265358979323846 / 180.0;
+            site.off_x = static_cast<int>(std::lround(std::cos(radians) * 640.0));
+            site.off_y = static_cast<int>(std::lround(std::sin(radians) * 640.0));
             site.health = 100;
-            site.a = rng.between(0, 2047);
-            site.b = rng.between(0, 2047);
             area.sites.push_back(site);
         }
     }
@@ -865,9 +980,71 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
     //    previous campaign state; CONFLICT.CG only seeds the first campaign.
     //    Ground mobiles feed the air-defence pool, air mobiles the flight
     //    tasking and ships the convoys.
-    const std::vector<ScenarioMobile>& state_mobiles =
+    std::vector<ScenarioMobile> state_mobiles =
         (previous != nullptr && !previous->mobiles.empty()) ? previous->mobiles
                                                             : scenario.mobiles;
+    // Ground order of battle. A fresh campaign regenerates every ground unit
+    // from the area's defence groups; later turns carry the previous roster
+    // forward. Each group draws one type selector and places one to three
+    // units; a unit is a SAM of that type or a BEDFORD truck.
+    if (previous == nullptr) {
+        auto low16 = [](CampaignRng& r) {
+            return static_cast<int>((r.next() >> 16) & 0xFFFFu);
+        };
+        std::map<int, ScenarioMobile> templates;
+        int next_id = 0;
+        for (const auto& m : state_mobiles) {
+            if (m.kind != "GB") continue;
+            const int t = ground_type_index(m.type);
+            if (t >= 0 && templates.count(t) == 0) templates.emplace(t, m);
+            next_id = std::max(next_id, m.fields[0] + 1);
+        }
+        std::vector<ScenarioMobile> rebuilt;
+        rebuilt.reserve(state_mobiles.size() + 4096);
+        for (const auto& m : state_mobiles) {
+            if (m.kind != "GB") rebuilt.push_back(m);
+        }
+        for (const auto& area : campaign.areas) {
+            if (area.sites.empty()) continue;
+            const int side = side_code(area.side);
+            if (side < 0) continue;
+            const int groups = static_cast<int>(area.sites.size());
+            const int units = units_per_group(area.type, rng);
+            for (int g = 0; g < groups; ++g) {
+                const int pick = low16(rng) % 10;
+                for (int u = 0; u < units; ++u) {
+                    int type = 0;
+                    if ((low16(rng) & 1) != 0) {
+                        if (side == 0 || side == 2) {
+                            type = pick < 5 ? 14 : (pick < 8 ? 17 : 8);
+                        } else if (side == 1 || side == 3 || side == 4) {
+                            type = pick < 5 ? 23 : (pick < 8 ? 22 : 26);
+                        }
+                    }
+                    ScenarioMobile unit;
+                    const auto it = templates.find(type);
+                    if (it != templates.end()) unit = it->second;
+                    else {
+                        unit.fields = {0, 100, 0, 0, -1, -1, 0, 0, -1, -1,
+                                       0, 0, -1, -1, 0, 0, -1, 0};
+                        unit.has_pilot = true;
+                        unit.pilot.name = "biggles";
+                    }
+                    unit.kind = "GB";
+                    unit.type = kGroundTypes[type];
+                    unit.status = "OK";
+                    unit.side = area.side;
+                    unit.name = "";
+                    unit.fields[0] = next_id++;
+                    unit.pos = Vec3{area.x, area.y, 0};
+                    if (unit.has_pilot) unit.pilot.pos = Vec3{area.x, area.y, 0};
+                    rebuilt.push_back(std::move(unit));
+                }
+            }
+        }
+        state_mobiles = std::move(rebuilt);
+    }
+
     campaign.state_mobiles = state_mobiles;
     campaign.mobiles.reserve(state_mobiles.size());
     for (std::size_t i = 0; i < state_mobiles.size(); ++i) {
@@ -2079,9 +2256,8 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
         }
     }
 
-    // The trailing WORLD_STATUS words carry the generator's RNG state.
-    campaign.world_status[4] = static_cast<int>(rng.state() >> 16);
-    campaign.world_status[5] = static_cast<int>(rng.state() & 0xFFFFu);
+    // WORLD_STATUS[3..5] are the start clock drawn at campaign creation
+    // (phase marker, day and minute of day); they are not the final RNG state.
     campaign.outcome = evaluate_campaign(campaign);
     campaign.counts = count_missions(campaign.missions);
     campaign.counts.missions = mission_id;

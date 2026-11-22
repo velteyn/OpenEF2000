@@ -66,15 +66,18 @@ Generation follows these phases:
 3. **Base and port construction.** Create the fixed set of airfields and ports,
    count the mobiles assigned to each, and build their 24-hour timeslot
    schedules.
-4. **Air-defence tasking.** For each target area with an air-defence site
+4. **Ground order of battle.** On a fresh campaign, replace the scenario's
+   ground units with one group per defence site, drawing each unit's type from
+   the side's anti-air mix (section 8.3a).
+5. **Air-defence tasking.** For each target area with an air-defence site
    list, allocate sites and build `GBASED` / `AIR_DEFENSE` missions.
-5. **Strike, patrol and ship tasking.** Build `PLANE` and `SHIP` missions and
+6. **Strike, patrol and ship tasking.** Build `PLANE` and `SHIP` missions and
    their `FLIGHT`/`PYLON`/route records.
-6. **Pilot assignment.** Attach pilots to flights.
-7. **Linking and validation.** Match sites to target areas, set target
+7. **Pilot assignment.** Attach pilots to flights.
+8. **Linking and validation.** Match sites to target areas, set target
    values, drop invalid or unassigned records, and enforce the victory/defeat
    checks.
-8. **Write.** Rewrite `CAMPAIGN.CG` and `MISSION.CFG`.
+9. **Write.** Rewrite `CAMPAIGN.CG` and `MISSION.CFG`.
 
 The UI wrapper (`0x1b2a8`) also performs the post-generation screen setup, so
 a failed generation leaves the campaign screen open rather than launching a
@@ -199,16 +202,17 @@ Rules:
   previous thousand (982 gives 4982, not 5982).
 * Rigs (type 79) and supply towns (159) are never valued; they stay at 1000.
 
-The shell consumes a few draws of its own before generation starts. That count
-varies with the session (three in most captured runs, zero in one), so it is a
-replay parameter (`--campaign-offset`), not a generator rule.
+Before the value pass a fresh campaign consumes **three clock draws**
+(`0xbe068`): `WORLD_STATUS[3] = d1 % 3`, `[4] = d3 % 46`, `[5] = d2 % 360`
+with `d = AX >> 1`. The fixed-clock capture's `0 0 0 2 16 336` is reproduced
+exactly, so this is a generator phase, not a shell offset. `--campaign-offset`
+remains as a diagnostic skip only; a replay uses `0`.
 
 Verification: replaying a captured run's timestamp as the seed reproduces the
-**thousands digit of all 543 areas with zero mismatches**, for all four
-captures, and the area order is identical. A fresh first-campaign capture
-(TACTCOM, header `1795287949`) confirms the rule again: at offset 3 the draw
-digit matches **542 of 543** areas, the single exception being the area whose
-`site` is exactly 1000 and therefore makes the digit ambiguous.
+draw of **all 72 valued areas**: each capture value lies in the drawn thousand
+or the previous one (`capture // 1000` equals `d` or `d - 1`), the difference
+being the site damage. The area order is identical. An independent first
+campaign capture (TACTCOM, header `1795287949`) follows the same rule.
 
 The remaining difference is the low `site` component. It is `1000 - damage`,
 and the damage is not drawn in the value loop. In the fresh capture it depends
@@ -317,22 +321,26 @@ are the main remaining open item for byte-exact reproduction.
 ### 5.2 Air-defence tasking
 
 `GBASED` / `AIR_DEFENSE` missions are generated from each target area's site
-list:
+list. The loop is `0xda738`:
 
 * each site record is 21 bytes; the list length is carried by the target
-  area record;
-* sites are filtered by class and by the owning side;
-* each airfield position gets a **PATRIOT** and a **RAPIER** mission in the
-  sampled runs (e.g. Vaxjo: 9 Patriot and 6 Rapier mobiles become 7 and 4);
-* the reduction from the mobile count is the readiness/assignment filter; the
-  counts vary with the state and the RNG;
-* adjacent sites are placed a site-dependent step apart (8/9 in the sampled
-  data);
-* the site classes map to the observed group types (SA-11, SA-6, Patriot,
-  Rapier, Vulcan, ZSU-23-4, Shilka, EWR);
-* the mission count therefore varies with the site list and the RNG.
+  area record (`+0x2a`). Sites are copied in list order, so list index *s* is
+  slot *s*;
+* the slot counter increments before use and wraps at four: west
+  `Vulcan, Roland, Patriot, Rapier`; east `SA-6, SA-11, SA-11, ZSU-23-4`;
+* the available count is the number of unused ground mobiles of the slot's
+  type at the area's exact coordinate and side;
+* if 9 or more remain, the mission carries eight and the next slot continues;
+  if 1..8 remain, the mission carries the remainder; at zero the slot is
+  skipped;
+* each consumed mobile is marked tasked, so later slots of the same type find
+  none and are skipped.
 
-Observed range: **481–502** air-defence missions.
+The mission count is therefore a function of the site list and the generated
+ground roster, not a fixed per-site count. A captured run has **476**
+air-defence missions; the current generator produces 494 with almost the same
+unit totals (987 vs 990 SAM units). The remaining spread is the RNG stream
+position (below).
 
 ### 5.3 Strike targets and packages
 
@@ -651,55 +659,113 @@ settled; the measured rule matches both fresh captures exactly (35/35).
 ### 8.3 Defence slots and the mobile link
 
 Every area carries a defence-slot list. Its positions come from the
-installation model: the `.ssd` label table holds 20-byte records, and every
-entry whose kind is `0xFFFF` is one ring position. Slot *s* uses entry *s* of
-that run, rotated by the area's heading. `trond.ssd`, for example, carries
-exactly the eight offsets the captured Vaernes ring uses
-(`-200 -864`, `-703 669`, `190 682`, `233 -734`, …).
+installation supershape (`ss_loadtarg`, `0x4b910`): the label list is preceded
+by a class byte and a 16-bit count (`0x4b948`), and every label whose kind is
+`0xFFFF` is one defence point. The 20-byte `.ssd` records carry the same ring
+for some models; for airfields they match the captured offsets exactly
+(`trond.ssd`: `-200 -864`, `-703 669`, `190 682`, `233 -734`, …).
 
-The slot count follows the class:
+The slot count follows the target class:
 
 | Class | Slots |
 |---|---:|
 | airfields 40..47 | 8 |
-| 127, 204 | 8 |
-| 96..143 (except 142/143) | 3 |
-| everything else, including ports, 63 and 142/143 | 1 |
-
-Eight slots means the four-class cycle runs twice, which is how an area can
-receive a second Patriot or SA-11 mission.
+| 63 (EWR) | 1 |
+| 91 (supply dock) | 2 |
+| 90, 92..95, 205, 206 (ports) | 1 |
+| 96..111 (towns) | 3 |
+| 127 (bridges) | 4 |
+| 142/143 (tunnels) | 1 |
+| 192 | 1 |
+| 193 | 3 |
+| 194 | 1 |
+| 195 | 4 |
+| 204 | 5 |
+| 79, 159, 207 | 0 (no defence sites) |
 
 The slot loop picks a weapon class by counter, not by side alone:
 
-* **Western** (NATO, Swedish, Danish, US, UK): `Rapier, Vulcan, Roland, Patriot`
-* **Eastern** (Russian, Finnish, Baltic): `ZSU-23-4, SA-6, SA-11, SA-11`
+* **Western** (side classes 0 and 2): `Vulcan, Roland, Patriot, Rapier`
+* **Eastern** (side classes 1, 3, 4): `SA-6, SA-11, SA-11, ZSU-23-4`
 
 Slot 0 asks for a Vulcan (west) or SA-6 (east), slot 1 for Roland or SA-11, and
 so on. Roland never appears in the shipped order of battle, so that slot is
-always empty.
+always empty. An eastern airfield therefore produces at most three missions
+(SA-6, SA-11, ZSU) unless the SA-11 pool survives to slot 2.
 
 A ground mobile becomes available to an area when it sits at the **area's exact
-coordinate and on the area's side** — the scenario places every ground group on
-a target coordinate, and this is the coordinate comparison the link pass
-performs. Each slot consumes the available mobiles in chunks of eight: while
-more than eight remain, one mission carries eight; the tail mission carries the
-remainder.
+coordinate and on the area's side** — the link pass is a coordinate
+comparison, and every generated ground unit is placed on its area.
 
-Against a captured state this reproduces the air-defence tasking almost
-exactly:
+### 8.3a Ground order of battle
+
+A fresh campaign **regenerates the whole ground roster** from the target areas
+(`0xbd96c`); `CONFLICT.CG` ground mobiles are discarded. Later turns carry the
+previous roster in `CAMPAIGN.CG`. The generator allocates one group per
+defence site:
+
+1. `groups` = sites whose kind byte is `0xFF`, plus `0xFE` entries when the
+   area class is not `'I'`/`'O'` (`0xda678`).
+2. `units` per group (`0xda6c0`) is fixed by the class byte: `1`, `2`, `H` or
+   `I` gives 3; `V` and `0x0b` give 2; every other class draws `rng % 2 + 1`.
+3. For each group, one draw selects the type (`d = AX % 10`, where `AX` is the
+   low word of the custom RNG's 32-bit result).
+4. For each unit, one draw decides: odd → a SAM of the group's type, even → a
+   `BEDFORD_1` truck.
+5. The SAM type weights are 5/3/2:
+   * west `d < 5` **Patriot**, `5..7` **Rapier**, `8..9` **Vulcan**
+   * east `d < 5` **SA-11**, `5..7` **SA-6**, `8..9` **ZSU-23-4**
+   * side classes 5..8 (Danish/Norwegian/US/UK) never get a SAM.
+
+This yields the captured totals: ~50% trucks, 50/30/20 type weights by side,
+24 units at an airfield (8 groups × 3), 3 or 6 at a town (3 groups × 1..2),
+4 or 8 at a bridge (4 groups × 1..2), 1 or 2 at a tunnel or EWR site.
+
+The supershapes of the static town models (`v_*`, `f_*`, `ctydoc_i`,
+`tun_*`, `s_*`) are not shipped in either archive. The generator falls back to
+per-class measured offset tables for those; the order is slot order, normalised
+to heading zero and rotated per area. With them the captured town rings are
+reproduced exactly, e.g. `v_amytwn`: slot 0 `38 489`, slot 1 `130 870`, slot 2
+`-19 881`; `bridge1`: `145 -305`, `-502 -231`, `448 211`, `-609 214`.
+
+### 8.3b Clock, values and the shared RNG stream
+
+The generator's custom RNG is shared by every phase, so the draw order is part
+of the format:
+
+1. **Clock (3 draws, `0xbe068`).** `WORLD_STATUS[3] = d1 % 3`,
+   `[4] = d3 % 46`, `[5] = d2 % 360` when `d = AX >> 1`. For the fixed-clock
+   capture this is `0 0 0 2 16 336`, matched byte for byte.
+2. **Target values (one draw per valued area).** Valued classes are the
+   airfields, the ports and class 204: `value = (d % 5 + 1) * 1000 - damage`.
+   All 72 valued areas in the capture match this draw; towns, bridges,
+   tunnels, EWR sites and the political targets consume no draw and stay at
+   `1000 - damage`.
+3. **Difficulty marker (`0xbeabc`).** Draws `AX >> 1` until
+   `DIFFICULTY + d % 3 - 1` is outside `{3, 5, 6}`. The rejected draws still
+   advance the stream.
+4. **Ground roster (`0xbd96c`).** One unit-size draw per area (for random
+   classes), then one type draw and one per-unit draw per group.
+5. **Tasking and routes.** The remaining draws build CAP boxes, corridors and
+   flight details.
+
+The clock and value phases are now exact. The ground roster's **unit counts
+per area do not yet track the same stream** (fixed-size classes such as
+airfields match 100%, random-size classes match at chance level), so one
+draw-consuming phase between `0xbeabc` and `0xbd96c` is still unaccounted for.
+
+### 8.3c Air-defence measurements
 
 | | Captured | Generated |
 |---|---:|---:|
-| Air-defence missions | 481 | 483 |
-| Vulcan | 73 | 73 |
-| Patriot | 193 | 197 |
-| Rapier | 43 | 43 |
-| SA-6 | 232 | 232 |
-| SA-11 | 374 | 377 |
-| ZSU-23-4 | 65 | 63 |
-
-The residue is the nine virtual-port mobiles, which the captured pool gained
-after the tasking that produced that state.
+| Air-defence missions | 476 | 494 |
+| Vulcan units | 73 | 94 |
+| Patriot units | 193 | 198 |
+| Rapier units | 59 | 51 |
+| SA-6 units | 236 | 225 |
+| SA-11 units | 337 | 342 |
+| ZSU-23-4 units | 89 | 80 |
+| Ground units, all types | 2519 | ~2540 |
 
 ### 8.4 Tasking totals
 
@@ -795,14 +861,15 @@ Verified against captured runs. Two comparisons:
 |---|---|---|
 | Bases (side, type, name, position) | 77/77 | 77/77 |
 | Areas | 543, identical order | 543, identical order |
-| Target values (thousands digit) | **543/543 exact** | **543/543 exact** |
-| Replay parameter | `--campaign-seed <header>` `--campaign-offset 0` | `--campaign-seed <header>` `--campaign-offset 3` |
-| Air-defence missions | 483 vs 481 | 500 vs 502 |
-| Air missions | 229 vs 229 | 229 vs 226 |
+| Target values (thousands digit) | **72/72 valued draws** | carried forward |
+| Replay parameter | `--campaign-seed <header>` `--campaign-offset 0` | same |
+| World status | **0 0 0 2 16 336 exact** | carried forward |
+| Ground units | 2526 vs 2519 | carried forward |
+| Air-defence missions | 494 vs 476 | 476 vs 476 |
+| Air missions | 229 vs 226 | 229 vs 226 |
 | Sea supply | 13 vs 13 | 13 vs 13 |
-| Flights | 266 vs 265 | 266 vs 264 |
-| Role matrix | exact | exact apart from a 2-mission strike split |
-| FLAK boxes | 87 vs 82 | 90 vs 82 |
+| Flights | 265 vs 263 | 265 vs 263 |
+| FLAK boxes | 99 vs 83 | 99 vs 83 |
 
 Group totals now match within four units (Vulcan 73/73, Rapier 43/43,
 SA-6 232/232, Patriot 197/193, SA-11 377/374, ZSU 63/65). The second column

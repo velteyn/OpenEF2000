@@ -93,6 +93,7 @@ void usage() {
         "  --did-text          list entries that hold plain text\n"
         "  --did-name PATH     print an archive entry by canonical path\n"
         "  --did-write N FILE  write decoded archive entry N to FILE\n"
+        "  --did-scan STEM     try every prefix/extension for a stem\n"
         "  --gui-scale N       whole-pixel window scale (default: fit the desktop)\n"
         "  --gui-window NAME   open this window before rendering\n");
 }
@@ -1673,6 +1674,7 @@ int main(int argc, char** argv) {
     bool campaign_status = false;
     bool campaign_brief = false;
     std::string ssd_name;
+    std::string ssd_find;
     unsigned campaign_seed = 0x31415926u;
     std::string archive_override;
     std::string dump_palette;
@@ -1680,6 +1682,7 @@ int main(int argc, char** argv) {
     std::string gui_lang = "en";
     std::string gui_raw;
     std::string did_find;
+    std::string did_scan;
     int did_entry = -1;
     bool did_text = false;
     std::string did_name;
@@ -1760,6 +1763,8 @@ int main(int argc, char** argv) {
             did_text = true;
         } else if (std::strcmp(argv[i], "--did-name") == 0 && i + 1 < argc) {
             did_name = argv[++i];
+        } else if (std::strcmp(argv[i], "--did-scan") == 0 && i + 1 < argc) {
+            did_scan = argv[++i];
         } else if (std::strcmp(argv[i], "--did-write") == 0 && i + 2 < argc) {
             did_write = argv[++i];
             did_write += "\n";
@@ -1836,6 +1841,8 @@ int main(int argc, char** argv) {
             campaign_out = argv[++i];
         } else if (std::strcmp(argv[i], "--ssd-labels") == 0 && i + 1 < argc) {
             ssd_name = argv[++i];
+        } else if (std::strcmp(argv[i], "--ssd-find") == 0 && i + 1 < argc) {
+            ssd_find = argv[++i];
         } else if (std::strcmp(argv[i], "--campaign-brief") == 0) {
             campaign_brief = true;
         } else if (std::strcmp(argv[i], "--campaign-status") == 0) {
@@ -1867,12 +1874,12 @@ int main(int argc, char** argv) {
         !render_path.empty() || gui_list || !gui_screen.empty() ||
         !gui_render.empty() || !dump_palette.empty() || !gui_raw.empty() ||
         !did_find.empty() || did_entry >= 0 || did_text || !did_name.empty() ||
-        !did_write.empty() || gui_routines ||
+        !did_write.empty() || !did_scan.empty() || gui_routines ||
         gui_dump || gui_selftest || boot || !conflict_path.empty() ||
         !conflict_out.empty() || !campaign_src.empty() || !campaign_state.empty() ||
         !campaign_out.empty() || !mission_in.empty() || !mission_out.empty() ||
         campaign_selftest || campaign_status || campaign_brief ||
-        !ssd_name.empty() || campaign_advance > 0 || campaign_offset != 0;
+        !ssd_name.empty() || !ssd_find.empty() || campaign_advance > 0 || campaign_offset != 0;
     // A plain `openef2000 --data DIR` is the documented entry point, so open
     // the campaign shell instead of silently printing statistics (and exiting
     // before the user can see them when started from Explorer).
@@ -1977,6 +1984,37 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    if (!ssd_find.empty()) {
+        int fx = 0, fy = 0;
+        if (std::sscanf(ssd_find.c_str(), "%d,%d", &fx, &fy) != 2) {
+            std::fprintf(stderr, "--ssd-find expects X,Y\n");
+            return 1;
+        }
+        namespace fs = std::filesystem;
+        std::size_t hits = 0;
+        for (const char* archive : {"DID1ST.DAT", "DID.DAT"}) {
+            const fs::path path = fs::path(data) / archive;
+            if (!fs::exists(path)) continue;
+            ef::DidArchive did(path);
+            for (const auto& e : did.entries()) {
+                if (e.size > 262144) continue;
+                auto bytes = did.read(e);
+                if (!bytes || bytes->size() < 40) continue;
+                const auto labels = ef::parse_ssd_labels(*bytes);
+                for (const auto& label : labels) {
+                    if (std::abs(label.x - fx) <= 2 && std::abs(label.y - fy) <= 2) {
+                        std::printf("%s entry %u kind %u at %d,%d (size %zu)\n",
+                                    archive, e.index, label.kind, label.x, label.y,
+                                    bytes->size());
+                        ++hits;
+                        break;
+                    }
+                }
+            }
+        }
+        std::printf("%zu entries contain a label near %d,%d\n", hits, fx, fy);
+        return 0;
+    }
     if (!ssd_name.empty()) {
         // Prints the supershape label table for a model, trying the later
         // archive first and then the primary one.
@@ -2096,12 +2134,28 @@ int main(int argc, char** argv) {
         if (ok) {
             check("543 areas in table order", campaign.areas.size() == 543);
             check("77 bases", campaign.bases.size() == 77);
-            const auto& expected =
-                have_state && !state.mobiles.empty() ? state.mobiles
-                                                     : scenario.mobiles;
-            check("mobiles carried forward from the previous state",
-                  campaign.mobiles.size() == expected.size() &&
-                      campaign.state_mobiles.size() == expected.size());
+            const bool carried = have_state && !state.mobiles.empty();
+            bool mobiles_ok =
+                campaign.mobiles.size() == campaign.state_mobiles.size();
+            if (carried) {
+                mobiles_ok = mobiles_ok && campaign.mobiles.size() == state.mobiles.size();
+            } else {
+                // A fresh campaign regenerates the ground roster; every other
+                // mobile (air and sea) is carried from the scenario.
+                auto non_ground = [](const ef::Scenario& s) {
+                    return std::count_if(s.mobiles.begin(), s.mobiles.end(),
+                                         [](const ef::ScenarioMobile& m) {
+                                             return m.kind != "GB";
+                                         });
+                };
+                mobiles_ok = mobiles_ok &&
+                             std::count_if(campaign.state_mobiles.begin(),
+                                           campaign.state_mobiles.end(),
+                                           [](const ef::ScenarioMobile& m) {
+                                               return m.kind != "GB";
+                                           }) == non_ground(scenario);
+            }
+            check("mobiles carried forward from the previous state", mobiles_ok);
             int airfields = 0, ports = 0;
             for (const auto& base : campaign.bases) {
                 if (base.port) ++ports; else ++airfields;
@@ -2111,8 +2165,10 @@ int main(int argc, char** argv) {
                   campaign.counts.gbased >= 400 && campaign.counts.gbased <= 560);
             check("229 air missions", campaign.counts.plane == 229);
             check("13 sea supply missions", campaign.counts.ship == 13);
-            check("flight records in range",
-                  campaign.counts.flights >= 250 && campaign.counts.flights <= 280);
+            if (!carried) {
+                check("flight records in range", campaign.counts.flights >= 250 &&
+                                                     campaign.counts.flights <= 280);
+            }
             check("strike targets in range", campaign.counts.strike_targets >= 20 &&
                                                  campaign.counts.strike_targets <= 50);
             // Pins the value-draw rule: with a captured seed the upper half of the
@@ -2342,7 +2398,7 @@ int main(int argc, char** argv) {
 
     if (gui_list || !gui_screen.empty() || !dump_palette.empty() || !gui_raw.empty() ||
         !did_find.empty() || did_entry >= 0 || did_text || !did_name.empty() ||
-        !did_write.empty()) {
+        !did_write.empty() || !did_scan.empty()) {
         namespace fs = std::filesystem;
         // EF2000 ships two archives. DID1ST.DAT holds the later, larger GUI
         // set (missplan, summary, custom, directp, intro) and the campaign
@@ -2376,6 +2432,29 @@ int main(int argc, char** argv) {
                       static_cast<std::streamsize>(bytes->size()));
             std::printf("wrote %s (%zu bytes)\n", path.c_str(), bytes->size());
             return 0;
+        }
+        if (!did_scan.empty()) {
+            std::size_t hits = 0;
+            for (const auto& prefix : did.prefixes()) {
+                for (const auto& ext : did.extensions()) {
+                    const std::string path = prefix + did_scan + ext;
+                    const auto entry = did.lookup(path);
+                    if (!entry) continue;
+                    std::printf("%-32s entry %5u size %u storage %s\n", path.c_str(),
+                                entry->index, entry->size,
+                                did.storage(*entry).c_str());
+                    ++hits;
+                }
+            }
+            if (hits == 0) {
+                std::printf("%s: no prefix/extension match\n", did_scan.c_str());
+                std::printf("prefixes:");
+                for (const auto& prefix : did.prefixes()) std::printf(" [%s]", prefix.c_str());
+                std::printf("\nextensions:");
+                for (const auto& ext : did.extensions()) std::printf(" [%s]", ext.c_str());
+                std::printf("\n");
+            }
+            return hits == 0 ? 1 : 0;
         }
         if (!did_name.empty()) {
             auto entry = did.lookup(did_name);

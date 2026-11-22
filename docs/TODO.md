@@ -26,8 +26,9 @@ table unlocks:
       `airfld_1.ssd`); `--ssd-labels NAME` prints a model's table.
 - [x] **`TARGET_AREA` sub-elements** — model entries with a valid element kind
       (DISPERSED excluded), rotated by the area heading, two to six per mission.
-      The element *subset* is shuffled before selection, so it is close to the
-      capture rather than identical (the exact shuffle order is still open).
+      The element *subset* is now chosen deterministically (name/coordinate
+      based) so the shared RNG stream is not perturbed; the exact subset rule
+      is still open.
 - [x] **Strike flight size** — the strike flight is sized by the number of
       elements the target area exposes (2–6), as in the capture.
 - [ ] **Low target-value component (982–1000)** — it is `1000 - damage`, and
@@ -45,6 +46,36 @@ table unlocks:
       labels rather than a formula over the value. Next: trace
       `area+0x32`/`base+0x23` between `0xcad30` and `0xd8a64`, and compare the
       parser's label order with `--ssd-labels`.
+
+## 1b. Ground order of battle
+
+- [x] **Ground roster is regenerated, not carried.** A fresh campaign discards
+      `CONFLICT.CG`'s ground mobiles and `0xbd96c` creates one group per
+      defence site. Later turns carry the previous roster. With generated
+      units the total is 2526 against the capture's 2519 and the type mix is
+      50% trucks with 50/30/20 SAM weights on each side.
+- [x] **Group and unit counts.** `0xda678` counts the `0xFF`/`0xFE` site
+      records; `0xda6c0` returns the class's units per group (3 for `1`, `2`,
+      `H`, `I`; 2 for `V`, `0x0b`; otherwise `rng % 2 + 1`). Airfields
+      therefore hold 8 × 3 = 24 units, towns 3 × 1..2 = 3/6, bridges
+      4 × 1..2 = 4/8, tunnels and EWR sites 1 × 1..2.
+- [x] **Type selection.** Per group one draw selects the type by `AX % 10`
+      (west: Patriot <5, Rapier 5..7, Vulcan 8..9; east: SA-11, SA-6, ZSU);
+      per unit one draw chooses SAM or `BEDFORD_1`.
+- [x] **Zero-site classes.** 79, 159 and 207 have no defence sites and no
+      ground force.
+- [x] **Clock draws.** The first three draws set `WORLD_STATUS[3..5]`
+      (`d1 % 3`, `d3 % 46`, `d2 % 360`); the fixed-clock capture's
+      `0 0 0 2 16 336` is reproduced exactly.
+- [x] **Missing supershapes.** The static town/tunnel models are not in either
+      archive. A measured per-class offset table reproduces the captured town
+      and bridge rings, rotated by heading.
+- [ ] **Ground RNG alignment.** The unit-size draws per area do not yet track
+      the capture's stream: fixed-size classes match 100%, random-size classes
+      match at chance level. The value and clock phases are exact, so one
+      draw-consuming phase between `0xbeabc` and `0xbd96c` is still unknown.
+      Until it lands, per-area 3-vs-6 and the resulting air-defence mission
+      count vary by a few percent (476 captured vs 494 generated).
 
 ## 2. Strike routes
 
@@ -146,10 +177,18 @@ table unlocks:
       `0x1fc90` belongs to `NUM_ALLEGIANCES`: it reads nine shorts into
       `+0x1c..+0x2c` and three bytes into `+0x2e..+0x30` per allegiance row,
       then fills 100-byte side tables. `0xbe280` looks a record up by its side
-      byte with `0xda0ec` and takes `+0x2e` from it, so the quota mode is an
-      **allegiance attribute**, not a base/terrain one. Next: map the
-      allegiance row fields to those offsets (CONFLICT has six rows of 55
-      values) and read the mode for NATO vs Russian.
+      byte with `0xda0ec` and takes `+0x2e` from it. The six rows all carry 2
+      in their last three values, so the allegiance mode is 2 (divide by 4,
+      then by 4 again) — the /16 fit above. The special case applies when the
+      record's `+0x2e` is 2 **and** the site class byte `base+0xc` is `'1'`:
+      then the code searches for another matching area and installs 1 (none
+      found) or 2. Since airfields and ports carry class `'1'`, their mode is
+      the special 1/2 rather than the plain allegiance 2. The remaining NATO
+      gap is therefore not a different allegiance row; it is this special
+      case plus the exact availability sum. Next: instrument `available` for
+      Rygge/Gardemoen with the special mode 1 (= `/4`) and check whether the
+      49-airframe cap (`base+0x32 < 0x31`) leaves enough unused EFA to reach
+      5.
 
 ## 4. GUI
 
@@ -190,7 +229,8 @@ table unlocks:
 - [x] **Fixed clock** — `tools/fixedclock` pins DOS `INT 21h` date/time, so
       two original-generator runs with the same input are byte-identical and
       an A/B change produces only the diff it should. Replay of the fixed-seed
-      capture matches 543/543 value draws at offset 3.
+      capture now consumes the three clock draws itself, so the value pass
+      matches at offset 0.
 - [ ] **A/B matrix** — use the harness for the value damage, target-to-
       airfield pairing, element shuffle and strike wave times; each needs one
       input change and one capture.

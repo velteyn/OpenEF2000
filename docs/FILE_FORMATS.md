@@ -745,6 +745,39 @@ Both arrays fill all eight slots (no `'%'`), so all eight types count. SU25 is
 **not** in the Russian list, which is why Orland's twelve SU25s never enter the
 airfield-denial quota.
 
+## F12 — Ground type ids and defence sites
+
+Ground mobiles use the same numeric-id convention as aircraft. The id table is
+a 4-byte pointer array at `0x18c244` (27 entries):
+
+| Id | Type | Id | Type | Id | Type |
+|---:|---|---:|---|---:|---|
+| 0 | BEDFORD_1 | 9 | M198 | 18 | RM70 |
+| 1 | BEDFORD_2 | 10 | MLRS | 19 | ROLAND |
+| 2 | BMP_1 | 11 | MOBRIDGE | 20 | MARCONI_S373 |
+| 3 | CHALENGER | 12 | M110 | 21 | MARCONI_S723 |
+| 4 | D_30 | 13 | M1973 | 22 | SA_6 |
+| 5 | JUG_1 | 14 | PATRIOT_1 | 23 | SA_11 |
+| 6 | JUG_2 | 15 | PATRIOT_2 | 24 | T80 |
+| 7 | JUG_3 | 16 | PONTOON | 25 | WARRIOR |
+| 8 | M_163_VULCAN | 17 | RAPIER | 26 | ZSU_23_4_SHILKA |
+
+The campaign generator creates ground units for a fresh campaign (`0xbd96c`).
+Each defence site of the target area's supershape gets one group; `0xda678`
+counts site records whose kind byte is `0xFF` (or `0xFE` for most classes) and
+`0xda6c0` returns the units per group from the class byte. Per group one
+custom-RNG draw selects the type, per unit one draw selects SAM or truck:
+
+```
+d = AX % 10
+west (0,2): d < 5 PATRIOT_1 (14), 5..7 RAPIER (17), 8..9 VULCAN (8)
+east (1,3,4): d < 5 SA_11 (23), 5..7 SA_6 (22), 8..9 ZSU (26)
+otherwise BEDFORD_1 (0)
+```
+
+A site record is 21 bytes and the site's mission offsets are the 16-bit values
+at `+7` (x), `+9` (y) and `+0xb` (z); `+0` is the kind and `+5` the health.
+
 ## Unverified and open questions
 
 | Item | Status |
@@ -756,6 +789,8 @@ airfield-denial quota.
 | Hardpoint offsets for store attachment | not located |
 | Alternate hash variant mixing function | behaviour confirmed, formula incomplete |
 | Bound/self-extracting executable layout | needs an independent dump |
+| Ground-roster RNG stream position | one phase between `0xbeabc` and `0xbd96c` still unaccounted for |
+| NATO package-quota divisor | special site class `'1'` branch not fully measured |
 
 ## Appendix A — Magic numbers
 
