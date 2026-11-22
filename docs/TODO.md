@@ -118,9 +118,14 @@ table unlocks:
       Orland and Vaernes have 38 unused eligible airframes after CAP, so the
       formula gives 2/2, while the capture needs 2/3. Orland matches exactly;
       Vaernes needs either 48+ available with the /16 mode or ~72 with the /24
-      mode. Next: read the site class byte (`site+0x2e`) that selects
-      `base+0x4e` for types 41 and 44, and test whether RESERVED airframes
-      count toward the capacity term.
+      mode. The serialized roster is not the explanation: at both bases the
+      capture and our output agree exactly on every OK/RESERVED aircraft
+      (Vaernes 36 SU35 + 12 SU34 + TU16/IL78M OK, the rest reserved; Orland
+      36 SU35 + 12 SU25 OK). So the difference is in the two internal
+      capacity arrays (`base+0x33`/`+0x37`), not in which aircraft are based.
+      The site class byte `+0x2e` is parsed from the binary target block, not
+      `CONFLICT.CG` text, so it still needs a format reader. Next: decode those
+      two arrays and the per-site class byte, then the quota input is exact.
 
 ## 4. GUI
 
