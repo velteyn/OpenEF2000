@@ -782,6 +782,39 @@ types match the capture in 510 of 543 areas.
 | Ground units, all types | 2519 | **2519** |
 | Ground compositions exact | — | **510 / 543 areas** |
 
+### 8.3d Timetable rows and takeoff slots
+
+`MISSION.CFG` carries a timetable per base. Each row is 9 bytes:
+
+```
++0 day   +1 hour   +2 minute   +3 action   +4 role
++5 mission id (word)           +7 wave/flight (word)
+```
+
+`0xc0b44` writes a base block: `NUM_TIMESLOTS` counts rows whose action byte
+is non-zero, then each row is written with
+`TIMESLOT %hd %hd %hd %s %s %hd %hd`. Free rows (action 0) are omitted from
+the file.
+
+The skeleton is built when the base is created (`0xca990`):
+
+* slot count `base+0x46` comes from `0xca80c` (capped at two for class `'1'`),
+* row count `base+0x48 = (60 / (0xca8f8(class) / (base+0x44 >> 16))) << 3`,
+* rows are spaced `480 / rows` minutes from the base hour, wrapping at 60
+  minutes and 24 hours,
+* action, role, id and wave start at zero.
+
+In the fixed-clock capture one base has 240 rows, i.e. a slot every two
+minutes. CAP wave 1 occupies slots 0, 1, 2, … from 0:00 and wave 2 starts at
+252 minutes. `0xc2a80` returns the first free row, `0xc2aac` fills one row
+(action, role, id, wave), and `0xc34f0` finds a free row near a preferred
+index. The role tasking functions that reserve them are `0xc3bd4`, `0xc45cc`,
+`0xc5884`, `0xc5bd4`, `0xc6044`, `0xc7298`, `0xc7588` and `0xc773c`; the
+reservation order is still being decoded.
+
+The generator currently writes placeholder takeoff times (hour = mission
+index) and caps the list at eight hours, so this is the next parity target.
+
 ### 8.4 Tasking totals
 
 The air tasking totals are invariant. One captured run:

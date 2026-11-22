@@ -9,8 +9,12 @@ long-term gaps; this file is updated as each step lands, in the spirit of the
 - [x] Measure the gap: the capture uses a real `day hour minute` schedule
       (CAP 252 min, strike 108–126 min, sorties 2 min apart); the generator
       currently writes `hour = mission index` and caps everything at 8 hours.
-- [ ] Parse all 527 captured `TIMESLOT` rows by mission, base and role.
-- [ ] Derive the package wave start per base and role.
+- [x] Parse all 450 captured `TIMESLOT` rows by mission, base and role
+      (the 527 line count includes 77 `NUM_TIMESLOTS` headers).
+- [x] Decode the per-base 9-byte row format and the timetable skeleton
+      (`0xca990`), the writer (`0xc0b44`) and the reservation helpers
+      (`0xc2a80`, `0xc2aac`, `0xc34f0`).
+- [ ] Derive the reservation order per role and base.
 - [ ] Confirm the sortie spacing and the per-role duration table.
 - [ ] Determine the timetable window (24 hours?) and its tie to the campaign
       clock (`0 0 0 2 16 336`).
