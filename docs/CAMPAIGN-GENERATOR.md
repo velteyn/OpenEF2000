@@ -814,11 +814,20 @@ driven**, not simply the next free row (Rygge AF_KILL: 1:24, 3:00, 3:52,
 `takeoff + duration`.
 
 `0xc2a80` returns the first free row, `0xc2aac` fills one row (action, role,
-id, wave), and `0xc34f0` finds a free row near a preferred index. The role
-tasking functions that reserve them are `0xc3bd4`, `0xc45cc`, `0xc5884`,
-`0xc5bd4`, `0xc6044`, `0xc7298`, `0xc7588` and `0xc773c`. Their preferred
-index is computed from the mission's aircraft/route timing and the base hour
-(`0xc3bd4` around `0xc402c..0xc4124`); that formula is the remaining decode.
+id, wave), and `0xc34f0`/`0xc34c8` find a free row near a preferred index.
+`0xc34c8` scans forward from the preferred row and accepts the first free row
+that leaves enough free rows in the following window; it falls back to the
+last row of the base. `0xc30b4` converts the row count to the slot spacing:
+`480 / rows` minutes.
+
+The same slot spacing feeds the preferred takeoff. In `0xc3bd4` (CAP) the
+preferred landing is `takeoff + round(252 / spacing)`; the base start is a
+type/side constant (30, 270, 315, 350 or 320 minutes) plus `wave * 90`
+(plus 45 minutes for waves 4..7), then a campaign-RNG jitter of `% 5 + 10`
+minutes and a `% 360` phase. `0xc45cc` (strike/interdiction/SEAD) selects
+type-specific altitude and speed constants and applies a `% 10` jitter to the
+start. Exact takeoff parity therefore also depends on reproducing the full
+tasking RNG order, not just the formula.
 
 The generator currently writes placeholder takeoff times (hour = mission
 index) and caps the list at eight hours, so this is the next parity target.

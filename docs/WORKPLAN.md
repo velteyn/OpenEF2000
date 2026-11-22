@@ -17,8 +17,10 @@ long-term gaps; this file is updated as each step lands, in the spirit of the
 - [ ] Derive the reservation order per role and base.
 - [x] Confirm the per-base slot spacing (2 min for the western bases, 1 min
       for the Russian base in the sample) and the takeoff/landing pairing.
-- [ ] Decode the preferred-slot formula in `0xc3bd4`/`0xc45cc` (aircraft and
-      route timing plus the base hour).
+- [x] Decode the slot search (`0xc34c8`) and the CAP/strike preferred-time
+      constants and RNG jitter (`0xc3bd4`, `0xc45cc`).
+- [ ] Implement the per-base timetable and reservation in our tasking; exact
+      times additionally need the full tasking RNG order.
 - [ ] Determine the timetable window (24 hours?) and its tie to the campaign
       clock (`0 0 0 2 16 336`).
 - [ ] Implement the scheduler in `src/campaigngen.cpp`.
