@@ -804,13 +804,21 @@ The skeleton is built when the base is created (`0xca990`):
   minutes and 24 hours,
 * action, role, id and wave start at zero.
 
-In the fixed-clock capture one base has 240 rows, i.e. a slot every two
-minutes. CAP wave 1 occupies slots 0, 1, 2, … from 0:00 and wave 2 starts at
-252 minutes. `0xc2a80` returns the first free row, `0xc2aac` fills one row
-(action, role, id, wave), and `0xc34f0` finds a free row near a preferred
-index. The role tasking functions that reserve them are `0xc3bd4`, `0xc45cc`,
-`0xc5884`, `0xc5bd4`, `0xc6044`, `0xc7298`, `0xc7588` and `0xc773c`; the
-reservation order is still being decoded.
+In the fixed-clock capture the row count varies by base: Vaxjo, Rygge and
+Gardemoen use 240 rows (a slot every two minutes), while the Russian base at
+id 6 uses 480 rows (one-minute slots). CAP wave 1 occupies the first slots
+from 0:00 and wave 2 starts at 252 minutes. Support flights take the next free
+rows; strike and interdiction takeoffs come later and are **target-arrival
+driven**, not simply the next free row (Rygge AF_KILL: 1:24, 3:00, 3:52,
+4:58, 6:18). Each flight reserves a takeoff row and a landing row at
+`takeoff + duration`.
+
+`0xc2a80` returns the first free row, `0xc2aac` fills one row (action, role,
+id, wave), and `0xc34f0` finds a free row near a preferred index. The role
+tasking functions that reserve them are `0xc3bd4`, `0xc45cc`, `0xc5884`,
+`0xc5bd4`, `0xc6044`, `0xc7298`, `0xc7588` and `0xc773c`. Their preferred
+index is computed from the mission's aircraft/route timing and the base hour
+(`0xc3bd4` around `0xc402c..0xc4124`); that formula is the remaining decode.
 
 The generator currently writes placeholder takeoff times (hour = mission
 index) and caps the list at eight hours, so this is the next parity target.

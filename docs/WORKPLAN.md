@@ -15,7 +15,10 @@ long-term gaps; this file is updated as each step lands, in the spirit of the
       (`0xca990`), the writer (`0xc0b44`) and the reservation helpers
       (`0xc2a80`, `0xc2aac`, `0xc34f0`).
 - [ ] Derive the reservation order per role and base.
-- [ ] Confirm the sortie spacing and the per-role duration table.
+- [x] Confirm the per-base slot spacing (2 min for the western bases, 1 min
+      for the Russian base in the sample) and the takeoff/landing pairing.
+- [ ] Decode the preferred-slot formula in `0xc3bd4`/`0xc45cc` (aircraft and
+      route timing plus the base hour).
 - [ ] Determine the timetable window (24 hours?) and its tie to the campaign
       clock (`0 0 0 2 16 336`).
 - [ ] Implement the scheduler in `src/campaigngen.cpp`.
