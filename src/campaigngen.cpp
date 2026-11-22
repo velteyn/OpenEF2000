@@ -2164,16 +2164,38 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
             const char* action;
             const std::string* role;
             int id;
-            int wave;
+            int flight;
         };
         std::vector<Slot> rows;
-        // Four missions per wave; the next wave starts two minutes after the
-        // longest flight of the previous one is back. Each flight of a package
-        // gets its own row, two minutes behind the previous one.
+        // Per-base timetable. The original spaces rows by 480/rows minutes;
+        // two-minute slots (240 rows) are the common case in the capture.
+        constexpr int kSlotMinutes = 2;
+        constexpr int kDayMinutes = 8 * 60;
+        std::vector<char> busy(kDayMinutes / kSlotMinutes, 0);
+        auto align_slot = [](int minute) {
+            return ((minute + kSlotMinutes - 1) / kSlotMinutes) * kSlotMinutes;
+        };
+        auto reserve = [&](int preferred, int duration) {
+            int takeoff = align_slot(std::max(0, preferred));
+            for (; takeoff < kDayMinutes; takeoff += kSlotMinutes) {
+                if (busy[takeoff / kSlotMinutes]) continue;
+                const int landing = align_slot(takeoff + duration);
+                // A landing beyond the eight-hour window is not written, but
+                // the takeoff still is.
+                if (landing < kDayMinutes && busy[landing / kSlotMinutes])
+                    continue;
+                busy[takeoff / kSlotMinutes] = 1;
+                if (landing < kDayMinutes) busy[landing / kSlotMinutes] = 1;
+                return takeoff;
+            }
+            return -1;
+        };
+
         constexpr int kWave = 4;
         int wave_start = 0;
         int wave_duration = 0;
-        int ship_start = 0;  // convoys launch on their own 45-minute cadence
+        int ship_start = 0;
+        int cap_sortie = 0;
         for (std::size_t i = 0; i < slots.size(); ++i) {
             const int id = slots[i].first;
             const std::string& role = slots[i].second;
@@ -2211,24 +2233,30 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                     static_cast<int>(std::lround(a * len + b)), 60, 300);
             }
             const int spacing = role == "SEA_SUPPLY" ? 15 : 2;
+            const bool support_role =
+                role == "AWACS_PATROL" || role == "REFUELLER_PATROL" ||
+                role == "JSTARS_PATROL" || role == "REFUELLER_KILL" ||
+                role == "AWACS_KILL";
             for (int f = 0; f < flights; ++f) {
-                const bool support_role =
-                    role == "AWACS_PATROL" || role == "REFUELLER_PATROL" ||
-                    role == "JSTARS_PATROL" || role == "REFUELLER_KILL" ||
-                    role == "AWACS_KILL";
-                // Support launches at the top of the turn, alongside the first
-                // CAP wave; strike packages queue behind the CAP waves.
-                const int takeoff =
-                    role == "SEA_SUPPLY"
-                        ? ship_start + f * spacing
-                        : (support_role ? f * 2
-                                        : wave_start + within * spacing + f * 2);
-                // The timetable covers one eight-hour campaign turn; a
-                // landing that would fall outside it is not written.
-                if (takeoff < 8 * 60)
-                    rows.push_back({takeoff, "TAKE_OFF", &role, id, f});
-                const int landing = takeoff + duration;
-                if (landing < 8 * 60)
+                int preferred = 0;
+                if (role == "CAP") {
+                    // CAP sorties alternate between the two waves; the
+                    // second wave is 252 minutes behind the first.
+                    const int wave = cap_sortie % 2;
+                    ++cap_sortie;
+                    preferred = wave * 252;
+                } else if (role == "SEA_SUPPLY") {
+                    preferred = ship_start + f * spacing;
+                } else if (support_role) {
+                    preferred = f * 2;
+                } else {
+                    preferred = wave_start + within * spacing + f * 2;
+                }
+                const int takeoff = reserve(preferred, duration);
+                if (takeoff < 0) continue;
+                const int landing = align_slot(takeoff + duration);
+                rows.push_back({takeoff, "TAKE_OFF", &role, id, f});
+                if (landing < kDayMinutes)
                     rows.push_back({landing, "LANDING", &role, id, f});
             }
             if (role == "SEA_SUPPLY") {
@@ -2250,7 +2278,7 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 action = "LAUNCH";
             emit.addv("TIMESLOT",
                       {"0", Number(row.minute / 60), Number(row.minute % 60),
-                       action, *row.role, Number(row.id), Number(row.wave)});
+                       action, *row.role, Number(row.id), Number(row.flight)});
         }
         emit.blank();
     }
