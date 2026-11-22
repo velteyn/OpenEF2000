@@ -114,9 +114,13 @@ table unlocks:
       `0x109d44` builds the eligible-type list for the role: a switch on the
       base class returns up to eight aircraft type ids terminated by `'%'`
       (0x25), e.g. `6,3,%...` for one role and `0x0d,0x0c,%...` for another.
-      Next: map those ids to the type table, model per-type capacity minus use
-      (including CAP/escort reservations), then replace our per-base plan with
-      the formula.
+      Measurement (`OPENEF2000_DUMP_QUOTA=1`) at strike-planning time: both
+      Orland and Vaernes have 38 unused eligible airframes after CAP, so the
+      formula gives 2/2, while the capture needs 2/3. Orland matches exactly;
+      Vaernes needs either 48+ available with the /16 mode or ~72 with the /24
+      mode. Next: read the site class byte (`site+0x2e`) that selects
+      `base+0x4e` for types 41 and 44, and test whether RESERVED airframes
+      count toward the capacity term.
 
 ## 4. GUI
 

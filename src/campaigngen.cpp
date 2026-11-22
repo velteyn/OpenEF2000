@@ -1658,6 +1658,21 @@ bool generate_campaign(const Scenario& scenario, const Scenario* previous,
                 ++cursor;
                 const int id = mission_id++;
                 const std::string role = req.role;
+                if (std::getenv("OPENEF2000_DUMP_QUOTA") != nullptr && n == 0 &&
+                    (role == "AF_KILL" || role == "INTERD" || role == "SEAD")) {
+                    const auto types = strike_types(req.side);
+                    for (const GenBase* candidate : list) {
+                        long available = 0;
+                        for (const auto& type : types) {
+                            available += unused_at(candidate, type);
+                        }
+                        const long quota =
+                            std::clamp<long>(available / 16, 0, 4);
+                        std::fprintf(stderr, "QUOTA\t%s\t%s\t%d,%d\t%ld\t%ld\n",
+                                     req.side, role.c_str(), candidate->x,
+                                     candidate->y, available, quota);
+                    }
+                }
                 const int serial = role_serial[role]++;
                 if (role == "CAP") {
                     const auto& plan = cap_plan[req.side];
