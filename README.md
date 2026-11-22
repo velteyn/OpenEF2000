@@ -406,6 +406,7 @@ Examples:
 ./build/openef2000 --data "/path/to/game-data" --gui-raw arcade
 ./build/openef2000 --data "/path/to/game-data" --did-text
 ./build/openef2000 --data "/path/to/game-data" --did-name "cfg\arcpro.txt"
+./build/openef2000 --data "/path/to/game-data" --did-write 57 /tmp/target-table.bin
 ./build/openef2000 --data "/path/to/game-data" --did-find "Emergency intercept"
 ```
 

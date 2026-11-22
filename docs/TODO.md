@@ -140,8 +140,11 @@ table unlocks:
       count and 36 -> 2 while Vaernes 48 -> 3 under /16, exactly the capture.
       The NATO list is F14, F22, F18, SEA_HARRIER, F15, F16, F18, EFA; Rygge
       still needs five packages from 49 aircraft, so its divisor differs from
-      /16. Next: read `base+0x4e` per base type to get the divisor (the
-      Russian airfields use mode 2).
+      /16. The mode is not in the target table: `--did-write 57` shows the
+      binary SSNAME block is plain tab-separated text with no extra fields, so
+      `+0x2e`/`+0x4e` come from the mobile/tasking records parsed around
+      `0x1fc90` (MOB/PIL fields), not from SSNAME. Next: map that parser's
+      field offsets to the MOB line and read the mode for the NATO airfields.
 
 ## 4. GUI
 
