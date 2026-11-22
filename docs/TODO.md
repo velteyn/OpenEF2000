@@ -142,9 +142,14 @@ table unlocks:
       still needs five packages from 49 aircraft, so its divisor differs from
       /16. The mode is not in the target table: `--did-write 57` shows the
       binary SSNAME block is plain tab-separated text with no extra fields, so
-      `+0x2e`/`+0x4e` come from the mobile/tasking records parsed around
-      `0x1fc90` (MOB/PIL fields), not from SSNAME. Next: map that parser's
-      field offsets to the MOB line and read the mode for the NATO airfields.
+      `+0x2e`/`+0x4e` do not come from SSNAME. The parser region around
+      `0x1fc90` belongs to `NUM_ALLEGIANCES`: it reads nine shorts into
+      `+0x1c..+0x2c` and three bytes into `+0x2e..+0x30` per allegiance row,
+      then fills 100-byte side tables. `0xbe280` looks a record up by its side
+      byte with `0xda0ec` and takes `+0x2e` from it, so the quota mode is an
+      **allegiance attribute**, not a base/terrain one. Next: map the
+      allegiance row fields to those offsets (CONFLICT has six rows of 55
+      values) and read the mode for NATO vs Russian.
 
 ## 4. GUI
 
